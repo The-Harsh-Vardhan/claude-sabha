@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Read-only: for each roster role, every claude process started with that session name (pid, tty, start time),
+# marked DUPLICATE when more than one holds the name. The relay is listed too. Exits 1 when a role is duplicated, 2
+# when the process list cannot be read, else 0.
+#   sabha-check
+# Roster from sabha.conf as sabha-up.sh reads it; SABHA_PS_FILE replaces the live process list (see sabha-lib.sh).
+set -uo pipefail
+
+# shellcheck source=sabha-lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh"
+sabha_load sabha-check
+
+procs=$(sabha_procs) || { echo "sabha-check: cannot read the process list" >&2; exit 2; }
+dup=0
+printf '%-13s  %6s  %-8s  %-20s  %s\n' role pid tty start note
+for name in "${NAMES[@]}"; do
+  rows=$(awk -v n="$name" '$1 == n' <<<"$procs")
+  if [[ -z $rows ]]; then printf '%-13s  %6s  %-8s  %-20s  %s\n' "$name" - - - "not running"; continue; fi
+  note=""
+  (( $(wc -l <<<"$rows") > 1 )) && { note=DUPLICATE; dup=1; }
+  while read -r _ pid tty day time; do
+    printf '%-13s  %6s  %-8s  %-20s  %s\n' "$name" "$pid" "$tty" "$day $time" "$note"
+  done <<<"$rows"
+done
+echo "(ps sees only claude -n/--name sessions; cross-check ListAgents)"
+exit "$dup"

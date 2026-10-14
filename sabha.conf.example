@@ -1,0 +1,34 @@
+# Copy to sabha.conf (gitignored) and fill in. $VAR and ~ expand; earlier keys can be used later.
+SABHA_WS=~/Work/my-workspace
+SABHA_IMPL=$SABHA_WS/path/to/impl
+# Optional: where FOR-ME.md and FOR-ME.html are written (default: SABHA_IMPL). Keep it outside this repo.
+#SABHA_FORME_DIR=$SABHA_WS/path/to/board
+# The opening prompt says "You are <Name> in $SABHA_PROJECT session setup"; the relay reports to $SABHA_USER.
+SABHA_PROJECT="My project"
+SABHA_USER="the user"
+# Roster: Name:model[:effort[:flags]] entries separated by spaces (a name with a space is not supported; effort defaults to
+# medium). The one roster source for the launchers, sabha-watch and the board. Order matters: the relay first, the
+# dispatcher second, then the panes in tab order (each tab: top row left to right, then the bottom row, up to 8).
+SABHA_ROSTER="Vidur:opus:medium Yudhishthira:opus:medium Bhishma:fable:medium Bhima:opus:high Arjun:opus:medium Sahadev:sonnet:high Nakul:sonnet:medium Karna:sonnet:medium Sanjaya:haiku:high Duryodhan:opus:high:gate,lazy Dushasan:sonnet:high:gate,lazy Shakuni:opus:high:gate,lazy Draupadi:sonnet:high:gate,lazy Gandhari:sonnet:medium:gate,lazy VedVyasa:sonnet:medium:gate,lazy Barbarika:haiku:medium:gate Abhimanyu:haiku:medium:gate Krishna:opus:medium:ondemand Ashwatthama:haiku:high:ondemand Dronacharya:sonnet:medium:ondemand"
+# Flags (comma list): ondemand = no pane, start it with sabha-up.sh <Name>; gate = a pane in the second tab (Gate);
+# lazy = starts only when a brief lands (sabha 1.5; until then it starts like any pane). No flag = a Build-tab pane.
+# A role id is one word (Ved Vyasa is VedVyasa). SABHA_PROMPT_<Name> replaces the
+# opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
+SABHA_PROMPT_Krishna="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
+SABHA_WAITING="Reviewer1 Reviewer2"
+# Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
+#SABHA_TASK_FALLBACK="Name=task text"
+
+# Example question item for for-me.items (blocks are separated by a line that is exactly ---). Keys: ask, q, explain,
+# opta..opth ("option text | consequence | example"), rec. Plain items need none of them.
+#---
+#id: 99
+#utc: 2026-10-14T09:00:00Z
+#owner: Vidur
+#title: Which branch gets the demo
+#ask: Harsh
+#q: Which branch should the demo be built from?
+#explain: The demo freezes whatever the branch holds, so a late change would not show.
+#opta: develop | newest code, may be unstable | includes yesterday's unreviewed merge
+#optb: release/1.2 | stable, a day old | what Alex already reviewed
+#rec: b

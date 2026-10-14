@@ -1,0 +1,725 @@
+#!/usr/bin/env python3
+"""Render the sabha board (FOR-ME.md + FOR-ME.html) from for-me.items, status/*.md and inbox/.
+
+  sabha-for-me            render once
+  sabha-for-me --watch    render every 15 s until interrupted
+
+Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
+
+Status files, first 10 lines (HEAD_LINES): "Current: <task>" is the Task column and makes the role
+busy while it is fresh; "Idle: by design (<reason>)" makes it idle and never STALE; "Blocked:
+<reason>" is the only way to show blocked. Words in a Next: line never change the state.
+The In flight line is the first Next: after Current:, or the first Next: in the file.
+SABHA_TASK_FALLBACK ("Name=text;Name=text") is the task for a role with neither Current nor Idle.
+
+GOALS.md (impl/GOALS.md): one heading per goal, every tag optional and in any order:
+  ## <goal title> [P0|P1|P2] (owner: Arjun; helpers: Bhima, Sahadev) {state: active|paused|done}
+Missing priority = P2, missing owner = "unassigned", missing state = active (done when every box is ticked).
+Steps stay "- [x] ..." / "- [ ] ..."; a step may end with "@Name" to name its agent. The board shows one
+column per priority (P0 Now, P1 Next, P2 Later), paused and done goals folded, and a Goal column in Agents.
+
+Items: blocks are separated by lines that are exactly "---". A block still open at the end of the
+file is torn and waits for the next pass.
+
+Question items (optional extra keys on an item; a plain item has none of them and renders as before):
+  ask:     who must answer (Harsh, or a named person); shown on the card
+  q:       the question; an item with q: and at least one option is a question item
+  explain: why it matters, one line
+  opta: .. opth:  one line per option, "option text | consequence | example" (consequence and example optional)
+  rec:     the recommended option letter, e.g. rec: b
+The HTML card shows radios, "(Recommended)", the example, a free-text box and a "Copy answer" button that
+copies "Answer <id>: B - <option text>", "Answer <id>: <typed text>" or "Answer <id>: B - <text>, note: <typed>"
+for pasting to Claude. The page does not reload while a field has focus, a radio is picked or text is typed.
+Example block: sabha.conf.example, bottom.
+"""
+import datetime as dt
+import html
+import json
+import os
+import re
+import sys
+import tempfile
+import time
+
+STALE_MIN = 30
+BUSY_MIN = 10
+HEAD_LINES = 10
+
+
+def load_conf():
+    path = os.environ.get("SABHA_CONF") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sabha.conf")
+    if not os.path.exists(path):
+        sys.exit("sabha-for-me: no config at %s (copy sabha.conf.example to sabha.conf)" % path)
+    conf = {}
+    for raw in open(path, encoding="ascii", errors="replace"):
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip().strip('"').strip("'")
+        # earlier keys and the environment both expand, so SABHA_IMPL can be written as $SABHA_WS/...
+        os.environ[k.strip()] = os.path.expanduser(os.path.expandvars(v))
+        conf[k.strip()] = os.environ[k.strip()]
+    for need in ("SABHA_IMPL", "SABHA_ROSTER"):
+        if need not in conf:
+            sys.exit("sabha-for-me: %s missing from %s" % (need, path))
+    return conf
+
+
+def split_blocks(text):
+    """Blocks are the runs of lines between lines that are exactly '---' (the file has one '---'
+    before each block). A last block that does not end in a newline is still being written: it is
+    left out until the write finishes."""
+    blocks, cur = [], []
+    for line in text.split("\n"):
+        if line == "---":
+            blocks.append(cur)
+            cur = []
+        else:
+            cur.append(line)
+    if text.endswith("\n"):
+        blocks.append(cur)
+    return blocks
+
+
+def parse_items(path):
+    """'cmd:' takes every following line of the block, byte for byte. Later blocks with the same
+    id override only the keys they carry, so closing an item is an appended block."""
+    items, order = {}, []
+    if not os.path.exists(path):
+        return []
+    text = open(path, encoding="ascii", errors="replace").read()
+    for block in split_blocks(text):
+        rec, cmd, in_cmd = {}, [], False
+        for line in block:
+            if in_cmd:
+                cmd.append(line)
+                continue
+            m = re.match(r"^([a-z]+):\s?(.*)$", line)
+            if m and m.group(1) == "cmd":
+                in_cmd = True
+                if m.group(2):
+                    cmd.append(m.group(2))
+            elif m:
+                rec[m.group(1)] = m.group(2).strip()
+        if cmd:
+            rec["cmd"] = "\n".join(cmd).strip("\n")
+        if "id" not in rec:
+            continue
+        iid = rec["id"]
+        if iid not in items:
+            items[iid] = {"added": rec.get("utc", "")}
+            order.append(iid)
+        if "state" in rec:
+            items[iid]["changed"] = rec.get("utc", "")
+        items[iid].update(rec)
+    return [items[i] for i in order]
+
+
+def question_of(i):
+    """(question, explain, ask, rec, [(letter, text, consequence, example)]) for a question item, else None."""
+    opts = []
+    for L in "abcdefgh":
+        raw = i.get("opt" + L)
+        if raw:
+            parts = [x.strip() for x in raw.split("|")] + ["", ""]
+            opts.append((L.upper(), parts[0], parts[1], parts[2]))
+    if not i.get("q") or not opts:
+        return None
+    return i["q"], i.get("explain", ""), i.get("ask", ""), i.get("rec", "").upper(), opts
+
+
+def status_of(impl, name):
+    path = os.path.join(impl, "status", name.lower() + ".md")
+    ctx_path = os.path.join(impl, "status", "context", name.lower() + ".txt")
+    # a closed tab leaves its last percent behind: older than STALE_MIN is no reading at all
+    have = os.path.exists(ctx_path)
+    fresh = have and (time.time() - os.path.getmtime(ctx_path)) / 60 <= STALE_MIN
+    raw = clean_ctx(open(ctx_path).read()) if have else ""
+    ctx = raw if fresh else ""
+    # the chart keeps an old reading, drawn grey with the time it was last seen
+    old = {"old": raw if raw and not fresh else "",
+           "seen": time.strftime("%H:%M", time.localtime(os.path.getmtime(ctx_path))) if raw and not fresh else ""}
+    if not os.path.exists(path):
+        return {"task": "", "next": "", "age": None, "ctx": ctx, "idle": "", "current": "", "blocked": "", **old}
+    text = open(path, encoding="utf-8", errors="replace").read()
+    lines = text.splitlines()
+    head = lines[:HEAD_LINES]
+    current = next((l[8:].strip() for l in head if l.startswith("Current:")), "")
+    idle = next((l[5:].strip() for l in head if l.startswith("Idle:")), "")
+    blocked = next((l[8:].strip() for l in head if l.startswith("Blocked:")), "")
+    task = current or idle or next((l[5:].strip() for l in lines if l.startswith("Task:")), "")
+    # the newest handoff sits on top: the In flight line is the first Next: after Current:
+    cur_at = next((n for n, l in enumerate(head) if l.startswith("Current:")), -1)
+    nexts = [l[5:].strip() for l in lines[cur_at + 1:] if l.startswith("Next:")] if cur_at >= 0 else []
+    nexts = nexts or [l[5:].strip() for l in lines if l.startswith("Next:")]
+    age = (time.time() - os.path.getmtime(path)) / 60
+    return {"task": task, "next": nexts[0] if nexts else "", "age": age, "ctx": ctx,
+            "idle": idle, "current": current, "blocked": blocked, **old}
+
+
+def state_of(s):
+    if s["age"] is None:
+        return "unknown"
+    if s["idle"]:
+        return "idle"
+    if s["blocked"]:
+        return "blocked"
+    if s["current"] and s["age"] <= BUSY_MIN:
+        return "busy"
+    return "idle"
+
+
+def clean_ctx(raw):
+    """The context percent is shown only when it parses as a number from 0 to 100."""
+    try:
+        v = float(raw)
+    except ValueError:
+        return ""
+    return raw.strip() if 0 <= v <= 100 else ""
+
+
+def is_closed(item):
+    return item.get("state") in ("DONE", "DROPPED")
+
+
+def local_day(stamp):
+    """The local calendar day of a utc stamp such as 2026-10-13T10:09:13Z."""
+    try:
+        t = dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return ""
+    return t.astimezone().strftime("%Y-%m-%d")
+
+
+def ascii(s):
+    return s.encode("ascii", "replace").decode("ascii")
+
+
+def short(s, n=160):
+    s = " ".join(s.split())
+    return s if len(s) <= n else s[: n - 3] + "..."
+
+
+def age_text(a):
+    if a is None:
+        return "-"
+    return "%dm" % a if a < 120 else "%.1fh" % (a / 60)
+
+
+def rel_time(stamp):
+    """'2h ago' for a utc stamp; the raw text when it does not parse."""
+    try:
+        t = dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return stamp
+    m = max(0, int((dt.datetime.now(dt.timezone.utc) - t).total_seconds() // 60))
+    return "just now" if m < 1 else "%dm ago" % m if m < 60 else "%dh ago" % (m // 60) if m < 2880 else "%dd ago" % (m // 1440)
+
+
+def ist_text(stamp):
+    """The utc stamp in IST, for hover text; the raw text when it does not parse."""
+    try:
+        t = dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ") + dt.timedelta(hours=5, minutes=30)
+    except ValueError:
+        return stamp
+    return t.strftime("%Y-%m-%d %H:%M IST")
+
+
+def parse_goals(path):
+    """GOALS.md headings "## title [P0] (owner: X; helpers: A, B) {state: paused}" with "- [x] step [@Name]" lines."""
+    goals = []
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError:
+        return goals
+    for ln in lines:
+        if ln.startswith("## "):
+            t = ln[3:].strip()
+            pri = re.search(r"\[(P[0-2])\]", t)
+            own = re.search(r"\(([^()]*(?:owner|helpers):[^()]*)\)", t)
+            st = re.search(r"\{\s*state:\s*(active|paused|done)\s*\}", t, re.I)
+            f = dict(re.findall(r"(owner|helpers):\s*([^;]*)", own.group(1))) if own else {}
+            for m in (pri, own, st):
+                if m:
+                    t = t.replace(m.group(0), "")
+            goals.append(dict(title=re.sub(r"\s+", " ", t).strip(), steps=[], pri=pri.group(1) if pri else "P2",
+                              owner=f.get("owner", "").strip() or "unassigned",
+                              helpers=[h.strip() for h in f.get("helpers", "").split(",") if h.strip()],
+                              state=st.group(1).lower() if st else ""))
+        m = re.match(r"\s*- \[([ xX])\] (.*)", ln)
+        if m and goals:
+            goals[-1]["steps"].append((m.group(1) != " ", m.group(2).strip()))
+    for g in goals:
+        if not g["state"]:
+            g["state"] = "done" if g["steps"] and all(d for d, _ in g["steps"]) else "active"
+    return goals
+
+
+def step_agent(t):
+    m = re.search(r"\s@([A-Za-z]+)\s*$", t)
+    return (t[:m.start()], m.group(1)) if m else (t, "")
+
+
+def agent_goals(b, name):
+    """Titles of the active goals this agent owns, helps, or is named on in an open step."""
+    n = name.lower()
+    return [g["title"] for g in b["goals"] if g["state"] == "active" and (
+        g["owner"].lower() == n or n in [h.lower() for h in g["helpers"]]
+        or any(not d and step_agent(t)[1].lower() == n for d, t in g["steps"]))]
+
+
+def build(conf):
+    impl = conf["SABHA_IMPL"]
+    roster = [r.split(":") for r in conf["SABHA_ROSTER"].split()]
+    waiting_people = conf.get("SABHA_WAITING", "").split()
+    items = parse_items(os.path.join(impl, "for-me.items"))
+    now = dt.datetime.now(dt.timezone.utc)
+    today = dt.datetime.now().strftime("%Y-%m-%d")
+    open_items = [i for i in items if not is_closed(i) and not i.get("waiting")]
+    waiting = [i for i in items if not is_closed(i) and i.get("waiting")]
+    done = [i for i in items if is_closed(i) and local_day(i.get("changed", "")) == today]
+    fallback = {}
+    for pair in conf.get("SABHA_TASK_FALLBACK", "").split(";"):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            fallback[k.strip()] = v.strip()
+    agents = []
+    known = {r[0].lower() for r in roster}
+    sdir = os.path.join(impl, "status")
+    # a role with a status file but no roster row still gets a table row
+    for f in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
+        if re.fullmatch(r"[A-Za-z]+\.md", f) and f[:-3].lower() not in known:
+            roster.append([f[:-3].capitalize()])
+    for entry in roster:
+        name, model = entry[0], (entry[1] if len(entry) > 1 else "")
+        effort = entry[2] if len(entry) > 2 else ""
+        s = status_of(impl, name)
+        if not s["current"] and not s["idle"] and name in fallback:
+            s["task"] = fallback[name]
+        stale = s["age"] is not None and s["age"] > STALE_MIN and not s["idle"]
+        agents.append(dict(name=name, model=model, effort=effort, state=state_of(s), stale=stale, **s))
+    return dict(now=now.strftime("%Y-%m-%d %H:%M:%SZ"), open=open_items, waiting=waiting, waiting_people=waiting_people,
+                done=done, agents=agents, epoch=int(time.time()), project=conf.get("SABHA_PROJECT", ""), goals=parse_goals(os.path.join(impl, "GOALS.md")))
+
+
+def state_label(a):
+    if a["age"] is None:
+        return "not running"
+    return "stale" if a["stale"] and a["state"] != "blocked" else a["state"]
+
+
+def ctx_text(a):
+    if a["ctx"]:
+        return a["ctx"]
+    return "%s (last seen %s, not running)" % (a["old"], a["seen"]) if a.get("old") else "-"
+
+
+def qcard(i):
+    """The question card (radios, rec, examples, free text, Copy answer) for an item; '' for a plain item."""
+    e = html.escape
+    qq = question_of(i)
+    if not qq:
+        return ""
+    q, ex, ask, rec, opts = qq
+    who = ask or i.get("waiting", "")
+    other = bool(who) and who.lower() != "harsh"
+    qid = "q" + re.sub(r"[^A-Za-z0-9]", "_", i["id"])
+    p = ["<form class=qa data-id='%s' onsubmit='return false'>" % e(i["id"], quote=True)]
+    if who:
+        p.append("<div class=need><b>Needs: %s</b></div>" % e(who))
+    if " ".join(q.lower().split()) != " ".join(i.get("title", "").lower().split()):
+        p.append("<div class=qq>%s</div>" % e(q))
+    if ex:
+        p.append("<div class=why><span class=k>why it matters</span> %s</div>" % e(ex))
+    for L, t, c, x in opts:
+        p.append("<label class=opt><input type=radio name=%s value=%s data-t='%s'><span><b>%s) %s</b>%s%s%s</span></label>" % (
+            qid, L, e(t, quote=True), L, e(t), " <i class=rec>(Recommended)</i>" if L == rec else "",
+            "<br><span class=k>%s</span>" % e(c) if c else "", "<br><span class=ex>e.g. %s</span>" % e(x) if x and not x.lower().startswith("you reply") else ""))
+    if other:
+        p.append("<input type=text class=by placeholder='Answered by (e.g. %s), optional' aria-label='Answered by'>" % e(who, quote=True))
+    p.append("<textarea rows=2 placeholder='Or type your own answer' aria-label='Or type your own answer'></textarea>"
+             "<button type=button class='ans primary' disabled>Copy answer</button> <span class=k></span></form>")
+    return "".join(p)
+
+
+LANES = (("P0", "Now"), ("P1", "Next"), ("P2", "Later"))
+
+
+def render_md(b):
+    out = ["# FOR-ME (generated %s, do not edit; source: for-me.items, status/)" % b["now"], ""]
+    mv = ["## Your move", ""]
+    if not b["open"]:
+        mv.append("Nothing open.")
+    for i in b["open"]:
+        mv.append("### %s. %s  (%s, %s)" % (i["id"], i.get("title", ""), i.get("owner", "?"), i.get("added", "")))
+        for k in ("why", "unblocks"):
+            if i.get(k):
+                mv.append("- %s: %s" % (k, i[k]))
+        qq = question_of(i)
+        if qq:
+            q, ex, ask, rec, opts = qq
+            mv.append("- question%s: %s" % (" (answer: %s)" % ask if ask else "", q))
+            if ex:
+                mv.append("- why it matters: %s" % ex)
+            for L, t, c, x in opts:
+                mv.append("  %s) %s%s%s%s" % (L, t, " (Recommended)" if L == rec else "",
+                                               " - " + c if c else "", " e.g. " + x if x else ""))
+            mv.append("- reply: Answer %s: <letter> - <option text>, or type your own" % i["id"])
+        if i.get("cmd"):
+            mv += ["", "```", i["cmd"], "```"]
+        mv.append("")
+    out += ["## Agents", "", "| Agent | Model | State | Goal | Task | Next | Ctx % | Updated |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for a in b["agents"]:
+        out.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            a["name"], (a["model"] + " " + a["effort"]).strip(), state_label(a),
+            short("; ".join(agent_goals(b, a["name"])), 60).replace("|", "/") or "-", short(a["task"], 90).replace("|", "/"),
+            short(a["next"], 70).replace("|", "/") or "-", ctx_text(a), age_text(a["age"])))
+    out.append("")
+    out += ["## Goals", ""]
+    for key, label in LANES:
+        gs = [g for g in b["goals"] if g["state"] == "active" and g["pri"] == key]
+        out += ["### %s %s" % (key, label), ""]
+        out += ["- (none)"] if not gs else ["- %s: %d/%d (owner: %s%s)" % (
+            g["title"], sum(d for d, _ in g["steps"]), len(g["steps"]), g["owner"],
+            "; helpers: " + ", ".join(g["helpers"]) if g["helpers"] else "") for g in gs]
+        out.append("")
+    for st, label in (("paused", "Paused"), ("done", "Done goals")):
+        gs = [g for g in b["goals"] if g["state"] == st]
+        if gs:
+            out += ["### %s" % label, ""] + ["- %s: %d/%d (%s, owner: %s)" % (
+                g["title"], sum(d for d, _ in g["steps"]), len(g["steps"]), g["pri"], g["owner"]) for g in gs] + [""]
+    out += [""] + mv
+    out += ["", "## In flight", ""]
+    for a in b["agents"]:
+        if a["state"] in ("busy", "blocked") and a["next"]:
+            out.append("- %s (%s): %s" % (a["name"], a["state"], short(a["next"])))
+    out += ["", "## Waiting for others (%s)" % ", ".join(b["waiting_people"]), ""]
+    for i in b["waiting"]:
+        out.append("- %s. [%s] %s" % (i["id"], i["waiting"], i.get("title", "")))
+        qq = question_of(i)
+        if qq:
+            q, ex, ask, rec, opts = qq
+            out.append("  - question (needs: %s): %s" % (ask or i["waiting"], q))
+            for L, t, c, x in opts:
+                out.append("    %s) %s%s%s%s" % (L, t, " (Recommended)" if L == rec else "",
+                                                 " - " + c if c else "", " e.g. " + x if x else ""))
+    if not b["waiting"]:
+        out.append("Nothing recorded.")
+    out += ["", "## Done today (%d)" % len(b["done"]), ""]
+    for i in b["done"]:
+        out.append("- %s. %s: %s" % (i["id"], i.get("state"), i.get("title", "")))
+    return ascii("\n".join(out) + "\n")
+
+
+CSS = """
+:root{color-scheme:light dark;--bg:#f6f7f9;--panel:#fff;--panel2:#f1f3f6;--fg:#0f172a;--mut:#5b6474;--line:#e3e6eb;--acc:#2563eb;
+--ok:#15803d;--okbg:#dcfce7;--warn:#b45309;--warnbg:#fef3c7;--bad:#b91c1c;--badbg:#fee2e2;--busy:#2563eb;--busybg:#dbeafe;
+--fable:#7c3aed;--opus:#c2410c;--sonnet:#1d4ed8;--haiku:#0f766e;--shadow:0 1px 2px rgba(15,23,42,.06),0 1px 1px rgba(15,23,42,.04)}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1020;--panel:#121a2b;--panel2:#18223a;--fg:#e8edf5;--mut:#93a0b4;--line:#25304a;
+--acc:#60a5fa;--ok:#4ade80;--okbg:#0f2e1c;--warn:#fbbf24;--warnbg:#33260a;--bad:#f87171;--badbg:#3a1414;--busy:#60a5fa;--busybg:#132a4a;
+--fable:#c4b5fd;--opus:#fdba74;--sonnet:#93c5fd;--haiku:#5eead4;--shadow:none}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif}
+.wrap{max-width:1480px;margin:0 auto;padding:16px 20px 40px}
+.mono,pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+header h1{font-size:20px;margin:0;letter-spacing:-.01em}header .sub{color:var(--mut);font-size:13px}
+.live{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;flex:none}
+.live.stopped .dot{background:var(--warn)}.live.stopped{color:var(--warn);font-weight:600}
+@media (prefers-reduced-motion:no-preference){.live:not(.stopped) .dot{animation:pulse 2s ease-in-out infinite}}
+@keyframes pulse{50%{opacity:.35}}
+button{font:inherit;font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--acc)}button:focus-visible,summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;box-shadow:var(--shadow)}
+.kpi .n{font-size:24px;font-weight:650;line-height:1.1;font-variant-numeric:tabular-nums}.kpi .l{font-size:12px;color:var(--mut)}
+.kpi.hot .n{color:var(--bad)}.kpi.warm .n{color:var(--warn)}.kpi.blue .n{color:var(--busy)}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:22px 0 10px;display:flex;gap:8px;align-items:center}
+h2 .c{background:var(--panel2);color:var(--fg);border-radius:999px;padding:0 8px;font-size:11px;letter-spacing:0}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;align-items:start}.lane{display:grid;gap:10px;min-width:0}.lane h3{margin:0;font-size:13px}.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.chip.own{color:var(--acc)}.chip.help{color:var(--mut)}.strip{margin-top:12px}.strip summary{cursor:pointer;font-weight:600}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
+.goal .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.goal b{font-size:14px}
+.pct{font-variant-numeric:tabular-nums;font-weight:650}
+.bar{height:8px;background:var(--panel2);border-radius:99px;margin:8px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);border-radius:99px}
+.next{font-size:13px}.next .k,.k{color:var(--mut);font-size:12px}
+details summary{cursor:pointer;color:var(--mut);font-size:12px;margin-top:6px;list-style:none}details summary::before{content:"\\25B8  "}details[open] summary::before{content:"\\25BE  "}
+.step{display:flex;gap:8px;font-size:13px;padding:2px 0}.step .m{flex:none;width:16px;text-align:center}.step.d{color:var(--mut)}.step.d .m{color:var(--ok)}
+.cols{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:20px}@media (max-width:1050px){.cols{grid-template-columns:1fr}}
+.move{border-left:3px solid var(--acc)}.move .t{font-weight:600}.meta{font-size:12px;color:var(--mut);margin:2px 0 6px}
+.move .row{font-size:13px;margin:2px 0}
+.cmd{position:relative;margin-top:8px}.cmd pre{margin:0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 70px 10px 10px;
+font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.cmd button{position:absolute;top:6px;right:6px}
+.atw{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.at{border-collapse:collapse;width:100%;min-width:900px;font-size:12.5px}.at th{position:sticky;top:0;z-index:1;background:var(--panel2);color:var(--mut);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:1px solid var(--line)}.at td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}.at td.nm{font-weight:600;white-space:nowrap}.at .st{margin-left:0;display:inline-block;white-space:nowrap}.cx.w{color:var(--warn)}.cx.b{color:var(--bad)}.cx.old{color:var(--mut)}\n.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.ag{padding:10px 12px;display:flex;flex-direction:column;gap:6px}.ag .h{display:flex;align-items:center;gap:8px}
+.ag .nm{font-weight:650}.chip{font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 7px;line-height:18px;opacity:.9}
+.fable{color:var(--fable)}.opus{color:var(--opus)}.sonnet{color:var(--sonnet)}.haiku{color:var(--haiku)}
+.st{margin-left:auto;font-size:11px;font-weight:600;border-radius:999px;padding:0 8px;line-height:20px}
+.st.busy{background:var(--busybg);color:var(--busy)}.st.blocked{background:var(--badbg);color:var(--bad)}
+.st.idle,.st.unknown,.st.notrunning{background:var(--panel2);color:var(--mut)}.st.stale{background:var(--warnbg);color:var(--warn)}
+.ag.busy{border-color:var(--busy)}.ag.blocked{border-color:var(--bad)}.ag.idle,.ag.unknown{opacity:.8}
+.ctx{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut)}.ctx .bar{flex:1;height:5px;margin:0}
+.ctx .bar i.w{background:var(--warn)}.ctx .bar i.b{background:var(--bad)}
+.task{font-size:12.5px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.flight .card{padding:8px 12px;margin-bottom:8px;font-size:13px}.flight b{margin-right:6px}
+.qa{margin-top:8px}.need{color:var(--warn);margin-bottom:2px}.qq{font-weight:600;margin-bottom:4px}
+.opt{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:6px 0;cursor:pointer;background:var(--panel2)}
+.opt:hover{border-color:var(--acc)}.opt input{margin-top:4px;accent-color:var(--acc)}.opt:has(input:checked){border-color:var(--acc);background:var(--busybg)}
+button.primary{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:600;padding:8px 16px;min-height:36px;transition:transform .12s ease-out}
+button.primary:disabled{opacity:.5;cursor:not-allowed}button.primary:active{transform:scale(.97)}@media (max-width:600px){button.primary{width:100%;min-height:44px}}
+a.kpi{color:inherit;text-decoration:none;display:block}a.kpi:hover{border-color:var(--acc)}
+.why{font-size:13px;margin:2px 0}.why .k{font-size:13px}.goal.P0{border-color:var(--acc);border-left-width:3px}.rec{color:var(--ok);font-style:normal;font-weight:600;font-size:12px}
+.ex{font-size:12px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.qa textarea{width:100%;font:inherit;font-size:13px;padding:6px 8px;margin:4px 0 6px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);resize:vertical}
+.empty{color:var(--mut);font-size:13px;padding:6px 0}
+.charts{display:grid;grid-template-columns:2fr 1fr 2fr;gap:12px}@media (max-width:1050px){.charts{grid-template-columns:1fr}}
+.charts .card h3{margin:0 0 8px;font-size:13px;font-weight:600}.charts .cv{position:relative;height:240px}
+@media print{.live,#pause{display:none}.card{box-shadow:none}}
+@media (max-width:600px){.wrap{padding:12px 16px}}
+"""
+
+JS = """
+function cssv(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function charts(){var D=JSON.parse(document.getElementById('sabha-data').textContent);
+Chart.defaults.animation=false;Chart.defaults.color=cssv('--mut');Chart.defaults.borderColor=cssv('--line');
+Chart.defaults.font.family='-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif';
+var ok=cssv('--ok'),w=cssv('--warn'),bd=cssv('--bad'),bz=cssv('--busy'),m=cssv('--mut'),ln=cssv('--line');
+var A=D.agents.filter(function(a){return a.ctx!==null}).sort(function(x,y){return (x.old-y.old)||(y.ctx-x.ctx)});
+new Chart(document.getElementById('ch-ctx'),{type:'bar',data:{labels:A.map(function(a){return a.name}),
+datasets:[{label:'Context %',data:A.map(function(a){return a.ctx}),borderRadius:4,
+backgroundColor:A.map(function(a){return a.old?m:a.ctx>=30?bd:a.ctx>=20?w:ok})}]},
+options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){var a=A[c.dataIndex];return a.old?c.parsed.y+'% - last seen '+a.seen+', not running':c.parsed.y+'% (restart at 30%)'}}}},
+scales:{x:{grid:{display:false}},y:{beginAtZero:true,suggestedMax:40,ticks:{callback:function(v){return v+'%'}}}}}});
+var S=['busy','blocked','stale','idle'],SC=[bz,bd,w,m],sc=S.map(function(s){return D.agents.filter(function(a){return a.st===s||(s==='idle'&&a.st==='unknown')}).length});
+new Chart(document.getElementById('ch-state'),{type:'doughnut',data:{labels:S,datasets:[{data:sc,backgroundColor:SC,borderColor:cssv('--panel'),borderWidth:2}]},
+options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}}}}});
+new Chart(document.getElementById('ch-goals'),{type:'bar',data:{labels:D.goals.map(function(g){return g.t.length>38?g.t.slice(0,36)+'...':g.t}),
+datasets:[{label:'Done',data:D.goals.map(function(g){return g.d}),backgroundColor:ok,borderRadius:4},
+{label:'Open',data:D.goals.map(function(g){return g.n-g.d}),backgroundColor:ln,borderRadius:4}]},
+options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}}},
+scales:{x:{stacked:true,beginAtZero:true,ticks:{precision:0}},y:{stacked:true,grid:{display:false}}}}});}
+function cp(id,b){var t=document.getElementById(id).innerText;
+(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied'},function(){
+var r=document.createRange();r.selectNodeContents(document.getElementById(id));var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent='Selected'});
+setTimeout(function(){b.textContent='Copy'},1800);}
+var ss={get:function(k){try{return sessionStorage.getItem(k)}catch(e){return null}},set:function(k,v){try{sessionStorage.setItem(k,v)}catch(e){}}};
+function paused(){return ss.get('sabha-pause')==='1'}
+function tick(){var g=+document.body.dataset.gen,a=Math.max(0,Math.round(Date.now()/1000-g)),l=document.getElementById('live');
+var t=a<60?a+'s ago':a<3600?Math.round(a/60)+'m ago':(a/3600).toFixed(1)+'h ago';
+if(a>90){l.className='live stopped';l.querySelector('span').textContent='board stopped updating '+t+' - run sabha-for-me --watch'}
+else{l.className='live';l.querySelector('span').textContent=(paused()?'paused - ':'live - ')+'updated '+t}}
+function qline(f){var r=f.querySelector('input:checked'),t=f.querySelector('textarea').value.trim(),id=f.dataset.id;
+var by=f.querySelector('.by'),w=by&&by.value.trim(),id=w?id+' (from '+w+')':id;
+if(r)return 'Answer '+id+': '+r.value+' - '+r.dataset.t+(t?', note: '+t:'');return t?'Answer '+id+': '+t:''}
+function qen(f){f.querySelector('.ans').disabled=!qline(f)}
+function qhold(){var a=document.activeElement;if(a&&a.tagName==='TEXTAREA')return true;
+return Array.prototype.some.call(document.querySelectorAll('.qa'),function(f){return f.querySelector('input:checked')||f.querySelector('textarea').value})}
+function qsave(){var o={};document.querySelectorAll('.qa').forEach(function(f){var r=f.querySelector('input:checked');
+o[f.dataset.id]=[r?r.value:'',f.querySelector('textarea').value]});ss.set('sabha-q',JSON.stringify(o))}
+function qinit(){var o={};try{o=JSON.parse(ss.get('sabha-q')||'{}')}catch(e){}
+document.querySelectorAll('.qa').forEach(function(f){var d=o[f.dataset.id];if(d){var r=d[0]&&f.querySelector('input[value="'+d[0]+'"]');if(r)r.checked=true;f.querySelector('textarea').value=d[1]}
+f.addEventListener('input',qsave);f.addEventListener('change',qsave);f.addEventListener('input',function(){qen(f)});f.addEventListener('change',function(){qen(f)});qen(f);
+f.querySelector('.ans').onclick=function(){var b=this,m=f.querySelector('span.k:last-child'),t=qline(f);
+if(!t){m.textContent='pick an option or type an answer';return}
+var done=function(s){m.textContent=s;if(s.indexOf('copied')==0){var o=b.dataset.l||(b.dataset.l=b.textContent);b.textContent='Copied';setTimeout(function(){b.textContent=o},1500)}};
+if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){done('copied - paste it to Claude')},function(){fb()})}else fb();
+function fb(){var a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();
+var ok=false;try{ok=document.execCommand('copy')}catch(e){}document.body.removeChild(a);done(ok?'copied - paste it to Claude':'copy failed - select: '+t)}}})}
+function save(){ss.set('sabha-y',String(scrollY));qsave();var o=[];document.querySelectorAll('details[id]').forEach(function(d){if(d.open)o.push(d.id)});ss.set('sabha-open',o.join(','))}
+document.addEventListener('DOMContentLoaded',function(){
+(ss.get('sabha-open')||'').split(',').forEach(function(i){var d=i&&document.getElementById(i);if(d)d.open=true});
+var y=+ss.get('sabha-y');if(y)scrollTo(0,y);
+var pb=document.getElementById('pause');pb.textContent=paused()?'Resume':'Pause';
+pb.onclick=function(){ss.set('sabha-pause',paused()?'0':'1');pb.textContent=paused()?'Resume':'Pause';tick()};
+qinit();tick();setInterval(tick,1000);
+if(window.Chart)charts();else document.querySelectorAll('.charts').forEach(function(c){c.style.display='none'});
+setInterval(function(){if(!paused()&&!document.hidden&&!(getSelection()+'')&&!qhold()){save();location.reload()}},15000);});
+"""
+
+STATE_ORDER = {"blocked": 0, "busy": 1, "idle": 2, "unknown": 3}
+
+
+def model_class(m):
+    m = m.lower()
+    return next((k for k in ("fable", "opus", "sonnet", "haiku") if k in m), "")
+
+
+def render_html(b):
+    e = html.escape
+    agents = b["agents"]
+    # one bucket per agent, by the label the table shows, so tiles, In flight and the table cannot disagree
+    cnt = lambda st: sum(1 for a in agents if state_label(a) == st)
+    stale = cnt("stale")
+    flight = [a for a in agents if state_label(a) in ("busy", "blocked")]
+    steps = [x for g in b["goals"] for x, _ in g["steps"]]
+    p = ['<!doctype html><html lang=en><head><meta charset="utf-8">',
+         '<noscript><meta http-equiv="refresh" content="15"></noscript>',
+         '<meta name="viewport" content="width=device-width,initial-scale=1"><title>%s</title>' % ("(%d) Sabha - %d for you" % (len(b["open"]), len(b["open"])) if b["open"] else "Sabha board"),
+         "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.5.1' integrity='sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ' crossorigin='anonymous'></script>"
+         "<style>%s</style><script>%s</script></head><body data-gen=%d><div class=wrap>" % (CSS, JS, b["epoch"]),
+         "<header><h1>Sabha</h1><span class=sub>%s</span>" % e(b.get("project", "")),
+         '<div id=live class=live><i class=dot></i><span>generated %s</span></div><button id=pause type=button>Pause</button></header>' % e(b["now"])]
+    # the tiles partition the agents, so they add up to the table and to In flight
+    kp = [("Your move", len(b["open"]), "hot" if b["open"] else "", "your-move"), ("Busy", cnt("busy"), "blue", "flight"),
+          ("Blocked", cnt("blocked"), "hot" if cnt("blocked") else "", "flight"), ("Stale", stale, "warm" if stale else "", "agents"),
+          ("Idle", len(agents) - cnt("busy") - cnt("blocked") - stale, "", "agents"), ("Goal steps", "%d/%d" % (sum(steps), len(steps)), "", "goals")]
+    p.append("<div class=kpis>" + "".join("<a class='kpi %s' href=#%s><div class=n>%s</div><div class=l>%s</div></a>" % (c, h, e(str(n)), l)
+                                           for l, n, c, h in kp) + "</div>")
+    move = ["<section id=your-move><h2>Your move <span class=c>%d</span></h2>" % len(b["open"])]
+    if not b["open"]:
+        move.append("<div class='card empty'>Nothing needs you.</div>")
+    for n, i in enumerate(b["open"]):
+        move.append("<div class='card move' style='margin-bottom:10px'><div class=t>%s. %s</div><div class=meta title='%s'>%s, %s</div>" % (
+            e(i["id"]), e(i.get("title", "")), e(ist_text(i.get("added", "")), quote=True), e(i.get("owner", "?")), e(rel_time(i.get("added", "")))))
+        for k in ("why", "unblocks"):
+            if i.get(k):
+                move.append("<div class=row><span class=k>%s</span> %s</div>" % (k, e(i[k])))
+        move.append(qcard(i))
+        if i.get("cmd"):
+            move.append("<div class=cmd><pre id=c%d>%s</pre><button type=button onclick=\"cp('c%d',this)\">Copy</button></div>" % (n, e(i["cmd"]), n))
+        move.append("</div>")
+    move.append("</section>")
+    p.append("".join(move))
+    def cnum(a):
+        try:
+            return float(a["ctx"] or a.get("old") or "x")
+        except (TypeError, ValueError):
+            return None
+    data = dict(agents=[dict(name=a["name"], ctx=cnum(a), old=bool(a.get("old")), seen=a.get("seen", ""), st="stale" if a["stale"] and a["state"] != "blocked" else a["state"]) for a in agents],
+                goals=[dict(t=g["title"], n=len(g["steps"]), d=sum(x for x, _ in g["steps"])) for g in b["goals"]])
+    p.append("<script type=application/json id=sabha-data>%s</script>" % json.dumps(data).replace("</", "<\\/"))
+    p.append("<section id=agents><h2>Agents <span class=c>%d</span></h2><div class=atw><table class=at><thead><tr><th>Agent</th><th>Model / effort</th>"
+             "<th>State</th><th>Goal</th><th>Task</th><th>Next</th><th>Context %%</th><th>Last update</th></tr></thead><tbody>" % len(agents))
+    for a in sorted(agents, key=lambda a: (STATE_ORDER.get(a["state"], 9), a["stale"])):
+        sl = state_label(a)
+        if a["ctx"]:
+            cx = "<span class='cx %s'>%s%%</span>" % ("b" if float(a["ctx"]) >= 30 else "w" if float(a["ctx"]) >= 20 else "", e(a["ctx"]))
+        elif a.get("old"):
+            cx = "<span class='cx old' title='last seen %s, not running'>%s%% <span class=k>last seen %s</span></span>" % (e(a["seen"]), e(a["old"]), e(a["seen"]))
+        else:
+            cx = "<span class=k>-</span>"
+        p.append("<tr><td class=nm>%s</td><td><span class='chip %s'>%s</span> <span class=k>%s</span></td><td><span class='st %s'>%s</span></td>"
+                 "<td>%s</td><td>%s</td><td>%s</td><td class=mono>%s</td><td class=mono>%s</td></tr>" % (
+                     e(a["name"]), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
+                     e("; ".join(agent_goals(b, a["name"]))) or "<span class=k>-</span>", e(short(a["task"], 160)) or "<span class=k>-</span>", e(short(a["next"], 160)) or "<span class=k>-</span>", cx, age_text(a["age"])))
+    p.append("</tbody></table></div></section>")
+    p.append("<div class=charts><div class=card><h3>Context per agent</h3><div class=cv><canvas id=ch-ctx aria-label='Context percent per agent'></canvas></div><div class=k>grey = no reading in 30 min</div></div>"
+             "<div class=card><h3>Agent states</h3><div class=cv><canvas id=ch-state aria-label='Agents by state'></canvas></div></div>"
+             "<div class=card><h3>Goal steps</h3><div class=cv><canvas id=ch-goals aria-label='Done and open steps per goal'></canvas></div></div></div>")
+    def gcard(gi, g):
+        n, d = len(g["steps"]), sum(x for x, _ in g["steps"])
+        pc = 100 * d // n if n else 0
+        nxt, ag = next((step_agent(t) for x, t in g["steps"] if not x), ("", ""))
+        chips = "<span class='chip own'>%s</span>" % e(g["owner"]) + "".join("<span class='chip help'>%s</span>" % e(h) for h in g["helpers"])
+        r = ["<div class='card goal %s'><div class=top><b>%s</b><span class=pct>%d/%d</span></div><div class=chips>%s</div>"
+             "<div class=bar><i style='width:%d%%'></i></div>" % (g["pri"], e(g["title"]), d, n, chips, pc)]
+        r.append("<div class=next><span class=k>next:</span> %s%s</div>" % (e(nxt), " <span class='chip help'>@%s</span>" % e(ag) if ag else "") if nxt else
+                 "<div class=next style='color:var(--ok)'>All %d steps done</div>" % n)
+        r.append("<details id=g%d><summary>All steps</summary>%s</details></div>" % (gi, "".join(
+            "<div class='step%s'><span class=m>%s</span><span>%s</span></div>" % (" d" if x else "", "&#10003;" if x else "&#9675;", e(t))
+            for x, t in g["steps"])))
+        return "".join(r)
+    gl = list(enumerate(b["goals"]))
+    lanes = [(key, label, [gcard(i, g) for i, g in gl if g["state"] == "active" and g["pri"] == key]) for key, label in LANES]
+    p.append("<span id=goals></span><h2>Goals %s</h2><div class=lanes>" % "".join(
+        "<span class=chip>%s %s: none</span>" % (k, l) for k, l, cs in lanes if not cs))
+    for key, label, cs in lanes:
+        if cs:
+            p.append("<div class='lane lane-%s'><h3>%s <span class=k>%s</span> <span class=c>%d</span></h3>%s</div>" % (
+                key, key, label, len(cs), "".join(cs)))
+    p.append("</div>")
+    if not b["goals"]:
+        p.append("<div class=empty>No GOALS.md in the impl folder.</div>")
+    for st, label in (("paused", "Paused"), ("done", "Done goals")):
+        gs = [(i, g) for i, g in gl if g["state"] == st]
+        if gs:
+            p.append("<details class=strip id=s-%s><summary>%s <span class=c>%d</span></summary><div class=lanes>%s</div></details>" % (
+                st, label, len(gs), "".join(gcard(i, g) for i, g in gs)))
+    p.append("<span id=flight></span><h2>In flight <span class=c>%d</span></h2><div class=flight>" % len(flight))
+    p.append("".join("<div class=card><b>%s</b><span class='st %s' style='margin:0 6px 0 0'>%s</span>%s</div>" % (
+        e(a["name"]), a["state"], a["state"], e(short(a["next"] or a["task"], 400))) for a in flight) or "<div class=empty>Nobody busy.</div>")
+    p.append("</div><h2>Waiting for others <span class=c>%d</span><span style='text-transform:none;letter-spacing:0'>%s</span></h2>" % (
+        len(b["waiting"]), e(", ".join(b["waiting_people"]))))
+    p.append("".join("<div class=card style='margin-bottom:8px'><b>%s. %s</b> <span class=k>waiting on %s</span>%s</div>" % (
+        e(i["id"]), e(i.get("title", "")), e(i["waiting"]), qcard(i)) for i in b["waiting"]) or "<div class=empty>Nothing recorded.</div>")
+    p.append("<h2>Done today <span class=c>%d</span></h2><details id=done><summary>Show</summary>" % len(b["done"]))
+    p.append("".join("<div class='step d'><span class=m>&#10003;</span><span>%s. %s</span></div>" % (e(i["id"]), e(i.get("title", ""))) for i in b["done"]))
+    p.append("</details></div></body></html>")
+    return ascii("\n".join(p) + "\n")
+
+
+def write_atomic(path, text):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".for-me-")
+    with os.fdopen(fd, "w", encoding="ascii") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def once(conf):
+    b = build(conf)
+    out = conf.get("SABHA_FORME_DIR", conf["SABHA_IMPL"])
+    write_atomic(os.path.join(out, "FOR-ME.md"), render_md(b))
+    write_atomic(os.path.join(out, "FOR-ME.html"), render_html(b))
+
+
+def selftest():
+    """Asserts on synthetic inputs in a temp dir. Run as: sabha-for-me --selftest"""
+    import shutil
+    base = tempfile.mkdtemp(prefix="sabha-selftest-")
+    try:
+        os.makedirs(os.path.join(base, "status"))
+        items = os.path.join(base, "for-me.items")
+        cmd = "psql -U app -d mydb -f -\ntar -czf out.tgz -\ncat -\n--"
+        with open(items, "w", encoding="ascii") as f:
+            f.write("---\nid: 1\ntitle: stdin\nowner: test\nutc: 2026-10-13T10:00:00Z\ncmd: %s\n" % cmd)
+            f.write("---\nid: 2\ntitle: torn\nutc: 2026-10-13T10:05:00Z\nstate: DO")
+        parsed = parse_items(items)
+        assert [i["id"] for i in parsed] == ["1"], "torn last block must be left out: %r" % [i["id"] for i in parsed]
+        assert parsed[0]["cmd"] == cmd, "cmd must be byte-exact: %r" % parsed[0]["cmd"]
+        with open(items, "a", encoding="ascii") as f:
+            f.write("\n---\nid: 2\nutc: 2026-10-13T10:06:00Z\nstate: DONE\n")
+        parsed = parse_items(items)
+        assert [i["state"] for i in parsed if i["id"] == "2"] == ["DONE"], "closing block must complete item 2"
+        assert split_blocks("---\na\n---\nb\n") == [[], ["a"], ["b", ""]], split_blocks("---\na\n---\nb\n")
+        zed = os.path.join(base, "status", "zed.md")
+        with open(zed, "w", encoding="ascii") as f:
+            f.write("Title line\nNext: wait for Arjun's message\nNext: older handoff\n")
+        s = status_of(base, "zed")
+        assert s["next"] == "wait for Arjun's message", "first Next: in file: %r" % s["next"]
+        assert state_of(s) == "idle", "a Next: with 'wait' must not be blocked: %r" % state_of(s)
+        with open(zed, "w", encoding="ascii") as f:
+            f.write("Title line\nCurrent: work\nNext: first after current\nNext: later\n")
+        s = status_of(base, "zed")
+        assert s["next"] == "first after current" and state_of(s) == "busy", (s["next"], state_of(s))
+        with open(zed, "w", encoding="ascii") as f:
+            f.write("Title line\nBlocked: needs the user\nNext: anything\n")
+        assert state_of(status_of(base, "zed")) == "blocked", "Blocked: line is the only blocked state"
+        assert clean_ctx("12.5") == "12.5" and clean_ctx("150") == "" and clean_ctx("junk") == ""
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    print("sabha-for-me: selftest ok")
+
+
+def main():
+    if "--selftest" in sys.argv[1:]:
+        selftest()
+        return
+    conf = load_conf()
+    if "--watch" not in sys.argv[1:]:
+        once(conf)
+        return
+    while True:
+        try:
+            once(conf)
+        except Exception as exc:  # a half-written status file must not kill the loop
+            print("sabha-for-me: %s" % exc, file=sys.stderr)
+        time.sleep(15)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
