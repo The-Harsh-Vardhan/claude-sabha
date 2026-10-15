@@ -80,7 +80,7 @@ task: save progress and handoff, then stop
 output: status/$lower.md
 reply: done
 
-The sabha is shutting down. Write your handoff to status/$lower.md in the PROTOCOL.md shape (mid-task: Next is the
+The sabha is shutting down. Write your handoff to status/$lower.md in the PROTOCOL-core.md handoff shape (mid-task: Next is the
 exact resume point), then write $n.done. Start no new work; this tab is closed after the save.
 EOF
   fi

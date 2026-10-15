@@ -66,7 +66,11 @@ if ($Name) {
   $to = if ($r[0] -eq $Relay) { $Owner } elseif ($r[0] -eq $Dispatcher) { $Relay } else { $Dispatcher }
   $lower = $r[0].ToLower()
   # same text as sabha-up.sh; keep the two identical
-  $prompt = "You are $($r[0]) in $Project session setup. First run ListAgents: if another live row has the name $($r[0]), append a restart item to $Impl\for-me.items and stop. Then read $Protocol, then status/$lower.md, then inbox/$($r[0])/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
+  $Reads = "$Protocol, then status/$lower.md"
+  if ($cfg.SABHA_PROTOCOL_CORE -and $cfg.SABHA_ROLE_DIR) {
+    $Reads = "$Impl\$($cfg.SABHA_PROTOCOL_CORE), then $Impl\$($cfg.SABHA_ROLE_DIR)\$($r[0]).md, then the top block of status/$lower.md"
+  }
+  $prompt = "You are $($r[0]) in $Project session setup. First run ListAgents: if another live row has the name $($r[0]), append a restart item to $Impl\for-me.items and stop. Then read $Reads, then inbox/$($r[0])/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
   if ($Print) {
     "cd `"$Workspace`"; claude -n $($r[0]) --model $($r[1]) --effort $($r[2]) `"$prompt`""
     exit 0

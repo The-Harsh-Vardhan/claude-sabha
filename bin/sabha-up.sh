@@ -46,7 +46,11 @@ role() {
     tail_var=SABHA_PROMPT_$name
     tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
     [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
-    prompt="You are $name in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $PROTOCOL, then status/$lower.md, $tail"
+    # SABHA_PROTOCOL_CORE (file under SABHA_IMPL) + SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the role file, then the top block of the status file
+    reads="$PROTOCOL, then status/$lower.md"
+    [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]] &&
+      reads="$SABHA_IMPL/$SABHA_PROTOCOL_CORE, then $SABHA_IMPL/$SABHA_ROLE_DIR/$name.md, then the top block of status/$lower.md"
+    prompt="You are $name in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
     return 0
   done
   echo "unknown role: $1" >&2; exit 1

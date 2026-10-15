@@ -54,6 +54,9 @@ check "a second Krishna is refused" '(( rc == 1 )) && grep -q "Krishna 901" <<<"
 { echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"; echo "SABHA_ROSTER=\"$(roster 8) T:haiku:medium:ondemand\""; echo 'SABHA_PROMPT_T="then do the T job. Report to X."'; } > "$dir/sabha.conf"
 out=$(SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --print T)
 check "SABHA_PROMPT_<Name> replaces the prompt tail" 'grep -q "status/t.md, then do the T job. Report to X.\"$" <<<"$out" && ! grep -q "inbox/T/" <<<"$out"'
+{ echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"; echo "SABHA_ROSTER=\"$(roster 8) T:haiku:medium:ondemand\""; echo "SABHA_PROTOCOL_CORE=CORE.md"; echo "SABHA_ROLE_DIR=roles"; } > "$dir/sabha.conf"
+out=$(SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --print T)
+check "SABHA_PROTOCOL_CORE + SABHA_ROLE_DIR split the read list" 'grep -q "read $dir/impl/CORE.md, then $dir/impl/roles/T.md, then the top block of status/t.md, then inbox/T/" <<<"$out"'
 
 { echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"; echo "SABHA_ROSTER=\"$(roster 2) M:haiku:high:lazy,mcp\""; } > "$dir/sabha.conf"
 out=$(SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --print R1)
