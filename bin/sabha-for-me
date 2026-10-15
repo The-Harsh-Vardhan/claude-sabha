@@ -3,6 +3,8 @@
 
   sabha-for-me            render once
   sabha-for-me --watch    render every 15 s until interrupted
+  sabha-for-me --csv [dir]  also write agents.csv and for-me.csv (dir, else SABHA_CSV_DIR); a plain
+                          render and --watch write them too when SABHA_CSV_DIR is set
 
 Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
 
@@ -32,6 +34,7 @@ copies "Answer <id>: B - <option text>", "Answer <id>: <typed text>" or "Answer 
 for pasting to Claude. The page does not reload while a field has focus, a radio is picked or text is typed.
 Example block: sabha.conf.example, bottom.
 """
+import csv
 import datetime as dt
 import html
 import json
@@ -298,8 +301,8 @@ def build(conf):
         if not s["current"] and not s["idle"] and name in fallback:
             s["task"] = fallback[name]
         stale = s["age"] is not None and s["age"] > STALE_MIN and not s["idle"]
-        agents.append(dict(name=name, model=model, effort=effort, state=state_of(s), stale=stale, **s))
-    return dict(now=now.strftime("%Y-%m-%d %H:%M:%SZ"), open=open_items, waiting=waiting, waiting_people=waiting_people,
+        agents.append(dict(name=name, model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "", state=state_of(s), stale=stale, **s))
+    return dict(now=now.strftime("%Y-%m-%d %H:%M:%SZ"), items=items, open=open_items, waiting=waiting, waiting_people=waiting_people,
                 done=done, agents=agents, epoch=int(time.time()), project=conf.get("SABHA_PROJECT", ""), goals=parse_goals(os.path.join(impl, "GOALS.md")))
 
 
@@ -658,8 +661,58 @@ def write_atomic(path, text):
     os.replace(tmp, path)
 
 
-def once(conf):
+def inbox_open(impl, name):
+    """Briefs NNN-<from>-<slug>.md in inbox/<Name>/ with neither NNN.done nor NNN.cancel."""
+    d = os.path.join(impl, "inbox", name)
+    try:
+        files = set(os.listdir(d))
+    except OSError:
+        return 0
+    nums = [m.group(1) for f in files for m in [re.match(r"(\d+)-.*\.md$", f)] if m]
+    return sum(1 for n in nums if n + ".done" not in files and n + ".cancel" not in files)
+
+
+def write_csv(path, header, rows):
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, lineterminator="\r\n")  # RFC 4180
+        w.writerow(header)
+        w.writerows([ascii(str(c)) for c in r] for r in rows)
+
+
+def export_csv(b, conf, outdir):
+    """agents.csv and for-me.csv from the data build() already parsed."""
+    impl = conf["SABHA_IMPL"]
+    os.makedirs(outdir, exist_ok=True)
+    up = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sabha-up.sh")
+    rows = []
+    for a in b["agents"]:
+        pct = a["ctx"] or a.get("old") or ""
+        upd = "" if a["age"] is None else dt.datetime.fromtimestamp(time.time() - a["age"] * 60).strftime("%Y-%m-%dT%H:%M:%S")
+        rows.append([a["name"], a["model"], a["effort"], "/".join(a["flags"].split(",")) if a["flags"] else "", "", pct,
+                     "" if not pct else "yes" if float(pct) > 30 else "no", state_label(a), short(a["task"], 200), upd,
+                     inbox_open(impl, a["name"]), "%s %s" % (up, a["name"])])
+    write_csv(os.path.join(outdir, "agents.csv"),
+              ["Name", "Model", "Effort", "Flags", "Pane", "Context %", "Over 30%", "Status", "Current task", "Last update",
+               "Inbox open", "Restart line"], rows)
+    rows = []
+    for i in b["items"]:
+        qq = question_of(i)
+        opts = " | ".join("%s: %s" % (L, t) for L, t, c, x in qq[4]) if qq else ""
+        kind = i.get("kind") or ("question" if qq else "action" if i.get("cmd") else "info")
+        st = "answered" if i.get("answer") and not is_closed(i) else i.get("state", "OPEN").lower()
+        rows.append([i["id"], kind, i.get("title", ""), qq[1] if qq and qq[1] else i.get("why", ""), opts,
+                     qq[3] if qq else i.get("rec", "").upper(), i.get("answer", ""), st, i.get("owner", ""),
+                     i.get("added", ""), i.get("link") or i.get("source") or ""])
+    write_csv(os.path.join(outdir, "for-me.csv"),
+              ["ID", "Kind", "Title", "Explanation", "Options", "Recommended", "Answer", "Status", "Owner", "Created",
+               "Link/source"], rows)
+
+
+def once(conf, csv_dir=None):
     b = build(conf)
+    csv_dir = csv_dir or conf.get("SABHA_CSV_DIR")
+    if csv_dir:
+        export_csv(b, conf, csv_dir)
     out = conf.get("SABHA_FORME_DIR", conf["SABHA_IMPL"])
     write_atomic(os.path.join(out, "FOR-ME.md"), render_md(b))
     write_atomic(os.path.join(out, "FOR-ME.html"), render_html(b))
@@ -708,12 +761,19 @@ def main():
         selftest()
         return
     conf = load_conf()
-    if "--watch" not in sys.argv[1:]:
-        once(conf)
+    argv = sys.argv[1:]
+    csv_dir = None
+    if "--csv" in argv:
+        n = argv.index("--csv") + 1
+        csv_dir = argv[n] if n < len(argv) and not argv[n].startswith("--") else conf.get("SABHA_CSV_DIR")
+        if not csv_dir:
+            sys.exit("sabha-for-me: --csv needs a directory or SABHA_CSV_DIR in sabha.conf")
+    if "--watch" not in argv:
+        once(conf, csv_dir)
         return
     while True:
         try:
-            once(conf)
+            once(conf, csv_dir)
         except Exception as exc:  # a half-written status file must not kill the loop
             print("sabha-for-me: %s" % exc, file=sys.stderr)
         time.sleep(15)

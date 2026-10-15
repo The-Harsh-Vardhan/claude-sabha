@@ -3,6 +3,7 @@ SABHA_WS=~/Work/my-workspace
 SABHA_IMPL=$SABHA_WS/path/to/impl
 # Optional: where FOR-ME.md and FOR-ME.html are written (default: SABHA_IMPL). Keep it outside this repo.
 #SABHA_FORME_DIR=$SABHA_WS/path/to/board
+#SABHA_CSV_DIR=$SABHA_WS/path/to/tracker   # agents.csv and for-me.csv, written on every render
 # The opening prompt says "You are <Name> in $SABHA_PROJECT session setup"; the relay reports to $SABHA_USER.
 SABHA_PROJECT="My project"
 SABHA_USER="the user"
