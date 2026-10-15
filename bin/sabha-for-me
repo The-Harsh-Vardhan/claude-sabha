@@ -3,7 +3,7 @@
 
   sabha-for-me            render once
   sabha-for-me --watch    render every 15 s until interrupted
-  sabha-for-me --csv [dir]  also write agents.csv and for-me.csv (dir, else SABHA_CSV_DIR); a plain
+  sabha-for-me --csv [dir]  also write agents.csv, for-me.csv and inbox.csv (dir, else SABHA_CSV_DIR); a plain
                           render and --watch write them too when SABHA_CSV_DIR is set
 
 Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
@@ -302,7 +302,7 @@ def build(conf):
             s["task"] = fallback[name]
         stale = s["age"] is not None and s["age"] > STALE_MIN and not s["idle"]
         agents.append(dict(name=name, model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "", state=state_of(s), stale=stale, **s))
-    return dict(now=now.strftime("%Y-%m-%d %H:%M:%SZ"), items=items, open=open_items, waiting=waiting, waiting_people=waiting_people,
+    return dict(inbox=parse_inboxes(impl), now=now.strftime("%Y-%m-%d %H:%M:%SZ"), items=items, open=open_items, waiting=waiting, waiting_people=waiting_people,
                 done=done, agents=agents, epoch=int(time.time()), project=conf.get("SABHA_PROJECT", ""), goals=parse_goals(os.path.join(impl, "GOALS.md")))
 
 
@@ -413,6 +413,7 @@ def render_md(b):
     out += ["", "## Done today (%d)" % len(b["done"]), ""]
     for i in b["done"]:
         out.append("- %s. %s: %s" % (i["id"], i.get("state"), i.get("title", "")))
+    out += inbox_md(b.get("inbox", {}))
     return ascii("\n".join(out) + "\n")
 
 
@@ -449,7 +450,7 @@ h2 .c{background:var(--panel2);color:var(--fg);border-radius:999px;padding:0 8px
 .bar{height:8px;background:var(--panel2);border-radius:99px;margin:8px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);border-radius:99px}
 .next{font-size:13px}.next .k,.k{color:var(--mut);font-size:12px}
 details summary{cursor:pointer;color:var(--mut);font-size:12px;margin-top:6px;list-style:none}details summary::before{content:"\\25B8  "}details[open] summary::before{content:"\\25BE  "}
-.step{display:flex;gap:8px;font-size:13px;padding:2px 0}.step .m{flex:none;width:16px;text-align:center}.step.d{color:var(--mut)}.step.d .m{color:var(--ok)}
+.step{display:flex;gap:8px;font-size:13px;padding:2px 0}.step .m{flex:none;width:16px;text-align:center}.ib{display:flex;gap:8px;font-size:13px;padding:4px 0;border-top:1px solid var(--line)}.ib .m{flex:none;width:30px;color:var(--mut)}.ib .st{flex:none;align-self:flex-start;margin:0}.st.ok{background:var(--okbg);color:var(--ok)}.ibx{margin-bottom:8px}.ibx>summary{margin-top:0;font-size:13px;color:var(--fg)}.step.d{color:var(--mut)}.step.d .m{color:var(--ok)}
 .cols{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:20px}@media (max-width:1050px){.cols{grid-template-columns:1fr}}
 .move{border-left:3px solid var(--acc)}.move .t{font-weight:600}.meta{font-size:12px;color:var(--mut);margin:2px 0 6px}
 .move .row{font-size:13px;margin:2px 0}
@@ -649,8 +650,100 @@ def render_html(b):
         e(i["id"]), e(i.get("title", "")), e(i["waiting"]), qcard(i)) for i in b["waiting"]) or "<div class=empty>Nothing recorded.</div>")
     p.append("<h2>Done today <span class=c>%d</span></h2><details id=done><summary>Show</summary>" % len(b["done"]))
     p.append("".join("<div class='step d'><span class=m>&#10003;</span><span>%s. %s</span></div>" % (e(i["id"]), e(i.get("title", ""))) for i in b["done"]))
-    p.append("</details></div></body></html>")
+    p.append("</details>")
+    p.append(inbox_html(b.get("inbox", {})))
+    p.append("</div></body></html>")
     return ascii("\n".join(p) + "\n")
+
+
+_NOISE = re.compile(r"^(?:(?:done|utc):\s*)?\d{4}-\d\d-\d\dT[\d:]+Z?$|^(?:to|from|brief|utc):", re.I)
+
+
+def marker_line(path, prefer):
+    """First useful line of a marker file: skip bare timestamps and routing headers, favour `prefer:`."""
+    try:
+        lines = [l.strip() for l in open(path, encoding="utf-8", errors="replace") if l.strip()]
+    except OSError:
+        return ""
+    for l in lines:
+        if l.lower().startswith(prefer + ":"):
+            return short(l[len(prefer) + 1:].strip() or l, 140)
+    return short(next((l for l in lines if not _NOISE.match(l)), ""), 140)
+
+
+def parse_inboxes(impl):
+    """One dict per brief NNN-<from>-<slug>.md under inbox/<Name>/, newest first per agent."""
+    root = os.path.join(impl, "inbox")
+    out = {}
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        d = os.path.join(root, name)
+        if not os.path.isdir(d):
+            continue
+        try:
+            files = set(os.listdir(d))
+        except OSError:
+            continue
+        rows = []
+        for f in sorted(files):
+            m = re.match(r"(\d+)-([^-]+)-(.*)\.md$", f)
+            if not m:  # e.g. krishna-001-*.md in Vidur is not a numbered brief
+                continue
+            n, frm, slug = m.groups()
+            path = os.path.join(d, f)
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    head = [l.strip() for l in fh.read(4000).splitlines()]
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue
+            fm = {k.lower(): v.strip() for k, _, v in (l.partition(":") for l in head[:12]) if k.isalpha()}
+            mt = dt.datetime.fromtimestamp(mtime, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            created = fm["utc"] if re.match(r"\d{4}-\d\d-\d\dT", fm.get("utc", "")) else mt
+            # the task: line says more than the slug; fall back to a heading, then the slug
+            title = fm.get("task") or next((l.lstrip("# ") for l in head if l.startswith("#")), "") or slug.replace("-", " ")
+            has = lambda x: "%s.%s" % (n, x) in files
+            st = ("done" if has("done") else "cancelled" if has("cancel") else "blocked" if has("blocked")
+                  else "acked" if has("ack") else "claimed" if has("claim") else "open")
+            mk = {"done": ("done", "done"), "cancelled": ("cancel", "reason"), "blocked": ("blocked", "status")}.get(st)
+            rows.append(dict(agent=name, brief=n, title=short(title, 140), frm=fm.get("from") or frm, created=created, state=st,
+                             outcome=marker_line(os.path.join(d, "%s.%s" % (n, mk[0])), mk[1]) if mk else "",
+                             path="inbox/%s/%s" % (name, f)))
+        rows.sort(key=lambda r: (r["created"], r["brief"]), reverse=True)
+        out[name] = rows
+    return out
+
+
+def inbox_html(inb):
+    e = html.escape
+    chips = {"open": "busy", "claimed": "stale", "acked": "stale", "blocked": "blocked", "done": "ok", "cancelled": "idle"}
+    def row(r):
+        return ("<div class=ib><span class='st %s'>%s</span><span class=m>%s</span><span><b>%s</b> <span class=k>from %s, %s</span>%s</span></div>" % (
+            chips[r["state"]], r["state"], e(r["brief"]), e(r["title"]), e(r["frm"]), e(r["created"][:16].replace("T", " ")),
+            "<div class=k>%s</div>" % e(r["outcome"]) if r["outcome"] else ""))
+    p = ["<section id=inboxes><h2>Inboxes <span class=c>%d open</span></h2>" % sum(1 for rs in inb.values() for r in rs if r["state"] == "open")]
+    for name, rs in inb.items():
+        live = [r for r in rs if r["state"] not in ("done", "cancelled")]
+        gone = [r for r in rs if r["state"] in ("done", "cancelled")]
+        nopen = sum(1 for r in rs if r["state"] == "open")
+        p.append("<details class='card ibx'%s><summary><b>%s</b> <span class='chip%s'>%d open</span> <span class=k>%d total</span></summary>" % (
+            " open" if live else "", e(name), " own" if nopen else "", nopen, len(rs)))
+        p.append("".join(row(r) for r in live) + ("<details><summary>Done / cancelled (%d)</summary>%s</details>" % (
+            len(gone), "".join(row(r) for r in gone)) if gone else ""))
+        p.append("</details>")
+    p.append("</section>")
+    return "".join(p)
+
+
+def inbox_md(inb):
+    out = ["", "## Inboxes (open briefs)", ""]
+    for name, rs in inb.items():
+        live = [r for r in rs if r["state"] not in ("done", "cancelled")]
+        if live:
+            out.append("- %s (%d)" % (name, len(live)))
+            out += ["  - %s %s [%s] from %s" % (r["brief"], r["title"], r["state"], r["frm"]) for r in live]
+    return out
 
 
 def write_atomic(path, text):
@@ -676,11 +769,12 @@ def write_csv(path, header, rows):
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")  # RFC 4180
         w.writerow(header)
-        w.writerows([ascii(str(c)) for c in r] for r in rows)
+        # a leading = + - @ would run as a formula in Sheets
+        w.writerows([("'" if re.match(r"[=+\-@]", c) else "") + c for c in (ascii(str(c)) for c in r)] for r in rows)
 
 
 def export_csv(b, conf, outdir):
-    """agents.csv and for-me.csv from the data build() already parsed."""
+    """agents.csv, for-me.csv and inbox.csv from the data build() already parsed."""
     impl = conf["SABHA_IMPL"]
     os.makedirs(outdir, exist_ok=True)
     up = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sabha-up.sh")
@@ -706,6 +800,10 @@ def export_csv(b, conf, outdir):
     write_csv(os.path.join(outdir, "for-me.csv"),
               ["ID", "Kind", "Title", "Explanation", "Options", "Recommended", "Answer", "Status", "Owner", "Created",
                "Link/source"], rows)
+    write_csv(os.path.join(outdir, "inbox.csv"),
+              ["Agent", "Brief", "Title", "From", "Created", "State", "Outcome", "Path"],
+              [[r["agent"], r["brief"], r["title"], r["frm"], r["created"], r["state"], r["outcome"], r["path"]]
+               for rs in b["inbox"].values() for r in rs])
 
 
 def once(conf, csv_dir=None):

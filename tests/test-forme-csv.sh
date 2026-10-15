@@ -25,3 +25,20 @@ q = dict(zip(f[0], f[1]))
 assert q["Options"] == "A: x | B: y" and q["Recommended"] == "B" and q["Kind"] == "question" and q["Title"] == "pick, one", q
 P
 echo "ok: csv export"
+python3 - "$dir/out" <<'P' || { echo "FAIL: inbox.csv"; exit 1; }
+import csv, sys
+r = {x["Brief"]: x for x in csv.DictReader(open(sys.argv[1] + "/inbox.csv", newline="", encoding="ascii"))}
+assert set(r) == {"001", "002", "003"} and r["001"]["State"] == "done" and r["002"]["State"] == "cancelled" and r["003"]["State"] == "open", r
+assert r["003"]["Agent"] == "Zed" and r["003"]["From"] == "v" and r["003"]["Path"] == "inbox/Zed/003-v-c.md", r["003"]
+P
+grep -q "Inboxes" "$dir/impl/FOR-ME.html" || { echo "FAIL: html inboxes"; exit 1; }
+printf 'to: Zed\nfrom: v\nutc: 2026-10-14T09:00:00Z\ntask: <script>x</script>\n' > "$dir/impl/inbox/Zed/004-v-d.md"
+mkdir "$dir/impl/inbox/Zed/005-v-dir.md"
+SABHA_CONF="$dir/sabha.conf" python3 "$here/bin/sabha-for-me" --csv "$dir/out" || { echo "FAIL: dir named .md"; exit 1; }
+grep -q '&lt;script&gt;' "$dir/impl/FOR-ME.html" && ! grep -q '<script>x' "$dir/impl/FOR-ME.html" || { echo "FAIL: html escape"; exit 1; }
+printf -- '---\nid: 3\nutc: 2026-10-14T09:00:00Z\nowner: V\ntitle: =SUM(A1)\n' >> "$dir/impl/for-me.items"
+SABHA_CONF="$dir/sabha.conf" python3 "$here/bin/sabha-for-me" --csv "$dir/out" || exit 1
+grep -q "'=SUM(A1)" "$dir/out/for-me.csv" || { echo "FAIL: formula guard"; exit 1; }
+mv "$dir/impl/inbox" "$dir/impl/inbox.off"
+SABHA_CONF="$dir/sabha.conf" python3 "$here/bin/sabha-for-me" --csv "$dir/out" || { echo "FAIL: no inbox dir"; exit 1; }
+echo "ok: inbox csv + html"
