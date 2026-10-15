@@ -11,10 +11,19 @@ SABHA_USER="the user"
 # dispatcher second, then the panes in tab order (each tab: top row left to right, then the bottom row, up to 8).
 SABHA_ROSTER="Vidur:opus:medium Yudhishthira:opus:medium Bhishma:fable:medium Bhima:opus:high Arjun:opus:medium Sahadev:sonnet:high Nakul:sonnet:medium Karna:sonnet:medium Sanjaya:haiku:high Duryodhan:opus:high:gate,lazy Dushasan:sonnet:high:gate,lazy Shakuni:opus:high:gate,lazy Draupadi:sonnet:high:gate,lazy Gandhari:sonnet:medium:gate,lazy VedVyasa:sonnet:medium:gate,lazy Barbarika:haiku:medium:gate Abhimanyu:haiku:medium:gate Krishna:opus:medium:ondemand Ashwatthama:haiku:high:ondemand Dronacharya:sonnet:medium:ondemand"
 # Flags (comma list): ondemand = no pane, start it with sabha-up.sh <Name>; gate = a pane in the second tab (Gate);
-# lazy = starts only when a brief lands (sabha 1.5; until then it starts like any pane). No flag = a Build-tab pane.
+# lazy = no pane; bin/sabha-run starts it headless when a brief lands; mcp = keeps the user's MCP servers. No flag = a
+# Build-tab pane.
 # A role id is one word (Ved Vyasa is VedVyasa). SABHA_PROMPT_<Name> replaces the
 # opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
 SABHA_PROMPT_Krishna="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
+# Headless runner (bin/sabha-run, docs/headless-runner.md). Which roles it serves: lazy (default), all, or names.
+#SABHA_RUN_ROLES=lazy
+# At most this many runs at once (default 2); a run is stopped after SABHA_RUN_TIMEOUT seconds (default 3600).
+#SABHA_RUN_MAX=2
+#SABHA_RUN_TIMEOUT=3600
+# One log per run (default $SABHA_IMPL/runs). SABHA_RUN_AUTO=1 makes each sabha-watch run end with a sabha-run pass.
+#SABHA_RUN_LOGS=$SABHA_IMPL/runs
+#SABHA_RUN_AUTO=1
 SABHA_WAITING="Reviewer1 Reviewer2"
 # Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
 #SABHA_TASK_FALLBACK="Name=task text"
@@ -26,7 +35,7 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #utc: 2026-10-14T09:00:00Z
 #owner: Vidur
 #title: Which branch gets the demo
-#ask: Harsh
+#ask: Pat
 #q: Which branch should the demo be built from?
 #explain: The demo freezes whatever the branch holds, so a late change would not show.
 #opta: develop | newest code, may be unstable | includes yesterday's unreviewed merge

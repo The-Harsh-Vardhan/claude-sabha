@@ -11,12 +11,11 @@
 set -euo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-# shellcheck source=sabha-lib.sh
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$(dirname "$SELF")/sabha-lib.sh"
 sabha_load sabha-up
 PROJECT=${SABHA_PROJECT:-this project}
 OWNER=${SABHA_USER:-the user}
-PROTOCOL=$SABHA_IMPL/PROTOCOL.md
 
 FORCE=0
 [[ ${1:-} == --force ]] && { FORCE=1; shift; }
@@ -36,9 +35,8 @@ guard() {
 
 role() {
   for r in "${ROLES[@]}"; do
-    read -r name model effort flags <<<"$r"
+    read -r name model effort _ <<<"$r"
     [[ $name == "$1" ]] || continue
-    lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
     to=$DISPATCHER
     [[ $name == "$DISPATCHER" ]] && to=$RELAY
     [[ $name == "$RELAY" ]] && to=$OWNER
@@ -46,10 +44,7 @@ role() {
     tail_var=SABHA_PROMPT_$name
     tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
     [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
-    # SABHA_PROTOCOL_CORE (file under SABHA_IMPL) + SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the role file, then the top block of the status file
-    reads="$PROTOCOL, then status/$lower.md"
-    [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]] &&
-      reads="$SABHA_IMPL/$SABHA_PROTOCOL_CORE, then $SABHA_IMPL/$SABHA_ROLE_DIR/$name.md, then the top block of status/$lower.md"
+    reads=$(sabha_reads "$name")
     prompt="You are $name in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
     return 0
   done

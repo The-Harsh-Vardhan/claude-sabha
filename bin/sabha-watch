@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Read-only report: each role's context percent, its age and state, the restart line for a tab
-# above 30 percent that is not mid-task, the user's open items, and briefs nobody has acked.
+# above 30 percent that is not mid-task, the user's open items, and briefs nobody has acked. With SABHA_RUN_AUTO=1 it
+# then runs one sabha-run pass, so whatever calls sabha-watch on a schedule also starts headless runs.
 #   sabha-watch
 # Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script). Always exits 0.
 set -uo pipefail
@@ -69,4 +70,6 @@ for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]-*.md; do
   (( $(age_min "$b") > UNACKED_MIN )) && unacked+="inbox/$(basename "$d")/$n (sent $(date -r "$b" +%H:%M)) "
 done
 echo "unacked briefs: ${unacked:-none}"
+# the headless runner rides on this report instead of a loop of its own (docs/headless-runner.md)
+[[ ${SABHA_RUN_AUTO:-0} == 1 ]] && "$BIN/sabha-run"
 exit 0

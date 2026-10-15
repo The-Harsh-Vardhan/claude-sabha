@@ -22,7 +22,7 @@ Items: blocks are separated by lines that are exactly "---". A block still open 
 file is torn and waits for the next pass.
 
 Question items (optional extra keys on an item; a plain item has none of them and renders as before):
-  ask:     who must answer (Harsh, or a named person); shown on the card
+  ask:     who must answer (the owner in SABHA_USER, or a named person); shown on the card
   q:       the question; an item with q: and at least one option is a question item
   explain: why it matters, one line
   opta: .. opth:  one line per option, "option text | consequence | example" (consequence and example optional)
@@ -323,7 +323,8 @@ def qcard(i):
         return ""
     q, ex, ask, rec, opts = qq
     who = ask or i.get("waiting", "")
-    other = bool(who) and who.lower() != "harsh"
+    # the board owner comes from sabha.conf (SABHA_USER) so nothing personal is baked into the tree
+    other = bool(who) and who.lower() != os.environ.get("SABHA_USER", "Owner").lower()
     qid = "q" + re.sub(r"[^A-Za-z0-9]", "_", i["id"])
     p = ["<form class=qa data-id='%s' onsubmit='return false'>" % e(i["id"], quote=True)]
     if who:

@@ -21,6 +21,7 @@ edited by another; a change is a new file.
 | `inbox/<To>/NNN.claim` | the sender, before the brief | other senders picking a number | every brief (section 2) |
 | `inbox/<To>/NNN-<from>-<slug>.md` | the sender | the receiver, `sabha-watch` | every brief; the message says only `see inbox/<To>/NNN` |
 | `inbox/<To>/NNN.ack` | the receiver | the sender at its next wake; `sabha-watch` | first action after reading |
+| `inbox/<To>/run.lock` | `sabha-run` | `sabha-run` | while a headless run is on that role; holds its pid ([headless-runner.md](headless-runner.md)) |
 | `inbox/<To>/NNN.done` | the receiver | the sender; `<reviewer>`; `sabha-watch` | after the status file is updated |
 | `inbox/<To>/NNN.cancel` | the sender, or `<relay>` | the receiver before each irreversible step and at each safe point | to stop or hold |
 | `for-me.items` | any role appends | `sabha-for-me` (renders `FOR-ME.md` and `FOR-ME.html`) | whenever something needs the user |
@@ -83,7 +84,8 @@ context: 11
 ```
 
 `session` is the receiver's own `Name [ref]` from ListAgents; from then on the sender addresses
-that exact string. `context` is the receiver's context percent at ack time.
+that exact string. An ack `sabha-run` writes says `session: <Name> [headless]` and adds `log: <file>`; that run
+cannot take a message, so the sender waits for the `.done`. `context` is the receiver's context percent at ack time.
 
 ## 4. Done: `inbox/<To>/NNN.done`
 

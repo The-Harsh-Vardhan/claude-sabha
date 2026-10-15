@@ -11,6 +11,7 @@ Status: 0.1.0, unreleased. macOS (iTerm2) is used daily; Windows is untested ([d
 | --- | --- |
 | `bin/sabha-up.sh` | macOS: opens one iTerm2 window with two 4x2 tabs, Build and Gate (roster flag `gate`), one pane per role; on-demand roles get no pane; `sabha-up.sh <Name>` starts one role; `--print <Name>` prints its restart line |
 | `bin/sabha-up.ps1`, `bin/sabha-up.cmd` | Windows Terminal version of the same, with `-Print` and `-Workspace` |
+| `bin/sabha-run` | headless runner: one `claude -p` per due brief, for roles with no pane; `--print` shows the command ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha-watch` | read-only report: context percent per tab, restart lines above 30 percent, open items, unacked briefs |
 | `bin/sabha-for-me` | renders `FOR-ME.md` and `FOR-ME.html`, the user's board, from `for-me.items` and the status files (`--watch` to refresh) |
 | `docs/inbox-protocol.md` | the file formats: briefs, acks, dones, cancels, the GO token, `for-me.items`, status files |
@@ -33,6 +34,16 @@ Status: 0.1.0, unreleased. macOS (iTerm2) is used daily; Windows is untested ([d
 
 The roster names are the default theme (Mahabharat); rename them in `SABHA_ROSTER` in `sabha.conf`, the one roster
 source for the launchers, `sabha-watch` and the board. `status/context/<name>.txt` is written by a statusline hook of your own that saves the context percent.
+
+## Headless roles
+
+A role flagged `lazy` has no pane. `bin/sabha-run` starts it when a brief lands: it acks the brief, runs
+`claude -p` with the role's model, effort and opening context, and the process exits once `NNN.done` and the status
+file are written, so the role holds memory only while it works. Run `bin/sabha-run` after writing a brief, or set
+`SABHA_RUN_AUTO=1` and let each `bin/sabha-watch` run start what is due. At most `SABHA_RUN_MAX` (2) run at once, one
+per role; each is stopped after `SABHA_RUN_TIMEOUT` seconds and logged under `SABHA_IMPL/runs`. A permission prompt
+is denied, never skipped: the run writes the denial to `for-me.items` and a BLOCKED done. macOS and Linux only for
+now. Design: [docs/headless-runner.md](docs/headless-runner.md).
 
 ## License
 

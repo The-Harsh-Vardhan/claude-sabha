@@ -1,4 +1,4 @@
-# Sourced by sabha-up.sh, sabha-down.sh and sabha-check, never run: the config, the roster, and the claude
+# Sourced by sabha-up.sh, sabha-run, sabha-down.sh and sabha-check, never run: the config, the roster, and the claude
 # processes that carry a session name.
 # shellcheck shell=bash disable=SC2034  # ROLES, NAMES, RELAY, DISPATCHER are for the callers
 
@@ -58,6 +58,19 @@ sabha_load() {
   done
   RELAY=${NAMES[0]}
   DISPATCHER=${NAMES[1]}
+}
+
+# sabha_reads <Name>: what a role reads at start, shared by sabha-up.sh and sabha-run so both open the same way.
+# SABHA_PROTOCOL_CORE (file under SABHA_IMPL) + SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the
+# role file, then the top block of the status file.
+sabha_reads() {
+  local lower
+  lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
+  if [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]]; then
+    echo "$SABHA_IMPL/$SABHA_PROTOCOL_CORE, then $SABHA_IMPL/$SABHA_ROLE_DIR/$1.md, then the top block of status/$lower.md"
+  else
+    echo "$SABHA_IMPL/PROTOCOL.md, then status/$lower.md"
+  fi
 }
 
 # sabha_flag "<ROLES entry>" <flag>: true when the entry's flags list holds that flag

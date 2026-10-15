@@ -9,7 +9,7 @@ mkdir -p "$dir/impl/status/context"
 echo 12 > "$dir/impl/status/context/zed.txt"
 echo 33 > "$dir/impl/status/context/old.txt"
 touch -t 202601011234 "$dir/impl/status/context/old.txt"
-printf 'SABHA_IMPL=%s/impl\nSABHA_ROSTER="Zed:sonnet Old:sonnet"\n' "$dir" > "$dir/sabha.conf"
+printf 'SABHA_IMPL=%s/impl\nSABHA_ROSTER="Zed:sonnet Old:sonnet"\nSABHA_USER=Pat\n' "$dir" > "$dir/sabha.conf"
 cat > "$dir/impl/for-me.items" <<'X'
 ---
 id: 1
@@ -22,7 +22,7 @@ id: 2
 utc: 2026-10-14T09:00:00Z
 owner: V
 title: pick one
-ask: Harsh
+ask: Pat
 q: Which branch?
 explain: freezes the demo
 opta: develop | newest | unreviewed
@@ -48,8 +48,8 @@ title: late question
 ---
 id: 4
 utc: 2026-10-14T09:30:00Z
-waiting: Harsh (parked)
-ask: Harsh
+waiting: Pat (parked)
+ask: Pat
 q: Late?
 opta: yes | go
 optb: no | hold
@@ -71,7 +71,7 @@ chk "$h" "type=radio name=q3 value=A" "waiting item radio"
 chk "$h" "Needs: Alex" "waiting item needs line"
 chk "$h" "Answered by" "answered-by box for another person"
 chk "$h" "Waiting for others" "section label"
-[[ $(grep -o 'Answered by' "$h" | wc -l) -le 2 ]] || { echo "FAIL: Harsh card got answered-by"; exit 1; }
+[[ $(grep -o 'Answered by' "$h" | wc -l) -le 2 ]] || { echo "FAIL: Pat card got answered-by"; exit 1; }
 awk '/Waiting for others/{f=1} f&&/name=q3/{ok=1} END{exit !ok}' "$h" || { echo "FAIL: card not under waiting"; exit 1; }
 chk "$m" "needs: Alex" "md waiting question"
 grep -q '"name": "Zed", "ctx": 12.0, "old": false' "$h" || { echo "FAIL: fresh ctx not coloured"; exit 1; }
@@ -133,7 +133,18 @@ printf '# G\n\n## Old one\n- [x] a\n- [ ] b\n' > "$dir/impl/GOALS.md"
 SABHA_CONF="$dir/sabha.conf" python3 "$here/bin/sabha-for-me" || { echo "FAIL: render old goals"; exit 1; }
 awk '/lane-P2/{f=1} f&&/Old one/{ok=1} END{exit !ok}' "$h" || { echo "FAIL: old-format goal not P2"; exit 1; }
 chk "$m" "- Old one: 1/2 (owner: unassigned)" "old format md"
-echo "ok: goals columns, chips, progress, next, Goal column, order, old format"
+# GOALS: heading parts in any order, fallback for a title with its own parens, @Agent only on the step end
+printf '# G\n\n## Odd (D1, D2) {state: paused} (owner: Q; helpers: A, B) [P1]\n- [ ] mid @A text\n- [ ] last @B\n' > "$dir/impl/GOALS.md"
+SABHA_CONF="$dir/sabha.conf" python3 "$here/bin/sabha-for-me" || { echo "FAIL: render odd goals"; exit 1; }
+chk "$m" "- Odd (D1, D2): 0/2 (P1, owner: Q)" "tags in any order, title keeps its own parens"
+chk "$h" "id=s-paused" "paused goal folded"
+chk "$h" "next:</span> mid @A text" "mid-step @A is not an agent"
+# configurable owner: with SABHA_USER=Quinn, a question asked of Pat is another person's (answered-by box)
+n0=$(grep -o 'Answered by' "$h" | wc -l)
+printf 'SABHA_IMPL=%s/impl\nSABHA_ROSTER="Zed:sonnet Old:sonnet"\nSABHA_USER=Quinn\n' "$dir" > "$dir/sabha.conf"
+SABHA_CONF="$dir/sabha.conf" python3 "$here/bin/sabha-for-me" || { echo "FAIL: render owner"; exit 1; }
+[[ $(grep -o 'Answered by' "$h" | wc -l) -gt $n0 ]] || { echo "FAIL: SABHA_USER not honoured"; exit 1; }
+echo "ok: goals columns, chips, progress, next, Goal column, order, old format, any-order tags, configurable owner"
 
 # BOARD QUICK WINS (critique items 1, 3, 6, 8, 9, 10)
 w=$dir/w; mkdir -p "$w/status"
