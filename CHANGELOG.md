@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.2.0 - not tagged (tag text only; Vidur tags)
+
+- W1-W2: safe-defaults deny list (`share/claude-settings.json`: no remote pushes, gh pr, recursive deletes, .env or .npmrc
+  reads), `sabha init` and `sabha doctor`, `tests/test-leak.sh` (no names, paths, ids or tokens in shipped files), herdr
+  backend and nudge, limits guard, plan files (`sabha.pro.conf`, `sabha.max5.conf`, `sabha.max20.conf`).
+- W3: Google Sheet tracker (`sabha sheet-auth`, `sabha sheet-sync`; the dispatch says "not installed" when `bin/sabha-sheet`
+  is absent), local HTML and xlsx trackers, T20 scripts, README, RULES.md, protocol core and role cards.
+- W3 extras: per-role cost log `status/cost-log.tsv` (one tab-separated line per headless brief and per pane session end:
+  utc, role, model, context %, event); `sabha update` (a fast-forward pull in the install dir, then the CHANGELOG head; it
+  runs nothing else); `tests/test-grid.sh` uses its own fixture config, so a clean clone is green.
+
 - `sabha-run`: headless runner. For each served role (default: the `lazy` ones) with a brief nobody acked, it writes
   the ack, takes `inbox/<Name>/run.lock` and starts one `claude -p` with the role's model, effort, MCP flag and
   opening context; at most `SABHA_RUN_MAX` (2) at once, stopped after `SABHA_RUN_TIMEOUT` (3600 s), one log per run

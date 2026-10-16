@@ -110,6 +110,7 @@ if [[ ${1:-} == --child ]]; then
     why="cannot cd to $SABHA_WS"
   fi
   echo "sabha-run: $(utc) end $name $n: $why" >>"$log"
+  sabha_role "$name" && sabha_cost_log "$name" "$R_MODEL" "brief $n $why"
   # the sender waits on a .done; a run that died without one still has to say so
   if [[ ! -e $dir/$n.done ]]; then
     printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run ended without a done (%s), log %s\ncontext: 0\n' \

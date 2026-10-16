@@ -3,6 +3,8 @@
 #   sabha init   [--plan pro|max5|max20] [--tracker html|xlsx|sheet] [--push ntfy|off] [--ws DIR] [--impl DIR]
 #                [--out FILE] [--force]    writes sabha.conf (gitignored); asks for what is not given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
+#   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
+#   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 # Env: SABHA_CONF (config path, default ../sabha.conf beside this script), SABHA_SETTINGS (Claude settings.json to
 # check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -139,8 +141,24 @@ cmd_doctor() {
   [[ $FAILS -eq 0 ]]
 }
 
+# update only fast-forwards the install dir; it never runs a script, a hook or an install step it pulled
+cmd_update() {
+  git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "update: $ROOT is not a git checkout"
+  git -C "$ROOT" pull --ff-only || die "update: pull --ff-only failed (local changes or diverged history); nothing changed"
+  echo "--- CHANGELOG.md (head)"
+  sed -n 1,25p "$ROOT/CHANGELOG.md" 2>/dev/null || echo "(no CHANGELOG.md)"
+}
+
+cmd_sheet() {
+  local c=$1; shift
+  [[ -f $BIN/sabha-sheet ]] || die "$c: not installed (bin/sabha-sheet is missing from this checkout; try: sabha update)"
+  exec python3 "$BIN/sabha-sheet" "${c#sheet-}" "$@"
+}
+
 case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
-  *) echo "usage: sabha init [options] | sabha doctor" >&2; exit 2 ;;
+  update) shift; cmd_update ;;
+  sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
 esac

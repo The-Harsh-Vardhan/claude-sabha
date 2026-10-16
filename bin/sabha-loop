@@ -87,8 +87,8 @@ if [[ $1 == --stop ]]; then
   echo "sabha-loop: $2 ends after its current session"; exit 0
 fi
 
-name=$1 agent=""
-for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent _ <<<"$r"; break; }; done
+name=$1 agent="" model=""
+for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent model _ <<<"$r"; break; }; done
 [[ -n $agent ]] || { echo "sabha-loop: unknown role: $name" >&2; exit 2; }
 kind=$(kind_of "$agent")
 lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
@@ -136,6 +136,7 @@ while :; do
   wait "$cpid" 2>/dev/null; cpid=""
   up=$(( $(date +%s) - start ))
   log "session ended after ${up}s"
+  sabha_cost_log "$name" "$model" "session-end ${up}s"
   if (( up < min_up )); then
     fails=$(( fails + 1 ))
     (( fails >= 2 )) && { log "stopped: 2 sessions in a row ended within ${min_up}s"; exit 1; }

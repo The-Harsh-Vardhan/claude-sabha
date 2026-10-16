@@ -37,7 +37,7 @@ check "g2 under g1 and the Gate tab is created" 'grep -q "tell g1 to set g2 to (
 check "on-demand Krishna, Ashwatthama, Dronacharya and relay Vidur are not panes" '! grep -qE "Krishna|Ashwatthama|Dronacharya|\"Vidur\"" <<<"$out"'
 check "no menu click any more" '! grep -q "Arrange Split Panes" <<<"$out"'
 for n in Vidur Yudhishthira Bhishma Bhima Arjun Sahadev Nakul Karna Sanjaya Duryodhan Dushasan Shakuni Draupadi Gandhari VedVyasa Barbarika Abhimanyu Krishna Ashwatthama Dronacharya; do
-  "$SH" "$BIN/sabha-up.sh" --print "$n" >/dev/null 2>&1 || echo "FAIL print $n"
+  SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --print "$n" >/dev/null 2>&1 || echo "FAIL print $n"
 done > "$dir/print.txt"
 check "--print works for all 20 default roles" '[[ ! -s $dir/print.txt ]]'
 out=$(SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --print Krishna); rc=$?

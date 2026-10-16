@@ -22,3 +22,4 @@ docs/sabha-1.1-design.md
 /FOR-ME.html
 /for-me.items
 *.bak-*
+__pycache__/

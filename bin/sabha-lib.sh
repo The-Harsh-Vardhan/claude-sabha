@@ -146,3 +146,14 @@ sabha_procs() {
       if (name != "") printf "%s %s %s %s-%s-%s %s\n", name, $1, $2, $7, $4, $5, $6
     }' <<<"$list"
 }
+
+# sabha_cost_log <Name> <model> <event>: appends "utc role model ctx% event" (tab separated) to
+# $SABHA_IMPL/status/cost-log.tsv, the context % read from status/context/<name>.txt ("-" when unknown).
+# One line per brief or session end; it holds no prompt text and no secret. A write failure never stops a caller.
+sabha_cost_log() {
+  local lower ctx=-
+  lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
+  [[ -f $SABHA_IMPL/status/context/$lower.txt ]] && ctx=$(tr -d ' \n' <"$SABHA_IMPL/status/context/$lower.txt")
+  { mkdir -p "$SABHA_IMPL/status" && printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$ctx" "$3" \
+      >>"$SABHA_IMPL/status/cost-log.tsv"; } 2>/dev/null || true
+}
