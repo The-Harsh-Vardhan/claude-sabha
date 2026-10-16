@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# sabha-gate: the gate rule of docs/inbox-protocol.md section 6 as an exit code. Bash 3.2 safe.
+#   sabha-gate [-C DIR] <verdict-file>...      or      sabha-gate [-C DIR] --brief <brief>   (reads its "gate:" line)
+# A file named *-review.md is the reviewer's and needs "verdict: ACCEPT" on its first line (at least one is required).
+# Any other file is a critic's: "verdict: NO BREAK" passes; "verdict: BREAK n" or "BLOCK n" passes only when the
+# builder's <file minus .md>-answer.md holds n or more lines starting REFUTED: or FIXED:. Exit 0 = gate open, 1 = shut,
+# 2 = usage. Not checked: a newer verdict reopening a finding (pass the newest verdict files).
+#   sabha-gate --self-test
+set -u
+if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-gate.sh"; fi
+dir=. brief=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -C) dir=${2:-}; shift 2 ;;
+    --brief) brief=${2:-}; shift 2 ;;
+    -*) echo "sabha-gate: unknown option $1" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+files=("$@")
+if [[ -n $brief ]]; then
+  line=$(grep -m1 '^gate:' "$brief") || { echo "sabha-gate: no gate: line in $brief" >&2; exit 2; }
+  IFS=', ' read -r -a files <<<"${line#gate:}"
+fi
+if [[ ${#files[@]} -eq 0 ]]; then sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; fi
+cd "$dir" || exit 2
+rc=0 accepted=0
+for f in "${files[@]}"; do
+  [[ -n $f ]] || continue
+  if [[ ! -f $f ]]; then echo "SHUT $f: missing"; rc=1; continue; fi
+  v=$(head -n 1 "$f" | tr -d '\r')
+  case $f in
+    *-review.md)
+      if [[ $v == "verdict: ACCEPT" ]]; then accepted=1; echo "ok   $f: ACCEPT"
+      else echo "SHUT $f: not ACCEPT ($v)"; rc=1; fi ;;
+    *)
+      case $v in
+        "verdict: NO BREAK") echo "ok   $f: NO BREAK" ;;
+        "verdict: BREAK "[0-9]*|"verdict: BLOCK "[0-9]*)
+          n=${v##* }; ans=${f%.md}-answer.md
+          have=0; [[ -f $ans ]] && have=$(grep -c -E '^(REFUTED|FIXED):' "$ans")
+          if (( have >= n )); then echo "ok   $f: $v, answered ($have in $ans)"
+          else echo "SHUT $f: $v, $have of $n answered"; rc=1; fi ;;
+        *) echo "SHUT $f: unreadable verdict ($v)"; rc=1 ;;
+      esac ;;
+  esac
+done
+if (( ! accepted )); then echo "SHUT: no reviewer ACCEPT (*-review.md)"; rc=1; fi
+if (( rc )); then echo "GATE SHUT"; else echo "GATE OPEN"; fi
+exit "$rc"
