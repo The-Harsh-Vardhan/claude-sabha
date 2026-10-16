@@ -9,8 +9,8 @@ Status: 0.1.0, unreleased. macOS (iTerm2) is used daily; Windows is untested ([d
 
 | Path | What |
 | --- | --- |
-| `bin/sabha-up.sh` | macOS: opens one iTerm2 window with two 4x2 tabs, Build and Gate (roster flag `gate`), one pane per role; on-demand roles get no pane; `sabha-up.sh <Name>` starts one role; `--print <Name>` prints its restart line |
-| `bin/sabha-up.ps1`, `bin/sabha-up.cmd` | Windows Terminal version of the same, with `-Print` and `-Workspace` |
+| `bin/sabha-up.sh` | Opens a herdr workspace by default (iTerm2 on macOS is the fallback: `SABHA_BACKEND=iterm`) with two 4x2 tabs, Build and Gate (roster flag `gate`), one pane per role; on-demand roles get no pane; `sabha-up.sh <Name>` starts one role; `--print <Name>` prints its restart line |
+| `bin/sabha-herdr.sh`, `bin/sabha-nudge` | The herdr backend (the default on every OS) and `sabha-nudge <Name> "text"` (`herdr agent prompt --wait`) |
 | `bin/sabha-run` | headless runner: one `claude -p` per due brief, for roles with no pane; `--print` shows the command ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha-watch` | read-only report: context percent per tab, restart lines above 30 percent, open items, unacked briefs |
 | `bin/sabha-for-me` | renders `FOR-ME.md` and `FOR-ME.html`, the user's board, from `for-me.items` and the status files (`--watch` to refresh) |

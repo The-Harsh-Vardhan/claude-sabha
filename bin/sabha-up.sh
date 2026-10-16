@@ -1,21 +1,26 @@
 #!/usr/bin/env bash
-# Opens one maximised iTerm2 window with two tabs of 4x2 panes, Build and Gate (roster flag "gate"), and starts one
-# role per pane; the relay (first role) and on-demand roles are started by hand.
+# Opens a herdr workspace with two tabs of 4x2 panes, Build and Gate (roster flag "gate"), and starts one
+# role per pane; the relay (first role) and on-demand roles are started by hand. SABHA_BACKEND=iterm opens the old
+# maximised iTerm2 window instead (macOS only, frozen); see bin/sabha-herdr.sh for the herdr backend.
 #   sabha-up.sh                 open the grid
-#   sabha-up.sh <Name>          start one role in the current terminal (each pane runs this)
+#   sabha-up.sh <Name>          start one role in the current terminal (each pane runs this); a non-claude role
+#                               (opencode, codex, agy, muse) is started in a new pane beside it, inside herdr
+#   SABHA_REMOTE=1              pass --remote-control to Claude panes (default off; Pro/Max only, org policy may block)
 #   sabha-up.sh --print <Name>  print that role's one-line restart command and exit
 #   on-demand roles (roster flag "ondemand") have no pane: start them with sabha-up.sh <Name>
 #   sabha-up.sh <Name>-N        a copy of that role (Arjun-2): same profile, its own inbox and status file
 #   --plan pro|max5|max20       (first argument) roster, panes, copies and labels from sabha.<plan>.conf beside
 #                               sabha.conf; SABHA_PANES names the roles that get a pane, the rest are on demand
 #   --force (first argument)    start even when a claude process already holds a role's name
-# Run it from a plain terminal: osascript is blocked inside a Claude sandbox.
+# Run it from a plain terminal: osascript (iterm backend) is blocked inside a Claude sandbox.
 # Paths and names come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
 set -euo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$(dirname "$SELF")/sabha-lib.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-herdr.sh
+. "$(dirname "$SELF")/sabha-herdr.sh"
 PLAN_ARG=""
 if [[ ${1:-} == --plan ]]; then
   [[ $# -ge 2 && -n $2 ]] || { echo "usage: sabha-up.sh --plan pro|max5|max20 [...]" >&2; exit 2; }
@@ -44,8 +49,6 @@ guard() {
 role() {
   sabha_role "$1" || { echo "unknown role: $1" >&2; exit 1; }
   r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
-  # non-claude agents (opencode, codex, agy, muse) start through the herdr backend, not this launcher
-  [[ $R_AGENT == claude ]] || { echo "sabha-up: $name runs on $R_AGENT, which this launcher cannot start (herdr backend)" >&2; exit 1; }
   to=$DISPATCHER
   [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   [[ $R_BASE == "$RELAY" ]] && to=$OWNER
@@ -62,13 +65,42 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   role "$2"
   # the line is pasted into zsh or bash, so a double quote, $ or backtick would break it
   [[ $prompt$SABHA_WS != *[\"\$\`]* ]] || { echo "sabha-up: config value holds a quote, \$ or backtick" >&2; exit 1; }
+  if [[ $R_AGENT != claude ]]; then
+    echo "herdr agent start $(tr '[:upper:]' '[:lower:]' <<<"$name") --kind $R_AGENT --pane <pane-id>   # then: herdr agent prompt <name> \"$prompt\""
+    exit 0
+  fi
   mcp=""; sabha_flag "$r" mcp || mcp=" --strict-mcp-config"
-  echo "cd \"$SABHA_WS\" && claude -n $name --model $model --effort $effort$mcp \"$prompt\""
+  remote=""; [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=" --remote-control"
+  echo "cd \"$SABHA_WS\" && claude -n $name --model $model --effort $effort$mcp$remote \"$prompt\""
   exit 0
 fi
 
+# herdr_agent <Name> <pane_id>: starts the role's non-claude agent in that pane and submits its opening prompt
+# (no --wait: the prompt starts a whole session, and a nudge waits for what it needs)
+herdr_agent() {
+  local lower
+  lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
+  herdr agent start "$lower" --kind "$R_AGENT" --pane "$2" >/dev/null || return 1
+  sabha_pane_note "$1" "$2"
+  herdr agent prompt "$lower" "$prompt" >/dev/null
+}
+
 if [[ $# -eq 1 ]]; then
   role "$1"
+  if [[ $R_AGENT != claude ]]; then
+    # this pane's shell is busy running this script and agent start wants an idle shell: use a sibling pane
+    [[ ${HERDR_ENV:-} == 1 ]] || { echo "sabha-up: $name runs on $R_AGENT, which starts inside a herdr pane (open herdr first)" >&2; exit 1; }
+    sabha_herdr_ready || exit 1
+    pane=$(sabha_jid "$(herdr pane split --current --direction right --cwd "$SABHA_WS" --no-focus)" pane_id)
+    [[ -n $pane ]] || { echo "sabha-up: herdr gave no pane id" >&2; exit 1; }
+    herdr_agent "$name" "$pane" || { echo "sabha-up: herdr could not start $name ($R_AGENT)" >&2; exit 1; }
+    echo "sabha-up: $name started on $R_AGENT in pane $pane"
+    # stay alive while the agent does: sabha-loop supervises this process and asks for a restart with two Ctrl-C
+    lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+    trap 'herdr agent send-keys "$lower" C-c C-c >/dev/null 2>&1; exit 0' INT TERM   # UNTESTED: key spelling
+    while herdr agent get "$lower" >/dev/null 2>&1; do sleep 5; done
+    exit 0
+  fi
   guard "$name"
   # iTerm2 badge: "Fable Medium"; macOS bash 3.2 has no ${v^}, hence awk
   if [[ ${LC_TERMINAL:-${TERM_PROGRAM:-}} == iTerm* ]]; then
@@ -83,7 +115,8 @@ if [[ $# -eq 1 ]]; then
   cd "$SABHA_WS"
   # MCP servers each cost memory and the roles do not use them; "mcp" in the roster flags keeps them
   mcp=(--strict-mcp-config); sabha_flag "$r" mcp && mcp=()
-  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} "$prompt"
+  remote=(); [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=(--remote-control)
+  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} ${remote[@]+"${remote[@]}"} "$prompt"
 fi
 
 # two tabs: Build takes the pane roles in pane order, Gate takes those flagged "gate"; each is two rows of up to four.
@@ -99,6 +132,52 @@ done
 # on-demand roles have no pane, so only the panes are checked (the relay too when SABHA_PANES lists it)
 guard "${build[@]}" ${gate[@]+"${gate[@]}"}
 pane_args=$PLAN_ARG; (( FORCE )) && pane_args+="--force "
+
+# herdr backend (the default): one workspace, Build as its first tab and Gate as a second; each tab is two rows of up
+# to four panes. fill_tab <root pane id> <name>...: columns by splitting right, the second row by splitting down, then
+# the roles in order (top row first). Widths are herdr's halves, not equal; resize with the mouse.
+fill_tab() {
+  local root=$1 p k cols n=$(( $# - 1 )) ids out
+  shift
+  cols=$(( (n + 1) / 2 ))
+  ids=("$root")
+  for (( k = 2; k <= cols; k++ )); do
+    out=$(herdr pane split "${ids[$((k - 2))]}" --direction right --cwd "$SABHA_WS" --no-focus) || exit 1
+    ids+=("$(sabha_jid "$out" pane_id)")
+  done
+  for (( k = 0; k < cols && cols + k < n; k++ )); do
+    out=$(herdr pane split "${ids[$k]}" --direction down --cwd "$SABHA_WS" --no-focus) || exit 1
+    ids+=("$(sabha_jid "$out" pane_id)")
+  done
+  k=0
+  for name in "$@"; do
+    p=${ids[$k]}
+    [[ -n $p ]] || { echo "sabha-up: herdr gave no pane id for $name" >&2; exit 1; }
+    role "$name"
+    herdr pane rename "$p" "$name" >/dev/null
+    if [[ $R_AGENT == claude ]]; then
+      sabha_pane_note "$name" "$p"
+      herdr pane run "$p" "'$SELF' $pane_args$name" >/dev/null
+    else
+      herdr_agent "$name" "$p" || echo "sabha-up: herdr could not start $name ($R_AGENT)" >&2
+    fi
+    k=$(( k + 1 ))
+  done
+}
+if [[ $(sabha_backend) == herdr ]]; then
+  sabha_herdr_ready || exit 1
+  echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
+  out=$(herdr workspace create --cwd "$SABHA_WS" --label "$PROJECT" --no-focus) || exit 1
+  ws=$(sabha_jid "$out" workspace_id)
+  fill_tab "$(sabha_jid "${out#*\"root_pane\"}" pane_id)" "${build[@]}"
+  if (( ${#gate[@]} )); then
+    echo "sabha-up: tab Gate $(( (${#gate[@]} + 1) / 2 ))x2: ${gate[*]}"
+    out=$(herdr tab create --workspace "$ws" --cwd "$SABHA_WS" --label Gate --no-focus) || exit 1
+    fill_tab "$(sabha_jid "${out#*\"root_pane\"}" pane_id)" "${gate[@]}"
+  fi
+  echo "sabha-up: attach with: herdr   (VS Code integrated terminal on Mac/Linux: herdr attach)"
+  exit 0
+fi
 
 # tab_script <prefix> <name>...: AppleScript that splits session <prefix>1 into two rows and starts one role per pane.
 # A vertical split halves a pane, so 4 columns are made by halving twice (equal); 3 columns come out 1/2, 1/4, 1/4.

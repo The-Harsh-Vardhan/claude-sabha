@@ -16,7 +16,7 @@ printf '#!/bin/sh\necho "STUB claude $*"\n' > "$dir/stubs/claude"
 printf '#!/bin/sh\necho "STUB osascript $*"; [ -t 0 ] || cat\n' > "$dir/stubs/osascript"
 chmod +x "$dir/stubs/claude" "$dir/stubs/osascript"
 : > "$dir/ps.txt"
-export SABHA_PS_FILE=$dir/ps.txt PATH=$dir/stubs:$PATH
+export SABHA_PS_FILE=$dir/ps.txt PATH=$dir/stubs:$PATH SABHA_BACKEND=iterm
 
 # grid <roster or "-" for none>: runs sabha-up.sh with that roster (none = the script's default list)
 grid() {

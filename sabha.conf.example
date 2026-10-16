@@ -7,12 +7,19 @@ SABHA_IMPL=$SABHA_WS/path/to/impl
 # The opening prompt says "You are <Name> in $SABHA_PROJECT session setup"; the relay reports to $SABHA_USER.
 SABHA_PROJECT="My project"
 SABHA_USER="the user"
+# Terminal backend: herdr (default, every OS; install with brew install herdr). iterm = the frozen macOS iTerm2 path.
+# On Windows run the scripts in Git Bash (UNTESTED). Nudge a role: bin/sabha-nudge <Name> "text". Mac/Linux: run
+# `herdr attach` in a VS Code integrated terminal to view and chat with any pane.
+#SABHA_BACKEND=herdr
+# 1 passes --remote-control to Claude panes (Pro/Max only; an org policy can block it).
+#SABHA_REMOTE=0
 # Plan: the roster, panes, copies and labels of sabha.<plan>.conf beside this file (pro, max5, max20) replace the ones
 # below. `sabha-up.sh --plan pro` does the same for one run. Leave it unset to use the roster written here.
 #SABHA_PLAN=pro
 # Roster: Name:agent:model[:effort[:flags]] entries separated by spaces (a name with a space is not supported; effort
 # defaults to medium). The agent is claude, opencode, codex, agy or muse; a row without one (Name:model...) is claude,
-# so older rosters still parse. Only claude rows start from sabha-up.sh and sabha-run today. The one roster source
+# so older rosters still parse. Claude rows start from sabha-up.sh and sabha-run; the other agents start through herdr
+# (opencode tested; codex, agy and muse UNTESTED) and sabha-run never serves them. The one roster source
 # for the launchers, sabha-watch and the board. Order matters: the relay first, the dispatcher second, then the panes
 # in tab order (each tab: top row left to right, then the bottom row, up to 8).
 SABHA_ROSTER="Vidur:claude:opus:medium Yudhishthira:claude:opus:medium Bhishma:claude:fable:medium Bhima:claude:opus:high Arjun:claude:opus:medium Sahadev:claude:sonnet:high Nakul:claude:sonnet:medium Karna:claude:sonnet:medium Sanjaya:claude:haiku:high Duryodhan:claude:opus:high:gate,lazy Dushasan:claude:sonnet:high:gate,lazy Shakuni:claude:opus:high:gate,lazy Draupadi:claude:sonnet:high:gate,lazy Gandhari:claude:sonnet:medium:gate,lazy VedVyasa:claude:sonnet:medium:gate,lazy Barbarika:claude:haiku:medium:gate Abhimanyu:claude:haiku:medium:gate Krishna:claude:opus:medium:ondemand Ashwatthama:claude:haiku:high:ondemand Dronacharya:claude:sonnet:medium:ondemand"

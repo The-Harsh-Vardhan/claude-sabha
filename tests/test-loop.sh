@@ -27,6 +27,16 @@ sleep 5
 [[ $(grep -c '^.* start (' "$log") -ge 2 ]] || fail "a second start should follow the restart: $(cat "$log")"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 
+# 1b. an agent that ignores SIGINT (what a "&" child of a script may inherit): the TERM after the grace ends it and a
+# second session starts
+: >"$log"; touch -t 202001010000 "$dir/status/arjun.md"
+SABHA_LOOP_CMD='trap "" INT; trap "exit 0" TERM; sleep 20 & wait' bash "$BIN/sabha-loop" Arjun 2>/dev/null &
+lp=$!
+sleep 2; touch "$dir/status/context/arjun.txt" "$dir/status/arjun.md"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ $(grep -c ' start (' "$log" 2>/dev/null) -ge 2 ]] && break; sleep 1; done
+[[ $(grep -c ' start (' "$log") -ge 2 ]] || fail "an INT-proof agent was not restarted through TERM: $(cat "$log")"
+kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
+
 # 2. an agent that dies at once: the loop gives up after the second death
 : >"$log"
 SABHA_LOOP_CMD='exit 1' bash "$BIN/sabha-loop" Arjun 2>/dev/null; rc=$?
@@ -55,4 +65,4 @@ sleep 2; : >"$dir/inbox/Oc/001.done"
 for _ in 1 2 3 4 5 6; do grep -q 'restart: a brief finished' "$olog" 2>/dev/null && break; sleep 1; done
 grep -q 'restart: a brief finished' "$olog" || fail "other pane did not restart on .done: $(cat "$olog" 2>/dev/null)"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
-echo "ok: self-test, restart at 35% with a newer handoff, stop after 2 dead starts, SABHA_STOP gate, --stop, .done restart"
+echo "ok: self-test, restart at 35% with a newer handoff, TERM fallback for an INT-proof agent, stop after 2 dead starts, SABHA_STOP gate, --stop, .done restart"

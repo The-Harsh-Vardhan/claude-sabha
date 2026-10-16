@@ -20,6 +20,7 @@ chmod +x "$dir/stubs/claude" "$dir/stubs/osascript"
 : > "$dir/ps.txt"
 export SABHA_CONF=$dir/sabha.conf SABHA_PS_FILE=$dir/ps.txt PATH=$dir/stubs:$PATH
 unset SABHA_PLAN SABHA_PANES SABHA_MAX_COPIES
+export SABHA_BACKEND=iterm
 
 # conf <extra lines...>: writes sabha.conf with the paths and the given lines
 conf() { { echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"; printf '%s\n' "$@"; } > "$dir/sabha.conf"; }
@@ -83,7 +84,7 @@ out=$(up --print Y)
 check "no label, no brackets" 'grep -q "\"You are Y in " <<<"$out"'
 conf 'SABHA_ROSTER="V:opus:medium Y:opus:medium C:codex:o3:low"'
 out=$(up --print C); rc=$?
-check "a non-claude role is refused by the launcher, naming the agent" '(( rc == 1 )) && grep -q "C runs on codex" <<<"$out"'
+check "a non-claude role prints a herdr agent start line, not a refusal" '(( rc == 0 )) && grep -q "^herdr agent start c --kind codex" <<<"$out"'
 mkdir -p "$dir/impl/inbox/C"; echo "to: C" > "$dir/impl/inbox/C/001-y-task.md"
 out=$(SABHA_RUN_ROLES=all "$SH" "$BIN/sabha-run" --print 2>&1); rc=$?
 check "sabha-run never serves a non-claude role" '(( rc == 0 )) && ! grep -q "C" <<<"$out"'
