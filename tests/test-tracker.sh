@@ -6,7 +6,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 here=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-tracker.XXXXXX") || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fail() { echo "FAIL: $1"; exit 1; }
 
 for n in tracker progress agents for-me inbox repos; do

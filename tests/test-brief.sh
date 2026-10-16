@@ -7,7 +7,7 @@ bin=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-brief.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
 dir=$(cd -P "$dir" && pwd -P)
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 export SABHA_IMPL=$dir
 
 [[ $("$bin/sabha-brief" 2>&1 >/dev/null; echo $?) == *2 ]] || { echo "FAIL: no args should exit 2"; exit 1; }

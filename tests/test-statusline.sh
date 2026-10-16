@@ -6,7 +6,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-sl.XXXXXX") || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_NOTIFY_DESKTOP=0\nSABHA_NOTIFY="20 50"\n' "$dir" "$dir" >"$dir/sabha.conf"
 export SABHA_CONF=$dir/sabha.conf
 fail() { echo "FAIL: $*"; exit 1; }

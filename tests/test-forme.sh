@@ -5,7 +5,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 here=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-forme.XXXXXX") || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 mkdir -p "$dir/impl/status/context"
 echo 12 > "$dir/impl/status/context/zed.txt"
 echo 33 > "$dir/impl/status/context/old.txt"

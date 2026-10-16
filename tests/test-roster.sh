@@ -10,7 +10,7 @@ BIN=$ROOT/bin
 SH=${BASH:-bash}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-roster.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fails=0
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
 
@@ -85,7 +85,7 @@ out=$(up --print Y)
 check "no label, no brackets" 'grep -q "\"You are Y in " <<<"$out"'
 conf 'SABHA_ROSTER="V:opus:medium Y:opus:medium C:codex:o3:low"'
 out=$(up --print C); rc=$?
-check "a non-claude role prints a herdr agent start line, not a refusal" '(( rc == 0 )) && grep -q "^herdr agent start c --kind codex" <<<"$out"'
+check "a non-claude role prints a herdr agent start line, not a refusal" '(( rc == 0 )) && grep -q "^herdr --session sabha agent start c --kind codex" <<<"$out"'
 mkdir -p "$dir/impl/inbox/C"; echo "to: C" > "$dir/impl/inbox/C/001-y-task.md"
 out=$(SABHA_RUN_ROLES=all "$SH" "$BIN/sabha-run" --print 2>&1); rc=$?
 check "sabha-run never serves a non-claude role" '(( rc == 0 )) && ! grep -q "C" <<<"$out"'
@@ -127,6 +127,11 @@ check "sabha-for-me renders a v2 roster" '(( rc == 0 )) && grep -q "^| B (Builde
 conf 'SABHA_PLAN=pro' 'SABHA_FORME_DIR='"$dir/board"
 out=$(SABHA_PLAN_DIR=$ROOT python3 "$BIN/sabha-for-me" 2>&1); rc=$?
 check "sabha-for-me reads the plan file" '(( rc == 0 )) && grep -q "^| Bhishma (Architect) | opus medium |" "$dir/board/FOR-ME.md"'
+
+# S6: the default roster in sabha.conf.example and the one in sabha.max20.conf are the same string
+r1=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.conf.example")
+r2=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.max20.conf")
+check "sabha.conf.example and sabha.max20.conf carry the same roster" '[[ -n $r1 && $r1 == "$r2" ]]'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"

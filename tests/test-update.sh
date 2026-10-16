@@ -7,7 +7,7 @@ BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 SH=${BASH:-bash}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-update.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 fails=0

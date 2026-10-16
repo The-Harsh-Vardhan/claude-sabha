@@ -33,7 +33,7 @@ that exact line per due brief and writes nothing.
 | Spawn fails | the child writes its pid to `run.lock` first; a pass that does not see it within 5 s writes `NNN.done` with `result: BLOCKED headless run did not start` and removes the lock | an ack with no done and an orphan lock would stall the sender |
 | No done at exit | the runner writes `NNN.done` with `result: BLOCKED headless run ended without a done (exit N or timeout), log <file>` | the sender waits on a `.done` |
 | Logs | `SABHA_RUN_LOGS` (default `$SABHA_IMPL/runs`), one `<Name>-NNN-<utc>.log` per run: the command, claude's text output, the end line | read after the fact; nothing streams |
-| Windows | not covered yet; `sabha-up.ps1` has no runner twin | the Mac is where memory ran out |
+| Windows | not covered yet (the Windows launchers were removed in 0.2.0) | the Mac is where memory ran out |
 
 ## Limits
 

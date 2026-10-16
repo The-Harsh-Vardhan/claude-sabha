@@ -9,7 +9,7 @@ BIN=$ROOT/bin
 SH=${BASH:-bash}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-hermetic.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fails=0
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
 
@@ -37,6 +37,14 @@ check "with the fake (tests/hermetic-bin/herdr) sabha-up --plan pro works" '(( r
 check "...and the other herdr was still never called" '[[ ! -s $REAL_LOG ]]'
 out=$(SABHA_TEST= PATH=$dir/real:$dir/stubs:$good "$SH" "$BIN/sabha-up.sh" --plan pro 2>&1)
 check "outside tests (SABHA_TEST unset) the guard does nothing" '[[ -s $REAL_LOG ]]'
+
+# every test sources hermetic.sh, so a new test cannot forget the guard (this one and test-leak are exempt)
+missing=""
+for t in "$ROOT"/tests/test-*.sh; do
+  case $(basename "$t") in test-hermetic.sh|test-leak.sh) continue ;; esac
+  grep -q 'hermetic\.sh' "$t" || missing="$missing $(basename "$t")"
+done
+check "every tests/test-*.sh sources hermetic.sh (missing:${missing:- none})" '[[ -z $missing ]]'
 
 (( fails == 0 )) && { echo "ok: a test run cannot reach a herdr other than the fake"; exit 0; }
 echo "$fails check(s) failed"; exit 1

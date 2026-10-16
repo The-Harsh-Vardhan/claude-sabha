@@ -8,7 +8,7 @@ run it.
 
 | Gap | Why | Confirm it by |
 | --- | --- | --- |
-| herdr: the JSON keys read from `workspace create`, `tab create` and `pane split`, and the spelling of `agent start`, `agent prompt`, `agent read` and `agent send-keys` | Written from `herdr --skill` and checked against a fake herdr only (tests never touch a real one). Status: pending 4a-real (the real-herdr smoke test is not recorded yet) | On a machine with herdr, in a throwaway herdr session (not your working one): `bin/sabha-up.sh --plan pro`, then `bin/sabha-nudge <Name> "say hi"`; record what differs from `bin/sabha-herdr.sh` |
+| herdr: `agent start`, `agent prompt`, `agent wait`, `agent read`, `send-keys` and `pane split` (flags, JSON keys, spelling) | Checked against a fake herdr only (tests never touch a real one). A real-herdr smoke test (herdr 0.9.4, a throwaway session) covered the named-session server start and the `status: running` line, `workspace create`, `workspace list`, `pane list`, `agent list`, `workspace close` and `session stop` / `delete`; those are no longer untested | In a throwaway `SABHA_HERDR_SESSION` (never your working one): `bin/sabha-up.sh --plan pro`, then `bin/sabha-nudge <Name> "say hi"`; record what differs from `bin/sabha-herdr.sh`, then `bin/sabha-down.sh --yes` |
 | `bin/sabha-sheet` live Google OAuth and Sheets calls | Only `--dry-run` runs without a Google account | `bin/sabha sheet-auth` once, then `bin/sabha sheet-sync --dry-run` and `bin/sabha sheet-sync` against a copy of the sheet |
 | `sabha doctor` seat detection | Reads the text of `claude auth status`, which differs between Claude Code versions | Run `bin/sabha doctor` on a Pro/Max login and on a Team seat; override with `SABHA_DOCTOR_SEAT=Team` if the text is not recognised |
 | Windows | No Windows run and no Windows machine here; Git Bash being enough is not verified | Follow `docs/windows.md` and `docs/quickstart.md`; report each step that fails |
@@ -22,6 +22,8 @@ run it.
 - `bin/sabha-worktree` hook uses `git --path-format`, which needs git 2.31 or later, and has no fallback.
 - `bin/sabha-brief` reads the body from stdin only when stdin is a pipe or a file. A socket stdin (some tool
   runners) is skipped: pass `--body FILE`.
+- `bin/sabha-down.sh` has no Linux or Windows fallback for closing windows: the iTerm2/osascript steps are macOS-only
+  (the process kill and the herdr session stop are portable).
 - `sabha-gate` decides "newer" by the last `verdict:` line in a file and by file mtime for answers; it does not read
   git history.
 

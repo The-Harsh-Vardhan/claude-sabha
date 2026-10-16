@@ -9,7 +9,7 @@ BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 SH=${BASH:-bash}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-procs.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fails=0
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
 
@@ -94,13 +94,22 @@ check "grid opens when nothing runs" '(( rc == 0 )) && grep -q "STUB osascript" 
 
 # herdr backend, fake herdr on PATH: --force reaches the panes there too, and a free grid opens a workspace
 mkdir -p "$dir/fh"; cp "$BIN/../tests/fake-herdr.sh" "$dir/stubs/herdr"; chmod +x "$dir/stubs/herdr"; export SABHA_HERDR_BIN=$dir/stubs/herdr
-export FAKE_HERDR_LOG=$dir/herdr.log FAKE_HERDR_DIR=$dir/fh
+export FAKE_HERDR_LOG=$dir/herdr.log FAKE_HERDR_DIR=$dir/fh FAKE_HERDR_CALLS=$dir/calls
 : > "$FAKE_HERDR_LOG"
 out=$(SABHA_BACKEND=herdr "$SH" "$BIN/sabha-up.sh" --force 2>&1); rc=$?
-check "herdr: grid --force passes --force to the panes" '(( rc == 0 )) && grep -q "^pane run p[0-9]* .*sabha-up.sh. --force Yudhishthira" "$FAKE_HERDR_LOG"'
+check "herdr: grid --force passes --force to the panes" '(( rc == 0 )) && grep -q "^pane run w1:p[0-9]* .*sabha-up.sh. --force Yudhishthira" "$FAKE_HERDR_LOG"'
 : > "$FAKE_HERDR_LOG"
 out=$(SABHA_BACKEND=herdr SABHA_PS_FILE=$dir/ps-empty.txt "$SH" "$BIN/sabha-up.sh" 2>&1); rc=$?
 check "herdr: grid opens when nothing runs, panes get no --force" '(( rc == 0 )) && grep -q "^workspace create" "$FAKE_HERDR_LOG" && ! grep -q -- "--force" "$FAKE_HERDR_LOG"'
+
+# sabha-down on the herdr backend stops the sabha session and no other one; a dry run only says so
+: > "$dir/calls"
+out=$(env -u CLAUDECODE SABHA_BACKEND=herdr SABHA_PS_FILE=$dir/ps-empty.txt "$SH" "$BIN/sabha-down.sh" 2>&1); rc=$?
+check "herdr: sabha-down dry run says it would stop the session and calls nothing" '(( rc == 0 )) && grep -q "would stop and delete the herdr session sabha" <<<"$out" && [[ ! -s $dir/calls ]]'
+out=$(env -u CLAUDECODE SABHA_BACKEND=herdr SABHA_KILL=fakekill SABHA_PS_FILE=$dir/ps-empty.txt "$SH" "$BIN/sabha-down.sh" --yes 2>&1); rc=$?
+check "herdr: sabha-down --yes stops then deletes session sabha, no other session" '(( rc == 0 )) && grep -qx "session stop sabha" "$dir/calls" && grep -qx "session delete sabha" "$dir/calls" && [[ $(wc -l <"$dir/calls" | tr -d " ") == 2 ]]'
+out=$(env -u CLAUDECODE SABHA_BACKEND=herdr SABHA_HERDR_SESSION=mine SABHA_KILL=fakekill SABHA_PS_FILE=$dir/ps-empty.txt "$SH" "$BIN/sabha-down.sh" --yes 2>&1); : > "$dir/x"
+check "herdr: SABHA_HERDR_SESSION picks the session to stop" 'grep -qx "session stop mine" "$dir/calls" && ! tail -2 "$dir/calls" | grep -q "session stop sabha"'
 
 # --- --yes, with kill and osascript stubbed (008: M1, S1-S6)
 export IMPL=$dir/impl ACTLOG=$dir/act.log FAKE_WINDOWS=$dir/windows.txt SABHA_KILL_GRACE=0

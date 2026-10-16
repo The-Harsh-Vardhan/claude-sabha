@@ -5,7 +5,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-claim.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 cd "$dir" || exit 1
 
 claim() {

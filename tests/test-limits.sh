@@ -6,7 +6,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-limits.XXXXXX") || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 export SABHA_IMPL=$dir SABHA_NOTIFY_DESKTOP=0 SABHA_PUSH=off
 # shellcheck source=../bin/sabha-limits.sh
 . "$BIN/sabha-limits.sh"

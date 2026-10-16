@@ -27,6 +27,7 @@ if [[ ${1:-} == --plan ]]; then
   export SABHA_PLAN=$2; PLAN_ARG="--plan $2 "; shift 2
 fi
 sabha_load sabha-up
+[[ $(sabha_backend) == herdr ]] && { sabha_session_valid || exit 2; }
 PROJECT=${SABHA_PROJECT:-this project}
 OWNER=${SABHA_USER:-the user}
 
@@ -66,7 +67,7 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   # the line is pasted into zsh or bash, so a double quote, $ or backtick would break it
   [[ $prompt$SABHA_WS != *[\"\$\`]* ]] || { echo "sabha-up: config value holds a quote, \$ or backtick" >&2; exit 1; }
   if [[ $R_AGENT != claude ]]; then
-    echo "herdr agent start $(tr '[:upper:]' '[:lower:]' <<<"$name") --kind $R_AGENT --pane <pane-id>   # then: herdr agent prompt <name> \"$prompt\""
+    echo "herdr --session $(sabha_session) agent start $(tr '[:upper:]' '[:lower:]' <<<"$name") --kind $R_AGENT --pane <pane-id>   # then: herdr --session $(sabha_session) agent prompt <name> \"$prompt\""
     exit 0
   fi
   mcp=""; sabha_flag "$r" mcp || mcp=" --strict-mcp-config"
@@ -80,9 +81,9 @@ fi
 herdr_agent() {
   local lower
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
-  herdr agent start "$lower" --kind "$R_AGENT" --pane "$2" >/dev/null || return 1
+  sabha_h agent start "$lower" --kind "$R_AGENT" --pane "$2" >/dev/null || return 1
   sabha_pane_note "$1" "$2"
-  herdr agent prompt "$lower" "$prompt" >/dev/null
+  sabha_h agent prompt "$lower" "$prompt" >/dev/null
 }
 
 if [[ $# -eq 1 ]]; then
@@ -91,14 +92,14 @@ if [[ $# -eq 1 ]]; then
     # this pane's shell is busy running this script and agent start wants an idle shell: use a sibling pane
     [[ ${HERDR_ENV:-} == 1 ]] || { echo "sabha-up: $name runs on $R_AGENT, which starts inside a herdr pane (open herdr first)" >&2; exit 1; }
     sabha_herdr_ready || exit 1
-    pane=$(sabha_jid "$(herdr pane split --current --direction right --cwd "$SABHA_WS" --no-focus)" pane_id)
+    pane=$(sabha_jid "$(sabha_h pane split --current --direction right --cwd "$SABHA_WS" --no-focus)" pane_id)
     [[ -n $pane ]] || { echo "sabha-up: herdr gave no pane id" >&2; exit 1; }
     herdr_agent "$name" "$pane" || { echo "sabha-up: herdr could not start $name ($R_AGENT)" >&2; exit 1; }
     echo "sabha-up: $name started on $R_AGENT in pane $pane"
     # stay alive while the agent does: sabha-loop supervises this process and asks for a restart with two Ctrl-C
     lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
-    trap 'herdr agent send-keys "$lower" C-c C-c >/dev/null 2>&1; exit 0' INT TERM   # UNTESTED: key spelling
-    while herdr agent get "$lower" >/dev/null 2>&1; do sleep 5; done
+    trap 'sabha_h agent send-keys "$lower" C-c C-c >/dev/null 2>&1; exit 0' INT TERM   # UNTESTED: key spelling
+    while sabha_h agent get "$lower" >/dev/null 2>&1; do sleep 5; done
     exit 0
   fi
   guard "$name"
@@ -142,11 +143,11 @@ fill_tab() {
   cols=$(( (n + 1) / 2 ))
   ids=("$root")
   for (( k = 2; k <= cols; k++ )); do
-    out=$(herdr pane split "${ids[$((k - 2))]}" --direction right --cwd "$SABHA_WS" --no-focus) || exit 1
+    out=$(sabha_h pane split "${ids[$((k - 2))]}" --direction right --cwd "$SABHA_WS" --no-focus) || exit 1
     ids+=("$(sabha_jid "$out" pane_id)")
   done
   for (( k = 0; k < cols && cols + k < n; k++ )); do
-    out=$(herdr pane split "${ids[$k]}" --direction down --cwd "$SABHA_WS" --no-focus) || exit 1
+    out=$(sabha_h pane split "${ids[$k]}" --direction down --cwd "$SABHA_WS" --no-focus) || exit 1
     ids+=("$(sabha_jid "$out" pane_id)")
   done
   k=0
@@ -154,10 +155,10 @@ fill_tab() {
     p=${ids[$k]}
     [[ -n $p ]] || { echo "sabha-up: herdr gave no pane id for $name" >&2; exit 1; }
     role "$name"
-    herdr pane rename "$p" "$name" >/dev/null
+    sabha_h pane rename "$p" "$name" >/dev/null
     if [[ $R_AGENT == claude ]]; then
       sabha_pane_note "$name" "$p"
-      herdr pane run "$p" "'$SELF' $pane_args$name" >/dev/null
+      sabha_h pane run "$p" "'$SELF' $pane_args$name" >/dev/null
     else
       herdr_agent "$name" "$p" || echo "sabha-up: herdr could not start $name ($R_AGENT)" >&2
     fi
@@ -167,15 +168,15 @@ fill_tab() {
 if [[ $(sabha_backend) == herdr ]]; then
   sabha_herdr_ready || exit 1
   echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
-  out=$(herdr workspace create --cwd "$SABHA_WS" --label "$PROJECT" --no-focus) || exit 1
+  out=$(sabha_h workspace create --cwd "$SABHA_WS" --label "$PROJECT" --no-focus) || exit 1
   ws=$(sabha_jid "$out" workspace_id)
   fill_tab "$(sabha_jid "${out#*\"root_pane\"}" pane_id)" "${build[@]}"
   if (( ${#gate[@]} )); then
     echo "sabha-up: tab Gate $(( (${#gate[@]} + 1) / 2 ))x2: ${gate[*]}"
-    out=$(herdr tab create --workspace "$ws" --cwd "$SABHA_WS" --label Gate --no-focus) || exit 1
+    out=$(sabha_h tab create --workspace "$ws" --cwd "$SABHA_WS" --label Gate --no-focus) || exit 1
     fill_tab "$(sabha_jid "${out#*\"root_pane\"}" pane_id)" "${gate[@]}"
   fi
-  echo "sabha-up: attach with: herdr   (VS Code integrated terminal on Mac/Linux: herdr attach)"
+  echo "sabha-up: attach with: herdr --session $(sabha_session)   (UNTESTED flag spelling; VS Code integrated terminal on Mac/Linux: herdr attach)"
   exit 0
 fi
 

@@ -7,7 +7,7 @@ set -u
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-loop.XXXXXX") || exit 1
 lp=""
-trap '[[ -n $lp ]] && kill -TERM "$lp" 2>/dev/null; rm -rf "$dir"' EXIT
+trap '[[ -n $lp ]] && kill -TERM "$lp" 2>/dev/null; rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_ROSTER="Relay:opus Arjun:opus:low Oc:opencode:medium"\n' "$dir" "$dir" >"$dir/sabha.conf"
 # a short grace: where the test runs with SIGINT ignored (CI, a tool shell) the fake only dies from the TERM that follows
 export SABHA_CONF=$dir/sabha.conf SABHA_LOOP_INTERVAL=1 SABHA_LOOP_MIN_UP=3 SABHA_LOOP_GRACE=2 SABHA_NOTIFY_DESKTOP=0

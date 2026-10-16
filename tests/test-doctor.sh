@@ -6,7 +6,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-doctor.XXXXXX") || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 JQ=$(command -v jq) || fail "jq is needed to run this test"
 mkdir -p "$dir/fakebin" "$dir/sysbin" "$dir/impl/status"

@@ -1,6 +1,6 @@
 # Contributing
 
-- Keep it small: bash, PowerShell and the Python standard library only; no install step, no daemon, no polling loop
+- Keep it small: bash and the Python standard library only; no install step, no daemon, no polling loop
   beyond `sabha-for-me --watch`.
 - ASCII only in code, docs and commit messages. Comments say why, not what.
 - Nothing personal or site-specific in the tree: names, paths, account ids and hosts come from `sabha.conf`.

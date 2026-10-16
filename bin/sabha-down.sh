@@ -10,12 +10,17 @@
 # even when ps cannot see them. ps sees only sessions started with -n/--name; cross-check ListAgents.
 # Run it from a plain terminal: osascript is blocked inside a Claude sandbox, and --yes refuses to run inside a
 # Claude session (CLAUDECODE set), since a kill there needs a go: line (docs/inbox-protocol.md section 6).
+# On the herdr backend (the default) it also stops and deletes the sabha herdr session (SABHA_HERDR_SESSION, default
+# "sabha") and no other session, once nothing is left running; the iTerm2 steps above are macOS-only (no Linux or
+# Windows fallback for the window closing; the process kill is portable).
 # Tests: SABHA_PS_FILE replaces the process list (see sabha-lib.sh); with --yes it needs SABHA_KILL (a stub for
 # kill) so a fake list is never signalled for real. SABHA_KILL_GRACE is the TERM-to-KILL wait (default 3 s).
 set -uo pipefail
 
 # shellcheck source=sabha-lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh"
+# shellcheck source=sabha-herdr.sh
+. "$(dirname "$0")/sabha-herdr.sh"
 sabha_load sabha-down
 
 YES=0 KILL_UNSAVED=0 TIMEOUT=${SABHA_DOWN_TIMEOUT:-300}
@@ -35,6 +40,16 @@ if (( YES )); then
 else
   echo "sabha-down: DRY RUN (pass --yes to act)"
 fi
+[[ $(sabha_backend) == herdr ]] && { sabha_session_valid || exit 2; }
+# stop_session: the sabha herdr session only; a dry run says what it would do
+stop_session() {
+  [[ $(sabha_backend) == herdr ]] || return 0
+  if (( YES )); then
+    sabha_session_stop && echo "herdr session $(sabha_session) stopped and deleted (no other session touched)" || echo "herdr session $(sabha_session) not stopped: close it by hand"
+  else
+    echo "would stop and delete the herdr session $(sabha_session) (no other session)"
+  fi
+}
 FOOTER="(ps sees only claude -n/--name sessions; cross-check ListAgents)"
 
 procs=$(sabha_procs) || { echo "sabha-down: cannot read the process list; nothing done" >&2; exit 2; }
@@ -52,7 +67,7 @@ targets() {
     index(want, " " $1 " ") && $1 != relay && !index(rt, " " $3 " ") && !index(anc, " " $2 " ")' <<<"$1"
 }
 victims=$(targets "$procs")
-if [[ -z $victims ]]; then echo "sabha-down: no grid role is running $FOOTER"; exit 0; fi
+if [[ -z $victims ]]; then echo "sabha-down: no grid role is running $FOOTER"; stop_session; exit 0; fi
 
 # 1. one save brief per running role (a duplicated role gets one brief, every copy of it gets the nudge)
 utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -174,4 +189,5 @@ elif [[ -n ${ttys// /} ]]; then
   echo "would close each iTerm2 window whose every session is one of:$ttys"
 fi
 [[ -n $unsaved && $KILL_UNSAVED == 0 ]] && exit 1
+stop_session
 exit 0

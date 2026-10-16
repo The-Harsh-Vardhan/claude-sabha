@@ -4,8 +4,10 @@ You will run one small job through the whole loop: you ask the relay, the relay 
 briefs a builder, a reviewer reads the diff, a session is restarted fresh from its handoff, and the board shows it all.
 The job is trivial on purpose (create one file in a worktree); the loop is what you are testing.
 
-Status: written to be followed literally. Steps 1-3 and the mechanical equivalent of steps 4-7 (shipped scripts, fake
-herdr and fake agents) have been run on a Mac; steps 4-7 as written need a real Claude and are not yet run end to end.
+Status: written to be followed literally, but not yet run end to end on a real herdr with a real Claude. Steps 1-3 and
+the mechanical equivalent of steps 4-7 (the shipped scripts) have been run only against a fake herdr and fake agents;
+a real herdr was exercised for the server start, workspace and session calls only, not for starting agents or panes
+(see [known-gaps.md](known-gaps.md)). Steps 4-7 as written need a real Claude.
 Treat any step that fails as a bug in this page and report it. Windows is beta ([windows.md](windows.md)).
 
 You need: `claude` on your PATH and logged in, `git`, `python3`, `jq`, and `herdr` (`brew install herdr`). Step 2 (`sabha doctor`)

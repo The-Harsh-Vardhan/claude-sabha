@@ -14,8 +14,7 @@ Nothing is pushed, tagged or published until every step passes. Run from the rep
    files `git ls-files -co --exclude-standard` lists and still honours `.gitignore`.
 4. History: the scrub of step 3 also runs over every commit (`git log -p --all | grep ...`); a hit means rewriting
    history before the first push, never after.
-5. ASCII: `LC_ALL=C git grep --untracked -I -n '[^ -~]' -- . ':!*.cmd'` is empty (`.cmd` files keep CRLF line
-   endings, which this pattern counts).
+5. ASCII: `LC_ALL=C git grep --untracked -I -n '[^ -~]' -- .` is empty.
 6. Checks: the commands in CONTRIBUTING.md pass.
 7. CHANGELOG.md has the version and date; README status line is current.
 8. A reviewer scans the tree and the history and signs off in writing.

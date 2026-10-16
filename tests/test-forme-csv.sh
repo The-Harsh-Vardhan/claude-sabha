@@ -5,7 +5,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 here=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-csv.XXXXXX") || exit 1
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 mkdir -p "$dir/impl/status/context" "$dir/impl/inbox/Zed"
 echo 42 > "$dir/impl/status/context/zed.txt"
 printf 'Current: build, "quoted"\nNext: n\n' > "$dir/impl/status/zed.md"

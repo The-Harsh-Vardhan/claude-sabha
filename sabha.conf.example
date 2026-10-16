@@ -21,12 +21,16 @@ SABHA_USER="the user"
 # On Windows run the scripts in Git Bash (UNTESTED). Nudge a role: bin/sabha-nudge <Name> "text". Mac/Linux: run
 # `herdr attach` in a VS Code integrated terminal to view and chat with any pane.
 #SABHA_BACKEND=herdr
+# herdr session sabha uses (default sabha). Sabha never uses herdr's default session, which holds your own workspaces;
+# a named session has no server until sabha-up.sh starts it, and `sabha-down.sh --yes` stops and deletes only this one.
+#SABHA_HERDR_SESSION=sabha
 # 1 passes --remote-control to Claude panes (Pro/Max only; an org policy can block it).
 #SABHA_REMOTE=0
 # Plan: the roster, panes, copies and labels of sabha.<plan>.conf beside this file (pro, max5, max20) replace the ones
 # below. `sabha-up.sh --plan pro` does the same for one run. Leave it unset to use the roster written here.
 #SABHA_PLAN=pro
-# Roster: Name:agent:model[:effort[:flags]] entries separated by spaces (a name with a space is not supported; effort
+# Roster (sabha.max20.conf is the reference copy of this default list; tests/test-roster.sh fails when they differ):
+# Name:agent:model[:effort[:flags]] entries separated by spaces (a name with a space is not supported; effort
 # defaults to medium). The agent is claude, opencode, codex, agy or muse; a row without one (Name:model...) is claude,
 # so older rosters still parse. Claude rows start from sabha-up.sh and sabha-run; the other agents start through herdr
 # (opencode tested; codex, agy and muse UNTESTED) and sabha-run never serves them. The one roster source

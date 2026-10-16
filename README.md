@@ -31,8 +31,8 @@ without a pane is an on-demand subagent of the dispatcher with its own model and
 
 | Agent | Role in sabha | Status |
 | --- | --- | --- |
-| `claude` (Claude Code) | Pane and headless runs; context percent, restart loop, usage alerts | Tested (macOS) |
-| `opencode` | Pane started through herdr | Tested through herdr's agent start |
+| `claude` (Claude Code) | Pane and headless runs; context percent, restart loop, usage alerts | Tested (macOS): headless run, statusline, restart loop; pane start through herdr UNTESTED |
+| `opencode` | Pane started through herdr | UNTESTED live (`agent start` is not yet run on a real herdr) |
 | `codex` | Pane started through herdr | UNTESTED |
 | `agy` (Antigravity CLI) | Pane started through herdr | UNTESTED |
 | `muse` (Muse Spark, via the opencode Meta provider) | Pane started through herdr | UNTESTED |
@@ -40,10 +40,15 @@ without a pane is an on-demand subagent of the dispatcher with its own model and
 Non-Claude panes stay headful and restart after each brief (when `NNN.done` appears), not at a context percent: only
 Claude exposes its context to the statusline hook. `sabha-run` serves Claude roles only.
 
-herdr is the default terminal backend on every OS (`brew install herdr`; Apache-2.0). The launcher decides the herdr
-server is up from the line `status: running` that `herdr status server` prints (UNTESTED against a live server).
-`SABHA_BACKEND=iterm` keeps the frozen macOS iTerm2 path as a fallback. The files stay the source of truth; herdr only
-wakes a pane (`bin/sabha-nudge <Name> "text"`).
+herdr is the default terminal backend on every OS (`brew install herdr`; Apache-2.0). Sabha runs in its own named
+herdr session, `SABHA_HERDR_SESSION` (default `sabha`), and never uses herdr's default session, which holds your own
+workspaces: every herdr call carries `--session`, `sabha-up.sh` starts that session's server (a named session has none
+until started) and waits for `status: running`, and `sabha-down.sh --yes` stops and deletes that session only.
+Observed on a real herdr 0.9.4 in a throwaway session: the server start and `status: running` line, the `workspace
+create`, `workspace list`, `pane list` and `agent list` JSON, `workspace close`, and `session stop` / `session delete`.
+Still UNTESTED on a real herdr: `agent start`, `agent prompt`, `agent wait`, `agent read`, `send-keys` and `pane split`
+(see [docs/known-gaps.md](docs/known-gaps.md)). `SABHA_BACKEND=iterm` keeps the frozen macOS iTerm2 path as a fallback.
+The files stay the source of truth; herdr only wakes a pane (`bin/sabha-nudge <Name> "text"`).
 
 ## Remote control and progress
 
@@ -104,6 +109,22 @@ default on every plan because it is 48 agent runs a day that use subscription us
 per run not measured); `bin/sabha sheet-sync` does the same for free. The CSV headers are in
 `tracker/templates/`; `bin/sabha-tracker` edits a row atomically; `tracker/repos-export.py` writes a per-checkout git
 state CSV (parameterised by environment variables).
+
+## Configuration
+
+The settings you will touch are in `sabha.conf.example`. These optional environment knobs also exist (defaults read
+from the scripts):
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `SABHA_HERDR_SESSION` | `sabha` | every herdr call: the session sabha runs in (never herdr's default session) |
+| `SABHA_DOWN_TIMEOUT` | `300` (seconds) | `sabha-down.sh`: wait for the save briefs (`--timeout S` overrides) |
+| `SABHA_KILL` | `kill` | `sabha-down.sh`: the command that signals processes (a test hook; leave it alone) |
+| `SABHA_KILL_GRACE` | `3` (seconds) | `sabha-down.sh`: wait between TERM and KILL |
+| `SABHA_NUDGE_TIMEOUT` | `120000` (milliseconds) | `sabha-nudge`: how long `herdr agent prompt --wait` waits |
+| `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
+| `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
+| `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
 
 ## Commands
 
