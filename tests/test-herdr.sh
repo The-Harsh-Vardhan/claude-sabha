@@ -47,7 +47,7 @@ out=$(SABHA_HERDR_SESSION=mine "$SH" "$BIN/sabha-up.sh" 2>&1)
 check "SABHA_HERDR_SESSION renames the session on every call" '[[ -s $dir/calls ]] && ! grep -v "^--session mine " "$dir/calls" | grep -q .'
 
 echo "--- session names"
-for bad in default DEFAULT Default "" "a b" 'x;y' ' '; do
+for bad in default DEFAULT Default "" "a b" 'x;y' ' ' -x --help -; do
   : > "$dir/calls"; : > "$FAKE_HERDR_LOG"; rm -rf "$dir/fh"; mkdir -p "$dir/fh"
   out=$(SABHA_HERDR_SESSION=$bad "$SH" "$BIN/sabha-up.sh" 2>&1); rc=$?
   check "up refuses session '$bad', no herdr call" '(( rc == 2 )) && grep -q "is refused" <<<"$out" && [[ ! -s $dir/calls ]]'

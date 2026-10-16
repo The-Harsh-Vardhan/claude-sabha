@@ -22,14 +22,14 @@ sabha_jid() { grep -o "\"$2\" *: *\"[^\"]*\"" <<<"$1" | head -1 | sed 's/.*: *"\
 # name as an argument instead.
 # Unset = "sabha"; set-but-empty is refused, not defaulted.
 sabha_session() { echo "${SABHA_HERDR_SESSION-sabha}"; }
-# sabha_session_valid: the name is [A-Za-z0-9_-]+ and not "default" in any case (herdr's own session, which holds the
+# sabha_session_valid: the name is [A-Za-z0-9_-]+, does not start with "-" (it would read as a herdr option), and not "default" in any case (herdr's own session, which holds the
 # user's workspaces: stopping or deleting it would destroy them). Prints why on stderr and returns 1 otherwise.
 sabha_session_valid() {
   local s lower
   s=$(sabha_session)
   lower=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')
-  if [[ -z $s || $s == *[!A-Za-z0-9_-]* || $lower == default ]]; then
-    echo "sabha: SABHA_HERDR_SESSION='$s' is refused: use letters, digits, - and _, and never \"default\" (herdr's own session)" >&2
+  if [[ -z $s || $s == -* || $s == *[!A-Za-z0-9_-]* || $lower == default ]]; then
+    echo "sabha: SABHA_HERDR_SESSION='$s' is refused: use letters, digits, - and _ (not a leading -), and never \"default\" (herdr's own session)" >&2
     return 1
   fi
 }
