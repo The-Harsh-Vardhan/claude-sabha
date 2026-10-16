@@ -2,6 +2,7 @@
 # share/claude-settings.json parses and denies push (also git -C), gh pr, every rm -rf spelling, Bash reads of env and
 # npmrc files, and Read of env, npmrc and key files. One line per rule in RULES. Run: tests/test-deny.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 RULES=(
   'Bash(git push:*)'
   'Bash(git -C * push:*)'

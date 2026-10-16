@@ -4,6 +4,7 @@
 # timeout. No model is called. Run: tests/test-run.sh  (BASH=/bin/bash for 3.2)
 # shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 SH=${BASH:-bash}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-run.XXXXXX") || exit 1

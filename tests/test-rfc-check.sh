@@ -2,6 +2,7 @@
 # bin/sabha-rfc-check: a clean RFC passes; each defect class fails with its own message.
 # Run: tests/test-rfc-check.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 bin=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-rfc.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1

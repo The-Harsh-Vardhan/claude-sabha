@@ -93,6 +93,10 @@ def auth():
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "code" not in q and "error" not in q:
+                self.send_response(404)  # a favicon or probe hit must not end the wait
+                self.end_headers()
+                return
             got.update({k: v[0] for k, v in q.items()})
             self.send_response(200)
             self.end_headers()
@@ -109,8 +113,10 @@ def auth():
             "code_challenge": challenge, "code_challenge_method": "S256"})
         print("Open this URL if no browser appears:\n" + url)
         webbrowser.open(url)
-        srv.timeout = 300
-        srv.handle_request()
+        srv.timeout = 5
+        end = time.time() + 300
+        while not got and time.time() < end:
+            srv.handle_request()
     if got.get("state") != state or "code" not in got:
         die("authorisation failed or timed out (%s)" % got.get("error", "no code"))
     tok = post_form(c["token_uri"], {"code": got["code"], "client_id": c["client_id"],

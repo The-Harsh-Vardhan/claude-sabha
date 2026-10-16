@@ -3,6 +3,7 @@
 # with no pane, shorter rosters, more than 8 panes in a tab refused. osascript and claude are stubs (the script is captured, nothing opens). Run: tests/test-grid.sh
 # shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 SH=${BASH:-bash}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-grid.XXXXXX") || exit 1

@@ -2,6 +2,7 @@
 # bin/sabha-brief: numbering skips taken claims, header block is complete, body is kept, bad input is refused.
 # Run: tests/test-brief.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 bin=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-brief.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
@@ -27,5 +28,8 @@ p3=$("$bin/sabha-brief" Worker Boss third "x" --body "$dir/b.txt" --reply ack) |
 grep -q 'from a file' "$p3" && grep -q '^reply: ack$' "$p3" || { echo "FAIL: --body or --reply"; exit 1; }
 if "$bin/sabha-brief" Worker 'bad name' s t </dev/null 2>/dev/null; then echo "FAIL: bad name accepted"; exit 1; fi
 if "$bin/sabha-brief" Worker boss s t --reply maybe </dev/null 2>/dev/null; then echo "FAIL: bad reply accepted"; exit 1; fi
+# closed stdin and no --body: no hang, no error, empty body
+p4=$("$bin/sabha-brief" Worker Boss closed "x" <&-) || { echo "FAIL: closed stdin"; exit 1; }
+[[ -f $p4 ]] || { echo "FAIL: no brief with closed stdin"; exit 1; }
 ls "$dir/inbox/Worker" | grep -q '\.tmp$' && { echo "FAIL: temp file left"; exit 1; }
 echo "ok: brief numbering skips taken claims, header block complete, body and options kept, bad input refused"

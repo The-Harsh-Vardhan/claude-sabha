@@ -2,6 +2,7 @@
 # The brief-number claim of docs/inbox-protocol.md section 2: a second claim of a number fails, and a sender that
 # finds its number taken moves to the next one. Run: tests/test-claim.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-claim.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
 trap 'rm -rf "$dir"' EXIT

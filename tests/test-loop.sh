@@ -3,6 +3,7 @@
 # at 35% with a fresh handoff is restarted; two sessions that die at once stop the loop; SABHA_STOP starts nothing;
 # --stop ends the loop. Run: tests/test-loop.sh (takes about 15 s)
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-loop.XXXXXX") || exit 1
 lp=""

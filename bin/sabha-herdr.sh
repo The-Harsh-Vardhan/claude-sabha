@@ -14,12 +14,22 @@ sabha_backend() { echo "${SABHA_BACKEND:-herdr}"; }
 # sabha_jid <json> <key>: the first "<key>":"value" in the JSON, one line or pretty-printed
 sabha_jid() { grep -o "\"$2\" *: *\"[^\"]*\"" <<<"$1" | head -1 | sed 's/.*: *"\(.*\)"/\1/'; }
 
+# sabha_herdr_guard: with SABHA_TEST=1 only the herdr binary named by SABHA_HERDR_BIN (tests/hermetic-bin/herdr, a
+# fake) may be used; the real one would open workspaces and start real claude sessions on the default herdr session.
+sabha_herdr_guard() {
+  [[ ${SABHA_TEST:-} == 1 ]] || return 0
+  [[ -n ${SABHA_HERDR_BIN:-} && $(command -v herdr 2>/dev/null) == "$SABHA_HERDR_BIN" ]] && return 0
+  echo "sabha: SABHA_TEST=1 and herdr ($(command -v herdr 2>/dev/null)) is not SABHA_HERDR_BIN (${SABHA_HERDR_BIN:-unset}); refusing to touch a real herdr" >&2
+  return 1
+}
+
 # sabha_herdr_ready: herdr is installed and its server runs (started headless when it does not)
 sabha_herdr_ready() {
   command -v herdr >/dev/null 2>&1 || {
     echo "sabha: herdr not found (brew install herdr, or curl -fsSL https://herdr.dev/install.sh | sh; SABHA_BACKEND=iterm keeps the old macOS path)" >&2
     return 1
   }
+  sabha_herdr_guard || return 1
   herdr status server 2>&1 | grep -q 'status: running' && return 0
   herdr server >/dev/null 2>&1 &
   local _
@@ -41,6 +51,7 @@ sabha_pane_note() {
 # sabha_nudge <Name> <text>: submits text to that role's agent and waits until it settles (idle, done or blocked)
 sabha_nudge() {
   local t
+  sabha_herdr_guard || return 1
   t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null)
   [[ -n $t ]] || t=$(tr '[:upper:]' '[:lower:]' <<<"$1")
   herdr agent prompt "$t" "$2" --wait --timeout "${SABHA_NUDGE_TIMEOUT:-120000}"

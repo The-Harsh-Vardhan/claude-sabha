@@ -19,7 +19,7 @@ beside `sabha.conf` that `bin/sabha-up.sh --plan <name>` (or `SABHA_PLAN=<name>`
 
 | Plan | File | Panes | Copies per role | Models |
 | --- | --- | --- | --- | --- |
-| Pro ($20) | `sabha.pro.conf` | 5: Vidur, Yudhishthira, Bhima, Arjun, Nakul | 2 | No top tier; models pinned (Pro defaults to Opus). Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
+| Pro ($20) | `sabha.pro.conf` | 5: Vidur, Yudhishthira, Bhima, Arjun, Nakul | 2 | No top tier; models pinned. Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
 | Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Sahadev and Karna | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
 | Max 20x ($200) | `sabha.max20.conf` | 10 panes in two tabs (Build, Gate) | 4 | Opus relay and dispatcher, the top tier for the architect; the critics start per brief |
 
@@ -110,6 +110,8 @@ state CSV (parameterised by environment variables).
 | `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off]` | Writes `sabha.conf` (gitignored): plan, OS, the agent CLIs found, tracker, ntfy topic. Asks for what it is not given on a terminal |
 | `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions and the Remote Control policy; exits 1 only on a FAIL |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the restart line |
+| `bin/sabha-check` | Read-only list of each role's processes; DUPLICATE when more than one holds a name |
+| `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |
 | `bin/sabha-nudge <Name> "text"` | Wakes one pane (`herdr agent prompt --wait`) |
 | `bin/sabha-loop <Name>` | The restart supervisor for one pane |
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
@@ -139,7 +141,7 @@ roster source for the launchers, `sabha-watch` and the board.
 
 | Path | What |
 | --- | --- |
-| `bin/` | The scripts above |
+| `bin/` | The scripts above, including `sabha-check` and `sabha-down.sh` |
 | `sabha.conf.example`, `sabha.<plan>.conf` | The config every script reads and the three plan rosters |
 | `template/impl/` | A starter `SABHA_IMPL`: `PROTOCOL-core.md`, `protocol/<Name>.md` cards, `status/vidur.md`, `GOALS.md`, `for-me.items` |
 | `tracker/` | CSV templates, the HTML and xlsx builders, `cron-prompts.md`, `repos-export.py` |

@@ -3,6 +3,7 @@
 # percent to status/context/<name>.txt and the windows to status/limits.txt, and fires the alerts once.
 # Needs jq. Run: tests/test-statusline.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-sl.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

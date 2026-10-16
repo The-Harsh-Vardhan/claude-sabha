@@ -5,6 +5,7 @@
 # adds --remote-control; the Windows launchers and *.bak files are gone. Run: tests/test-herdr.sh
 # shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=$ROOT/bin
 SH=${BASH:-bash}
@@ -21,7 +22,7 @@ printf '#!/bin/sh\necho "STUB osascript $*"; [ -t 0 ] || cat\n' > "$dir/stubs/os
 chmod +x "$dir/stubs/herdr" "$dir/stubs/claude" "$dir/stubs/osascript"
 : > "$dir/ps.txt"
 export SABHA_CONF=$dir/sabha.conf SABHA_PS_FILE=$dir/ps.txt FAKE_HERDR_LOG=$dir/herdr.log FAKE_HERDR_DIR=$dir/fh
-export PATH=$dir/stubs:$PATH
+export PATH=$dir/stubs:$PATH SABHA_HERDR_BIN=$dir/stubs/herdr
 unset SABHA_BACKEND SABHA_PLAN SABHA_PANES SABHA_REMOTE HERDR_ENV
 { echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"
   echo 'SABHA_ROSTER="V:opus:medium Y:opus:medium A:sonnet:low O:opencode:x:low C:codex:o3:low:gate G:sonnet:low:gate"'; } > "$dir/sabha.conf"

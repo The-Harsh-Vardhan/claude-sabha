@@ -3,6 +3,7 @@
 # window reset and again after the reset, SABHA_STOP holds only while the reset is ahead. No notification is sent
 # (SABHA_NOTIFY_DESKTOP=0), no Claude runs. Run: tests/test-limits.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-limits.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

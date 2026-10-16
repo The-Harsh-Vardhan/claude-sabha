@@ -153,6 +153,7 @@ sabha_procs() {
 sabha_cost_log() {
   local lower ctx=-
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
+  set -- "$1" "$2" "$(printf '%s' "$3" | tr '\t\r\n' '   ')"
   [[ -f $SABHA_IMPL/status/context/$lower.txt ]] && ctx=$(tr -d ' \n' <"$SABHA_IMPL/status/context/$lower.txt")
   { mkdir -p "$SABHA_IMPL/status" && printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$ctx" "$3" \
       >>"$SABHA_IMPL/status/cost-log.tsv"; } 2>/dev/null || true

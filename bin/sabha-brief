@@ -2,7 +2,7 @@
 # sabha-brief: claim the next brief number in an inbox and write the brief with its header block (inbox protocol,
 # section 2). Prints the brief path. Bash 3.2 safe.
 #   sabha-brief <to> <from> <slug> "<task>" [--output TEXT] [--go TEXT] [--reply ack|done|none] [--body FILE]
-# The body is read from --body FILE, else from stdin when it is not a tty. IMPL = $SABHA_IMPL (default: current dir).
+# The body is read from --body FILE, else from stdin when stdin is a pipe or a file (not a tty, not closed). IMPL = $SABHA_IMPL (default: current dir).
 #   sabha-brief --self-test
 set -u
 if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-brief.sh"; fi
@@ -40,6 +40,6 @@ file=$n-$from-$slug.md
   [[ -n $output ]] && echo "output: $output"
   [[ -n $go ]] && echo "go: $go"
   echo "reply: $reply"; echo
-  if [[ -n $body ]]; then cat "$body"; elif [[ ! -t 0 ]]; then cat; fi
+  if [[ -n $body ]]; then cat "$body"; elif [[ -p /dev/stdin || -f /dev/stdin ]]; then cat; fi
 } > "$file.tmp" && mv "$file.tmp" "$file" || { echo "sabha-brief: cannot write $file" >&2; exit 1; }
 echo "$PWD/$file"

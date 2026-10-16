@@ -4,6 +4,7 @@
 # --plan, and the board reading the same rows. claude and osascript are stubs (nothing opens). Run: tests/test-roster.sh
 # shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=$ROOT/bin
 SH=${BASH:-bash}

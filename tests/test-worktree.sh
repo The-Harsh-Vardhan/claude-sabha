@@ -2,6 +2,7 @@
 # bin/sabha-worktree: create <repo>--<slug> on a new branch from a base, refuse bad input, guard and hook block commits
 # in the main checkout but not in the worktree. Run: tests/test-worktree.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 bin=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-wt.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1

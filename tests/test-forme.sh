@@ -2,6 +2,7 @@
 # Question items on the board: radios, the rec label, the textarea and the copy button; a plain item is unchanged.
 # Run: tests/test-forme.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 here=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-forme.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

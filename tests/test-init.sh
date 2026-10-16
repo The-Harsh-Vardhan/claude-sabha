@@ -3,6 +3,7 @@
 # generated only for push=ntfy, an existing conf is not replaced without --force, a conf that git would track is
 # refused, a bad plan fails. No Claude runs. Run: tests/test-init.sh   (works under bash 3.2 and 5)
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-init.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

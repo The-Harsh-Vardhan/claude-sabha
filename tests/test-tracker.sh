@@ -3,6 +3,7 @@
 # No network. The xlsx part needs openpyxl in the repo-local .venv and says SKIP when it is missing.
 # Run: tests/test-tracker.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 here=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-tracker.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

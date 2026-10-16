@@ -3,6 +3,7 @@
 # statusline hook, optional CLIs = warn only; the Team/Enterprise Remote Control note is a warning and never fails the
 # run; the bash version line names what works. No Claude runs. Run: tests/test-doctor.sh   (bash 3.2 and 5)
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-doctor.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

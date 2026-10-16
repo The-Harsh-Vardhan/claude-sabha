@@ -2,6 +2,7 @@
 # bin/sabha-gate: ACCEPT needed, an unanswered BREAK/BLOCK shuts the gate, answers open it, --brief reads gate:.
 # Run: tests/test-gate.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 bin=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-gate.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
@@ -28,6 +29,12 @@ want 1 "no reviewer file at all" t-sec.md
 want 1 "missing file" t-review.md nope-fe.md
 printf 'verdict: BLOCK 1\n' > t-scope.md
 want 1 "unanswered BLOCK" t-review.md t-scope.md
+printf 'verdict: BREAK 0\n' > z-be.md
+want 1 "BREAK 0 never opens the gate" t-review.md z-be.md
+printf 'verdict: BLOCK 0\n' > z-bl.md
+want 1 "BLOCK 0 never opens the gate" t-review.md z-bl.md
+printf 'verdict: BREAK 2x\n' > z-x.md
+want 1 "BREAK 2x is unreadable" t-review.md z-x.md
 printf 'gate: t-review.md, t-sec.md, t-be.md\n\nbody\n' > brief.md
 want 0 "--brief" --brief brief.md
 printf 'gate: t-review.md, t-scope.md\n' > brief2.md

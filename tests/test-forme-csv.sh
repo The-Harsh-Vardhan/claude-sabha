@@ -2,6 +2,7 @@
 # sabha-for-me --csv: agents.csv and for-me.csv, RFC 4180, one row per role and per item, inbox count skips .done/.cancel.
 # Run: tests/test-forme-csv.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 here=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-csv.XXXXXX") || exit 1
 trap 'rm -rf "$dir"' EXIT

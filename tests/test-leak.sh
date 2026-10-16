@@ -2,6 +2,7 @@
 # Fails when a tracked file carries an owner name, a home path, an employer or product name, a sheet id, a token or a
 # peer id. Patterns are shapes or public names only; add new ones to PATTERNS. Run: tests/test-leak.sh
 set -u
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 PATTERNS=(
   'harsh'
   'vardhan'
