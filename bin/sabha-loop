@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Pane supervisor: runs one role's agent in this terminal and starts it fresh when sabha's files say so.
+#   sabha-loop <Name>          supervise that role in the current pane
+#   sabha-loop --stop <Name>   ask that role's loop to end after the current session
+#   sabha-loop --self-test     run the decision rules against fake files; starts no agent
+# A Claude pane (roster agent claude, the default) restarts when status/context/<name>.txt is at or over
+# SABHA_LOOP_LIMIT (30) percent AND the handoff status/<name>.md is newer than the last start: the agent gets the
+# two Ctrl-C that quit Claude Code (nothing can type /exit into its screen), then sabha-up.sh <Name> opens a fresh
+# session with the same opening prompt; never --resume. A context file older than SABHA_LOOP_STALE (120) seconds is
+# not trusted: the agent keeps running and the loop warns. Any other pane stays headful and restarts after each
+# brief, when a new inbox/<Name>/NNN.done appears. Two sessions in a row that end within SABHA_LOOP_MIN_UP (60)
+# seconds of starting stop the loop. While SABHA_STOP holds (bin/sabha-limits.sh) no session starts; a running one
+# is left alone. Log: status/loop/<name>.log. SABHA_LOOP_CMD replaces the agent command (tests); SABHA_LOOP_INTERVAL
+# (20) is the poll in seconds, SABHA_LOOP_GRACE (15) the seconds an agent gets after the two Ctrl-C before TERM.
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+# shellcheck source=sabha-limits.sh
+. "$BIN/sabha-limits.sh"
+
+mtime() { date -r "$1" +%s 2>/dev/null || echo 0; }
+
+# decide <claude|other> <ctx file> <handoff file> <inbox dir> <last start epoch>: prints restart, stale or wait
+decide() {
+  local kind=$1 ctx=$2 handoff=$3 inbox=$4 last=$5 now pct d
+  now=$(date +%s)
+  if [[ $kind == claude ]]; then
+    [[ -f $ctx ]] || { echo wait; return; }
+    (( now - $(mtime "$ctx") > ${SABHA_LOOP_STALE:-120} )) && { echo stale; return; }
+    pct=$(tr -d ' \n' <"$ctx"); pct=${pct%.*}
+    [[ $pct =~ ^[0-9]+$ ]] || { echo wait; return; }
+    if (( pct >= ${SABHA_LOOP_LIMIT:-30} )) && [[ -f $handoff ]] && (( $(mtime "$handoff") > last )); then
+      echo restart; return
+    fi
+    echo wait
+  else
+    for d in "$inbox"/[0-9][0-9][0-9].done; do
+      [[ -e $d ]] && (( $(mtime "$d") > last )) && { echo restart; return; }
+    done
+    echo wait
+  fi
+}
+
+# kind_of <agent>: the roster's agent field (sabha-lib.sh ROLES: "name agent model effort flags")
+kind_of() { [[ $1 == claude ]] && echo claude || echo other; }
+
+self_test() {
+  local t fails=0 now
+  SELF_TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sabha-loop.XXXXXX") || exit 1
+  t=$SELF_TEST_DIR
+  trap 'rm -rf "$SELF_TEST_DIR"' EXIT
+  mkdir -p "$t/inbox" "$t/status"
+  now=$(date +%s)
+  check() { if [[ $2 == "$3" ]]; then echo "ok: $1"; else echo "FAIL: $1: got $2, want $3"; fails=$(( fails + 1 )); fi; }
+  check "no context file = wait" "$(decide claude "$t/none.txt" "$t/status/x.md" "$t/inbox" 0)" wait
+  echo 12 >"$t/ctx.txt"; : >"$t/status/x.md"
+  check "12% = wait" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" wait
+  echo 31.5 >"$t/ctx.txt"
+  check "31.5% + handoff newer than last start = restart" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" restart
+  check "31.5% + handoff older than last start = wait" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" $(( now + 60 )))" wait
+  touch -t 202001010000 "$t/ctx.txt"
+  check "old context file = stale" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" stale
+  check "other pane, no done = wait" "$(decide other "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" wait
+  : >"$t/inbox/001.done"
+  check "other pane, new done = restart" "$(decide other "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" restart
+  check "other pane, done older than last start = wait" "$(decide other "$t/ctx.txt" "$t/status/x.md" "$t/inbox" $(( now + 60 )))" wait
+  check "agent claude is a claude pane" "$(kind_of claude)" claude
+  check "agent opencode is another pane" "$(kind_of opencode)" other
+  export SABHA_LIMITS_FILE=$t/limits.txt
+  printf 'five_hour 95 %s %s\n' $(( now + 3600 )) "$now" >"$SABHA_LIMITS_FILE"
+  check "95% with a reset ahead = stopped" "$(sabha_limits_stopped >/dev/null && echo stopped || echo go)" stopped
+  printf 'five_hour 95 %s %s\n' $(( now - 60 )) "$now" >"$SABHA_LIMITS_FILE"
+  check "95% with the reset passed = go" "$(sabha_limits_stopped >/dev/null && echo stopped || echo go)" go
+  printf 'five_hour 40 %s %s\n' $(( now + 3600 )) "$now" >"$SABHA_LIMITS_FILE"
+  check "40% = go" "$(sabha_limits_stopped >/dev/null && echo stopped || echo go)" go
+  if (( fails == 0 )); then echo "self-test: all ok"; else echo "self-test: $fails failed"; exit 1; fi
+}
+
+[[ ${1:-} == --self-test ]] && { self_test; exit $?; }
+[[ $# -ge 1 ]] || { sed -n 2,5p "$0"; exit 2; }
+
+sabha_load sabha-loop
+if [[ $1 == --stop ]]; then
+  [[ -n ${2:-} ]] || { echo "sabha-loop --stop <Name>" >&2; exit 2; }
+  mkdir -p "$SABHA_IMPL/status/loop" && : >"$SABHA_IMPL/status/loop/$(tr '[:upper:]' '[:lower:]' <<<"$2").stop"
+  echo "sabha-loop: $2 ends after its current session"; exit 0
+fi
+
+name=$1 agent=""
+for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent _ <<<"$r"; break; }; done
+[[ -n $agent ]] || { echo "sabha-loop: unknown role: $name" >&2; exit 2; }
+kind=$(kind_of "$agent")
+lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+LOOP=$SABHA_IMPL/status/loop; mkdir -p "$LOOP"
+log() { printf '%s %s\n' "$(sabha_utc)" "$*" | tee -a "$LOOP/$lower.log" >&2; }
+ctx=$SABHA_IMPL/status/context/$lower.txt handoff=$SABHA_IMPL/status/$lower.md inbox=$SABHA_IMPL/inbox/$name
+stop=$LOOP/$lower.stop; rm -f "$stop"
+interval=${SABHA_LOOP_INTERVAL:-20} min_up=${SABHA_LOOP_MIN_UP:-60}
+if [[ -n ${SABHA_LOOP_CMD:-} ]]; then cmd=(bash -c "$SABHA_LOOP_CMD")
+elif [[ $kind == claude ]]; then cmd=("$BIN/sabha-up.sh" "$name")
+else cmd=(herdr agent start "$name" --kind "$agent"); fi   # UNTESTED: the herdr backend lands with W2 (2a)
+
+# a background child gets /dev/null as stdin; the agent needs the keyboard (headless tests have no terminal)
+tty_in=/dev/tty; (: </dev/tty) 2>/dev/null || tty_in=/dev/null
+# Ctrl-C belongs to the agent on the screen; the loop itself ends with --stop or after two failed starts. A handler,
+# not SIG_IGN: an ignored signal is inherited and the agent could never be interrupted
+trap ':' INT
+last=0 fails=0 cpid=""
+trap '[[ -n $cpid ]] && kill -TERM "$cpid" 2>/dev/null; exit 0' TERM HUP
+while :; do
+  [[ -e $stop ]] && { log "stop requested, loop ends"; rm -f "$stop"; exit 0; }
+  if why=$(sabha_limits_stopped); then
+    [[ ${said:-} == "$why" ]] || { log "$why"; said=$why; }
+    sleep "$interval"; continue
+  fi
+  said=""
+  start=$(date +%s); last=$start
+  log "start ($kind pane: ${cmd[*]})"
+  "${cmd[@]}" <"$tty_in" & cpid=$!
+  warned=0
+  while kill -0 "$cpid" 2>/dev/null; do
+    sleep "$interval"
+    kill -0 "$cpid" 2>/dev/null || break
+    case $(decide "$kind" "$ctx" "$handoff" "$inbox" "$last") in
+      restart)
+        log "restart: $([[ $kind == claude ]] && echo "context $(tr -d ' \n' <"$ctx")% and a newer handoff" || echo "a brief finished")"
+        # Claude Code quits on two Ctrl-C a second apart; anything still alive after the grace gets TERM
+        kill -INT "$cpid" 2>/dev/null; sleep 1; kill -INT "$cpid" 2>/dev/null
+        for _ in $(seq 1 "${SABHA_LOOP_GRACE:-15}"); do kill -0 "$cpid" 2>/dev/null || break; sleep 1; done
+        kill -0 "$cpid" 2>/dev/null && kill -TERM "$cpid" 2>/dev/null
+        break ;;
+      stale) (( warned )) || { log "warning: $ctx older than ${SABHA_LOOP_STALE:-120}s, keeping the session"; warned=1; } ;;
+    esac
+  done
+  wait "$cpid" 2>/dev/null; cpid=""
+  up=$(( $(date +%s) - start ))
+  log "session ended after ${up}s"
+  if (( up < min_up )); then
+    fails=$(( fails + 1 ))
+    (( fails >= 2 )) && { log "stopped: 2 sessions in a row ended within ${min_up}s"; exit 1; }
+  else fails=0; fi
+done

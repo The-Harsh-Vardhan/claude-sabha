@@ -12,6 +12,10 @@ CONF=${SABHA_CONF:-$BIN/../sabha.conf}
 # shellcheck source=/dev/null
 . "$CONF"
 IMPL=${SABHA_IMPL:?missing from sabha.conf}
+# banner: the usage windows statusline-sabha.sh recorded and whether SABHA_STOP holds (bin/sabha-limits.sh)
+# shellcheck source=sabha-limits.sh
+. "$BIN/sabha-limits.sh"
+sabha_limits_banner
 LIMIT=30 STALE_MIN=15 UNACKED_MIN=10
 now=$(date +%s)
 age_min() { echo $(( (now - $(date -r "$1" +%s)) / 60 )); }
