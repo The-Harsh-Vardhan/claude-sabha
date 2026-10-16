@@ -4,6 +4,16 @@ SABHA_IMPL=$SABHA_WS/path/to/impl
 # Optional: where FOR-ME.md and FOR-ME.html are written (default: SABHA_IMPL). Keep it outside this repo.
 #SABHA_FORME_DIR=$SABHA_WS/path/to/board
 #SABHA_CSV_DIR=$SABHA_WS/path/to/tracker   # agents.csv and for-me.csv, written on every render
+# Tracker: html (default: offline page from the CSVs, no login, tracker/build-html.py), xlsx (tracker/build-xlsx.py, import
+# into any spreadsheet) or sheet (Google Sheet: the better option for phone use, sharing and the Inbox/Decisions round
+# trip; one-time `bin/sabha-sheet auth`, then `bin/sabha-sheet sync` copies the CSVs, no agent needed).
+#SABHA_TRACKER=html
+#SABHA_SHEET_ID=
+# 1 = an agent session that has the Google Sheets connector also syncs every 30 min (tracker/cron-prompts.md). Default 0
+# on every plan: that is 48 agent runs a day (about 24 per 12 working hours), each a model call that spends
+# subscription usage even when nothing changed (token cost per run not measured). `bin/sabha-sheet sync` on a timer
+# gives the same result at zero usage; turn this on only if you cannot run the script.
+#SABHA_SHEET_AGENT_SYNC=0
 # The opening prompt says "You are <Name> in $SABHA_PROJECT session setup"; the relay reports to $SABHA_USER.
 SABHA_PROJECT="My project"
 SABHA_USER="the user"

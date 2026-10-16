@@ -1,39 +1,153 @@
 # claude-sabha
 
-Run a team of named Claude Code sessions - a relay you talk to, a dispatcher and workers - that hand each other
+Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other
 work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
 
-Status: 0.1.0, unreleased. macOS (iTerm2) is used daily; Windows is untested ([docs/windows.md](docs/windows.md)).
+Status: 0.2.0, not tagged. macOS is used daily; Windows is **beta until a teammate has run it** (see
+[docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine.
+
+## Try it first
+
+[docs/quickstart.md](docs/quickstart.md) is a 10-minute demo: a brief, a worker, a review, a handoff and a fresh restart.
+[RULES.md](RULES.md) holds the seven working rules (paste them into your `CLAUDE.md`). [template/impl/](template/impl)
+is a starter project folder: a generic core protocol, six role cards, one status file, a goals file and sample items.
+
+## Pick a plan
+
+The workflow is the same on every plan; only the roster, the number of panes and the models differ. Each plan is a file
+beside `sabha.conf` that `bin/sabha-up.sh --plan <name>` (or `SABHA_PLAN=<name>` in `sabha.conf`) loads.
+
+| Plan | File | Panes | Copies per role | Models |
+| --- | --- | --- | --- | --- |
+| Pro ($20) | `sabha.pro.conf` | 5: Vidur, Yudhishthira, Bhima, Arjun, Nakul | 2 | No top tier; models pinned (Pro defaults to Opus). Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
+| Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Sahadev and Karna | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
+| Max 20x ($200) | `sabha.max20.conf` | 10 panes in two tabs (Build, Gate) | 4 | Opus relay and dispatcher, the top tier for the architect; the critics start per brief |
+
+A profile is `Name (Role) = agent:model:effort`; a roster row is `Name:agent:model[:effort[:flags]]`. Every profile
+without a pane is an on-demand subagent of the dispatcher with its own model and effort. `SABHA_PANES` picks the panes;
+`SABHA_MAX_COPIES` allows `Arjun-1`, `Arjun-2` ... each with its own inbox, status file and worktree.
+
+## Agents
+
+| Agent | Role in sabha | Status |
+| --- | --- | --- |
+| `claude` (Claude Code) | Pane and headless runs; context percent, restart loop, usage alerts | Tested (macOS) |
+| `opencode` | Pane started through herdr | Tested through herdr's agent start |
+| `codex` | Pane started through herdr | UNTESTED |
+| `agy` (Antigravity CLI) | Pane started through herdr | UNTESTED |
+| `muse` (Muse Spark, via the opencode Meta provider) | Pane started through herdr | UNTESTED |
+
+Non-Claude panes stay headful and restart after each brief (when `NNN.done` appears), not at a context percent: only
+Claude exposes its context to the statusline hook. `sabha-run` serves Claude roles only.
+
+herdr is the default terminal backend on every OS (`brew install herdr`; Apache-2.0). The launcher decides the herdr
+server is up from the line `status: running` that `herdr status server` prints (UNTESTED against a live server).
+`SABHA_BACKEND=iterm` keeps the frozen macOS iTerm2 path as a fallback. The files stay the source of truth; herdr only
+wakes a pane (`bin/sabha-nudge <Name> "text"`).
+
+## Remote control and progress
+
+Three needs, by how far sabha goes. **See progress** and **get pinged** work for every agent from sabha's own files
+(the board, `sabha-watch`, the tracker, a phone push). **Send instructions** from a phone depends on the agent:
+
+| Path | Covers | Sends and views | Notes |
+| --- | --- | --- | --- |
+| Claude Remote Control (`SABHA_REMOTE=1` passes `--remote-control` to Claude panes) | Claude | Both | Pro and Max accounts only; not Team or Enterprise, and an organisation policy can block it (`sabha doctor` warns). The laptop must stay awake and online. Running it inside a herdr pane is UNTESTED |
+| OpenCode `serve` / `web`, with `OPENCODE_SERVER_PASSWORD`, behind Tailscale | OpenCode, Muse | Both | Never expose the port to the internet; basic auth over plain HTTP leaks the password off a private network. How `attach` passes the password: unverified |
+| Codex via the ChatGPT phone app | Codex | Claimed both | UNTESTED; whether it covers the plain `codex` CLI is unverified |
+| `agy --remote-control` | Antigravity | Unverified | UNTESTED; the source is a third-party article, not a vendor page |
+| SSH over Tailscale, then `herdr attach` | Every agent | Both | The generic path; clumsy to type on a phone. Needs an SSH server on the laptop (Mac: Remote Login) and a phone SSH app. `herdr attach` is not available on Windows. In a desktop editor, run `herdr attach` in its integrated terminal to see and chat with any pane |
+| Phone push (`SABHA_PUSH=ntfy`) | Every agent | View only | One `curl` line per alert, see below |
+
+Phone push privacy: ntfy topics on the public server are readable by anyone who knows the topic name, and the server
+logs the topic and your IP. `sabha init --push ntfy` generates a random topic and keeps it in `sabha.conf` (gitignored);
+treat the name like a password, and self-host ntfy if the alerts name anything sensitive. Telegram and Pushover are not
+built.
+
+## Limits and alerts
+
+`bin/statusline-sabha.sh` (install it as your Claude `statusLine` command; `sabha doctor` checks) writes each session's
+context percent to `status/context/<name>.txt` and the account's usage windows to `status/limits.txt`.
+`SABHA_NOTIFY="10 20 30 40 50 60 70 80 90"` fires once per step on either window (the 5-hour and the 7-day): a
+desktop notification, the `sabha-watch` banner and a line in `status/alerts.log`. `SABHA_STOP=90` stops new sessions
+at that percent of either window until it resets; running briefs finish and nothing is killed. The Windows toast is
+UNTESTED. A per-role cost log is written to `status/cost-log.tsv`.
+
+## Restart loop
+
+`bin/sabha-loop <Name>` supervises one pane. A Claude pane restarts when its context file reads `SABHA_LOOP_LIMIT` (30)
+percent or more and its handoff is newer than the last start: fresh session, same opening prompt, never `--resume`. A
+context file older than two minutes is not trusted (the agent keeps running and a warning shows). Two failed restarts
+in a row stop the loop.
+
+## Tracker
+
+One task list for everything you ask the team to do, in three forms, chosen with `SABHA_TRACKER`:
+
+| Value | What | Needs |
+| --- | --- | --- |
+| `html` (default) | One offline page built from the CSVs by `tracker/build-html.py` | Nothing, no login |
+| `xlsx` | `tracker/build-xlsx.py` writes an 8-tab workbook (header rows, dropdowns, a Dashboard of counts) to import into any spreadsheet | `openpyxl` in a repo-local `.venv` (`uv venv .venv && uv pip install --python .venv/bin/python openpyxl`); the layout is approximate, tune it |
+| `sheet` | A Google Sheet that `bin/sabha sheet-sync` fills from the CSVs (`bin/sabha sheet-auth` once) | Your own Google OAuth client; the live calls are UNTESTED, only `--dry-run` is tested |
+
+Sheet setup, once: enable the Google Sheets API in a Cloud project, create a Desktop-app OAuth client and save its JSON
+as `~/.config/sabha/client.json`, run `bin/sabha sheet-auth` (a browser opens once), then set `SABHA_SHEET_ID` in
+`sabha.conf` and run `bin/sabha sheet-sync`. The token stays in `~/.config/sabha/`, never in the repo. The sync writes
+data rows only; the Inbox tab column names and the Agents M-N headers are guesses (UNTESTED against a live sheet).
+
+The Google Sheet is the better option: it works on a phone, you can share it, and it carries the Inbox and Decisions
+round trip (you write in the sheet, the agents pick it up). The HTML page is the default only because it needs no login.
+`SABHA_SHEET_AGENT_SYNC` lets an agent session with a Sheets connector sync every 30 minutes instead; it is off by
+default on every plan because it is 48 agent runs a day that use subscription usage even when nothing changed (tokens
+per run not measured); `bin/sabha sheet-sync` does the same for free. The CSV headers are in
+`tracker/templates/`; `bin/sabha-tracker` edits a row atomically; `tracker/repos-export.py` writes a per-checkout git
+state CSV (parameterised by environment variables).
+
+## Commands
+
+| Command | What |
+| --- | --- |
+| `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off]` | Writes `sabha.conf` (gitignored): plan, OS, the agent CLIs found, tracker, ntfy topic. Asks for what it is not given on a terminal |
+| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions and the Remote Control policy; exits 1 only on a FAIL |
+| `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the restart line |
+| `bin/sabha-nudge <Name> "text"` | Wakes one pane (`herdr agent prompt --wait`) |
+| `bin/sabha-loop <Name>` | The restart supervisor for one pane |
+| `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
+| `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
+| `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
+| `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
+| `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
+| `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
+| `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
+
+## Setup
+
+1. Requirements: Claude Code (`claude` on PATH, logged in), bash (3.2 or later), python3, `jq`, herdr. On Windows use
+   Git Bash (beta).
+2. Run `bin/sabha init`, then `bin/sabha doctor`. `sabha.conf` is gitignored; `SABHA_CONF` points the scripts at another file.
+3. Copy `template/impl` to wherever `SABHA_IMPL` points and create `inbox/<Name>/` for each role, `status/context/`,
+   `status/.bak/` and `questions/`. Add `SABHA_PROTOCOL_CORE=PROTOCOL-core.md` and `SABHA_ROLE_DIR=protocol` to `sabha.conf`.
+4. From a plain terminal (not from inside a Claude session; its sandbox blocks terminal automation):
+   `bin/sabha-up.sh --plan pro`.
+5. Install the deny list if you want it: merge `share/claude-settings.json` into your Claude settings (no remote
+   pushes, `gh pr`, recursive deletes, `.env` or `.npmrc` reads).
+
+The roster names are the default theme (Mahabharat); rename them in the roster in `sabha.conf` or a plan file, the one
+roster source for the launchers, `sabha-watch` and the board.
 
 ## What is in it
 
 | Path | What |
 | --- | --- |
-| `bin/sabha-up.sh` | Opens a herdr workspace by default (iTerm2 on macOS is the fallback: `SABHA_BACKEND=iterm`) with two 4x2 tabs, Build and Gate (roster flag `gate`), one pane per role; on-demand roles get no pane; `sabha-up.sh <Name>` starts one role; `--print <Name>` prints its restart line |
-| `bin/sabha-herdr.sh`, `bin/sabha-nudge` | The herdr backend (the default on every OS) and `sabha-nudge <Name> "text"` (`herdr agent prompt --wait`) |
-| `bin/sabha-run` | headless runner: one `claude -p` per due brief, for roles with no pane; `--print` shows the command ([docs/headless-runner.md](docs/headless-runner.md)) |
-| `bin/sabha-watch` | read-only report: context percent per tab, restart lines above 30 percent, open items, unacked briefs |
-| `bin/sabha-for-me` | renders `FOR-ME.md` and `FOR-ME.html`, the user's board, from `for-me.items` and the status files (`--watch` to refresh) |
-| `docs/inbox-protocol.md` | the file formats: briefs, acks, dones, cancels, the GO token, `for-me.items`, status files |
-| `docs/windows.md` | Windows setup and checks |
-| `tests/test-claim.sh` | shows that a second claim of a brief number fails |
-| `icons/` | one icon per role (optional: a missing one falls back to `sabha.*`), plus `sabha.*` |
-| `sabha.conf.example` | the config every script reads |
-
-## Setup
-
-1. Requirements: Claude Code (`claude` on PATH, logged in), bash, python3 (for `sabha-for-me`), iTerm2 on macOS or
-   Windows Terminal on Windows.
-2. `cp sabha.conf.example sabha.conf` and set `SABHA_WS` (your workspace), `SABHA_IMPL` (the folder that holds the
-   project's `PROTOCOL.md`, `status/`, `inbox/` and `for-me.items`), `SABHA_PROJECT`, `SABHA_USER` and `SABHA_ROSTER`.
-   `sabha.conf` is gitignored; `SABHA_CONF` points the scripts at another file.
-3. In `SABHA_IMPL`, create `inbox/<Name>/` for each role, `status/`, `status/context/` and a `PROTOCOL.md` that binds
-   [docs/inbox-protocol.md](docs/inbox-protocol.md) to your project (roles, paths, rules).
-4. From a plain terminal (not from inside a Claude session; its sandbox blocks osascript and wt.exe):
-   `bin/sabha-up.sh`. Start the relay yourself in your editor with the line `bin/sabha-up.sh --print <relay>` prints.
-
-The roster names are the default theme (Mahabharat); rename them in `SABHA_ROSTER` in `sabha.conf`, the one roster
-source for the launchers, `sabha-watch` and the board. `status/context/<name>.txt` is written by a statusline hook of your own that saves the context percent.
+| `bin/` | The scripts above |
+| `sabha.conf.example`, `sabha.<plan>.conf` | The config every script reads and the three plan rosters |
+| `template/impl/` | A starter `SABHA_IMPL`: `PROTOCOL-core.md`, `protocol/<Name>.md` cards, `status/vidur.md`, `GOALS.md`, `for-me.items` |
+| `tracker/` | CSV templates, the HTML and xlsx builders, `cron-prompts.md`, `repos-export.py` |
+| `docs/inbox-protocol.md` | The file formats: briefs, acks, dones, cancels, the GO token, `for-me.items`, status files |
+| `docs/quickstart.md`, `docs/windows.md`, `docs/headless-runner.md` | The demo, the Windows notes and the runner design |
+| `share/claude-settings.json` | The safe-defaults deny list |
+| `RULES.md` | Seven working rules for your own `CLAUDE.md` |
+| `icons/` | One icon per role (optional) |
 
 ## Headless roles
 
