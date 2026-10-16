@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""sabha-sheet auth | sync [--dry-run] [--force] [--csv-dir DIR]: push the tracker CSVs into a Google Sheet.
+
+Standard library only (no pip, nothing global). The token stays in ~/.config/sabha/ (SABHA_CONFIG_DIR), never in the repo.
+
+One-time setup (the least-friction path found; the live OAuth and Sheets calls are UNTESTED, only --dry-run is tested):
+  1. console.cloud.google.com: new project > APIs & Services > enable "Google Sheets API".
+  2. OAuth consent screen (External is fine, add yourself as a test user) > Credentials > Create credentials >
+     OAuth client ID > type "Desktop app" > download the JSON to ~/.config/sabha/client.json.
+  3. sabha-sheet auth      opens a browser once, you click Allow, a refresh token lands in ~/.config/sabha/sheet-token.json (mode 600).
+  Google requires your own client: there is no shared one to ship. A service account (share the Sheet with its email)
+  skips the browser but needs a key file; not implemented in v1.
+Then set SABHA_SHEET_ID (the long id in the Sheet URL) in sabha.conf or the environment and run: sabha-sheet sync
+Write only: the data rows of each tab; header, formatting, validation and the human-owned columns are never touched.
+"""
+import base64
+import csv
+import hashlib
+import http.server
+import json
+import os
+import secrets
+import socketserver
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import webbrowser
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "tracker"))
+import tabs  # noqa: E402
+
+SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+CONF_DIR = os.path.expanduser(os.environ.get("SABHA_CONFIG_DIR", "~/.config/sabha"))
+CLIENT = os.path.join(CONF_DIR, "client.json")
+TOKEN = os.path.join(CONF_DIR, "sheet-token.json")
+STATE = os.path.join(CONF_DIR, "sheet-state.json")
+API = "https://sheets.googleapis.com/v4/spreadsheets/"
+
+
+def die(msg):
+    sys.exit("sabha-sheet: " + msg)
+
+
+def conf_value(key):
+    """Environment first, then sabha.conf (SABHA_CONF, else ../sabha.conf)."""
+    if os.environ.get(key):
+        return os.path.expanduser(os.path.expandvars(os.environ[key]))
+    path = os.environ.get("SABHA_CONF") or os.path.join(HERE, "..", "sabha.conf")
+    try:
+        for raw in open(path, encoding="ascii", errors="replace"):
+            line = raw.strip()
+            if line.startswith(key + "="):
+                return os.path.expanduser(os.path.expandvars(line.split("=", 1)[1].strip().strip('"').strip("'")))
+    except OSError:
+        pass
+    return ""
+
+
+def write_private(path, obj):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(obj, f)
+    os.chmod(path, 0o600)
+
+
+def post_form(url, data):
+    req = urllib.request.Request(url, urllib.parse.urlencode(data).encode(), method="POST")
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=30))
+    except urllib.error.HTTPError as e:
+        die("%s: HTTP %s %s" % (url, e.code, e.read()[:200].decode("ascii", "replace")))
+
+
+def load_client():
+    try:
+        c = json.load(open(CLIENT))
+        return c.get("installed") or c["web"]
+    except (OSError, KeyError, ValueError):
+        die("no OAuth client at %s; see the setup steps in `sabha-sheet --help`" % CLIENT)
+
+
+def auth():
+    c = load_client()
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    got = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            got.update({k: v[0] for k, v in q.items()})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"sabha-sheet: authorised, you can close this tab.")
+
+        def log_message(self, *a):
+            pass
+
+    with socketserver.TCPServer(("127.0.0.1", 0), H) as srv:
+        redirect = "http://127.0.0.1:%d" % srv.server_address[1]
+        url = c["auth_uri"] + "?" + urllib.parse.urlencode({
+            "client_id": c["client_id"], "redirect_uri": redirect, "response_type": "code", "scope": SCOPE,
+            "access_type": "offline", "prompt": "consent", "state": state,
+            "code_challenge": challenge, "code_challenge_method": "S256"})
+        print("Open this URL if no browser appears:\n" + url)
+        webbrowser.open(url)
+        srv.timeout = 300
+        srv.handle_request()
+    if got.get("state") != state or "code" not in got:
+        die("authorisation failed or timed out (%s)" % got.get("error", "no code"))
+    tok = post_form(c["token_uri"], {"code": got["code"], "client_id": c["client_id"],
+                                     "client_secret": c.get("client_secret", ""), "redirect_uri": redirect,
+                                     "grant_type": "authorization_code", "code_verifier": verifier})
+    if "refresh_token" not in tok:
+        die("Google returned no refresh token; revoke the app at myaccount.google.com/permissions and retry")
+    write_private(TOKEN, {"refresh_token": tok["refresh_token"]})
+    print("token saved to", TOKEN)
+
+
+def access_token():
+    try:
+        rt = json.load(open(TOKEN))["refresh_token"]
+    except (OSError, KeyError, ValueError):
+        die("not authorised: run `sabha-sheet auth` first")
+    c = load_client()
+    return post_form(c["token_uri"], {"client_id": c["client_id"], "client_secret": c.get("client_secret", ""),
+                                      "refresh_token": rt, "grant_type": "refresh_token"})["access_token"]
+
+
+class Api:
+    def __init__(self, sheet_id, dry):
+        self.base, self.dry, self.tok = API + sheet_id, dry, None
+
+    def call(self, method, path, body=None):
+        if self.dry:
+            print("DRY %s %s %s" % (method, path, json.dumps(body)[:160] if body else ""))
+            return {}
+        self.tok = self.tok or access_token()
+        req = urllib.request.Request(self.base + path, json.dumps(body).encode() if body is not None else None,
+                                     method=method, headers={"Authorization": "Bearer " + self.tok,
+                                                             "Content-Type": "application/json"})
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=60))
+        except urllib.error.HTTPError as e:
+            die("%s %s: HTTP %s %s" % (method, path, e.code, e.read()[:200].decode("ascii", "replace")))
+
+    def values(self, rng):
+        return self.call("GET", "/values/" + urllib.parse.quote(rng)).get("values", [])
+
+    def clear(self, ranges):
+        self.call("POST", "/values:batchClear", {"ranges": ranges})
+
+    def update(self, data):
+        if data:
+            self.call("POST", "/values:batchUpdate", {"valueInputOption": "RAW", "data": data})
+
+
+def read_rows(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.reader(f))[1:]
+
+
+def order_tasks(rows, cols):
+    """Parents with children directly below, Done last, then Priority, Deadline, ID."""
+    ix = {n: cols.index(n) for n in ("ID", "Parent", "Priority", "Deadline", "Status")}
+    key = lambda r: (r[ix["Status"]] == "Done", r[ix["Priority"]], r[ix["Deadline"]], r[ix["ID"]])
+    ids = {r[ix["ID"]] for r in rows}
+    tops = sorted((r for r in rows if r[ix["Parent"]] not in ids), key=key)
+    kids = {}
+    for r in sorted((r for r in rows if r[ix["Parent"]] in ids), key=key):
+        kids.setdefault(r[ix["Parent"]], []).append(r)
+    out = []
+    for r in tops:
+        out.append(r)
+        out += kids.get(r[ix["ID"]], [])
+    return out
+
+
+def sync_decisions(api, rows, ncols):
+    """Match by ID in column A; write A:F and H:K, never G (the human's Answer)."""
+    existing = api.values("Decisions!A2:A")
+    where = {r[0]: i + 2 for i, r in enumerate(existing) if r}
+    nxt, clear, data = len(existing) + 2, [], []
+    seen = set()
+    for r in rows:
+        r = (r + [""] * ncols)[:ncols]
+        n = where.get(r[0])
+        if n is None:
+            n, nxt = nxt, nxt + 1
+        seen.add(r[0])
+        data.append({"range": "Decisions!A%d:F%d" % (n, n), "values": [r[:6]]})
+        data.append({"range": "Decisions!H%d:%s%d" % (n, tabs.col(ncols), n), "values": [r[7:]]})
+    for i, n in where.items():
+        if i not in seen:
+            clear += ["Decisions!A%d:F%d" % (n, n), "Decisions!H%d:%s%d" % (n, tabs.col(ncols), n)]
+    if clear:
+        api.clear(clear)
+    api.update(data)
+
+
+def sync(argv):
+    dry, force = "--dry-run" in argv, "--force" in argv
+    d = argv[argv.index("--csv-dir") + 1] if "--csv-dir" in argv else conf_value("SABHA_CSV_DIR") or tabs.TEMPLATES
+    sheet_id = conf_value("SABHA_SHEET_ID")
+    if not sheet_id and not dry:
+        die("SABHA_SHEET_ID is not set (the long id in the Sheet URL; put it in sabha.conf or the environment)")
+    try:
+        state = json.load(open(STATE))
+    except (OSError, ValueError):
+        state = {}
+    api, done = Api(sheet_id or "<SHEET_ID>", dry), []
+    for tab, name, _ in tabs.TABS:
+        path = os.path.join(d, name)
+        if not os.path.exists(path):
+            continue
+        mt = os.path.getmtime(path)
+        if not force and not dry and state.get(name) == mt:
+            continue
+        cols, rows = tabs.header(name), read_rows(path)
+        rows = [(r + [""] * len(cols))[:len(cols)] for r in rows]
+        if tab == "Decisions":
+            sync_decisions(api, rows, len(cols))
+        else:
+            if tab == "Tasks":
+                rows = order_tasks(rows, cols)
+            rng = tabs.data_range(tab, name)
+            api.clear([rng])
+            api.update([{"range": rng, "values": rows}] if rows else [])
+        state[name] = mt
+        done.append("%s (%d rows)" % (tab, len(rows)))
+    if not dry:
+        write_private(STATE, state)
+    print("synced: " + (", ".join(done) if done else "nothing changed"))
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+    elif a[0] in ("auth", "sheet-auth"):
+        auth()
+    elif a[0] in ("sync", "sheet-sync"):
+        sync(a[1:])
+    else:
+        die("unknown command %r (auth | sync)" % a[0])
