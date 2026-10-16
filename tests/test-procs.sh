@@ -40,7 +40,7 @@ chmod +x "$dir/stubs/claude" "$dir/stubs/osascript" "$dir/stubs/fakekill"
 # ps -axo pid=,tty=,lstart=,command=
 cat > "$dir/ps.txt" <<'EOF'
   101 ttys004  Tue Oct 13 09:00:01 2026     claude -n Vidur --model opus --effort medium You are Vidur
-  102 ttys010  Tue Oct 13 17:30:00 2026     /Users/x/.local/bin/claude --name Vidur --model opus
+  102 ttys010  Tue Oct 13 17:30:00 2026     /opt/bin/claude --name Vidur --model opus
   201 ttys003  Tue Oct 13 17:42:08 2026     claude -n Yudhishthira --model opus --effort medium You are Yudhishthira
   301 ttys009  Tue Oct 13 17:42:08 2026     claude -n Nakul --model sonnet --effort medium You are Nakul
   302 ??       Tue Oct 13 15:00:00 2026     claude --name=Nakul --bg
