@@ -38,7 +38,8 @@ sabha_notify() {
   printf '%s %s\n' "$(sabha_utc)" "$msg" >>"$log"
   [[ ${SABHA_NOTIFY_DESKTOP:-1} == 1 ]] || return 0
   case $(uname -s) in
-    Darwin) osascript -e "display notification \"${msg//\"/}\" with title \"sabha\"" >/dev/null 2>&1 ;;
+    # the text travels as an argv item, never inside the AppleScript source, so quotes and backslashes cannot break or inject
+    Darwin) osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "sabha"' -e 'end run' -- "$msg" >/dev/null 2>&1 ;;
     MINGW*|MSYS*|CYGWIN*)
       # UNTESTED: WinRT toast from PowerShell, no module needed
       powershell.exe -NoProfile -Command "[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; \$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); [void]\$t.GetElementsByTagName('text').Item(0).AppendChild(\$t.CreateTextNode('${msg//\'/}')); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('sabha').Show([Windows.UI.Notifications.ToastNotification]::new(\$t))" >/dev/null 2>&1 ;;

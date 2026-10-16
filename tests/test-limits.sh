@@ -40,4 +40,14 @@ SABHA_STOP=off sabha_limits_stopped && fail "SABHA_STOP=off must never stop"
 sabha_limits_write seven_day 90 $(( now - 1 ))
 sabha_limits_stopped && fail "a passed reset must not stop"
 sabha_limits_banner | grep -q '^limits: five-hour 12%' || fail "banner should print the readings"
+
+# a message with quotes, a backslash and AppleScript-looking text reaches osascript as one argv item, never as source
+if [[ $(uname -s) == Darwin ]]; then
+  mkdir -p "$dir/fakebin"
+  printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done >"$FAKE_OSA_OUT"\n' >"$dir/fakebin/osascript"
+  chmod +x "$dir/fakebin/osascript"
+  PATH="$dir/fakebin:$PATH" FAKE_OSA_OUT="$dir/osa.out" SABHA_NOTIFY_DESKTOP=1 sabha_notify 'say "hi" \ & do shell script "id"'
+  grep -qxF 'say "hi" \ & do shell script "id"' "$dir/osa.out" || fail "message must arrive verbatim as one argument"
+  grep -qF 'display notification (item 1 of argv)' "$dir/osa.out" || fail "script source must not embed the message"
+fi
 echo "ok: newest reading wins, 8 alerts once each across a reset, SABHA_STOP holds only until resets_at"
