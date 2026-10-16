@@ -39,6 +39,16 @@ printf 'gate: t-review.md, t-sec.md, t-be.md\n\nbody\n' > brief.md
 want 0 "--brief" --brief brief.md
 printf 'gate: t-review.md, t-scope.md\n' > brief2.md
 want 1 "--brief shut" --brief brief2.md
+# newer wins: the last verdict line is current; answers older than the verdict are stale
+printf 'verdict: ACCEPT\nnotes\nverdict: BREAK 1\n' > n-review.md
+want 1 "ACCEPT then a newer BREAK in the same reviewer file shuts the gate" n-review.md t-sec.md
+printf 'verdict: BREAK 1\nverdict: ACCEPT\n' > n2-review.md
+want 0 "BREAK then a newer ACCEPT opens it" n2-review.md t-sec.md
+printf 'verdict: BREAK 1\n' > m-be.md; printf 'FIXED: x in abc\n' > m-be-answer.md
+touch -t 202001010000 m-be.md; touch -t 202001020000 m-be-answer.md
+want 0 "BREAK then a newer FIXED answer opens it" t-review.md m-be.md
+touch -t 202001030000 m-be.md
+want 1 "a verdict newer than its answers reopens the finding" t-review.md m-be.md
 mkdir sub && cp t-review.md t-sec.md sub/
 want 0 "-C dir" -C sub t-review.md t-sec.md
-echo "ok: gate needs ACCEPT, unanswered BREAK/BLOCK shut it, REFUTED/FIXED answers open it, --brief and -C work"
+echo "ok: newest verdict wins; gate needs ACCEPT, unanswered BREAK/BLOCK shut it, REFUTED/FIXED answers open it, --brief and -C work"

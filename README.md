@@ -4,7 +4,7 @@ Run a team of named coding-agent sessions - a relay you talk to, a dispatcher an
 work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
 
 Status: 0.2.0, not tagged. macOS is used daily; Windows is **beta until a teammate has run it** (see
-[docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine.
+[docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine; the full list is in [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Try it first
 
@@ -63,6 +63,8 @@ Phone push privacy: ntfy topics on the public server are readable by anyone who 
 logs the topic and your IP. `sabha init --push ntfy` generates a random topic and keeps it in `sabha.conf` (gitignored);
 treat the name like a password, and self-host ntfy if the alerts name anything sensitive. Telegram and Pushover are not
 built.
+
+Untested and limited parts of this release, and how to confirm each: [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Limits and alerts
 

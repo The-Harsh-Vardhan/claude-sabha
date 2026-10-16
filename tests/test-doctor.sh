@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/sabha doctor with fake CLIs on PATH: all present = rc 0; a missing claude or jq = FAIL rc 1; missing herdr,
+# bin/sabha doctor with fake CLIs on PATH: all present = rc 0; a missing claude, jq, git or python3 = FAIL rc 1; missing herdr,
 # statusline hook, optional CLIs = warn only; the Team/Enterprise Remote Control note is a warning and never fails the
 # run; the bash version line names what works. No Claude runs. Run: tests/test-doctor.sh   (bash 3.2 and 5)
 set -u
@@ -13,7 +13,7 @@ mkdir -p "$dir/fakebin" "$dir/sysbin" "$dir/impl/status"
 for c in grep sed head tr uname dirname git mktemp date awk cat sh env rm mkdir; do p=$(command -v $c) && ln -sf "$p" "$dir/sysbin/$c"; done
 ln -s "$JQ" "$dir/fakebin/jq"
 mk() { printf '#!/bin/sh\n%s\n' "${2:-exit 0}" >"$dir/fakebin/$1"; chmod +x "$dir/fakebin/$1"; }
-mk claude 'echo "Logged in: personal, plan Max"'; mk herdr; mk opencode; mk codex; mk agy
+mk claude 'echo "Logged in: personal, plan Max"'; mk python3; mk herdr; mk opencode; mk codex; mk agy
 echo "SABHA_WS=$dir
 SABHA_IMPL=$dir/impl" >"$dir/sabha.conf"
 echo '{"statusLine":{"type":"command","command":"bash /x/bin/statusline-sabha.sh"}}' >"$dir/settings.json"
@@ -32,6 +32,13 @@ mk claude 'echo "Logged in: personal, plan Max"'
 rm "$dir/fakebin/jq"; o=$(D); rc=$?
 [[ $rc -eq 1 ]] && echo "$o" | grep -q '^FAIL  jq' || fail "missing jq must FAIL with rc 1: rc=$rc"
 ln -s "$JQ" "$dir/fakebin/jq"
+
+rm "$dir/fakebin/python3"; o=$(D); rc=$?
+[[ $rc -eq 1 ]] && echo "$o" | grep -q '^FAIL  python3' || fail "missing python3 must FAIL with rc 1: rc=$rc"
+mk python3
+rm "$dir/sysbin/git"; o=$(D); rc=$?
+[[ $rc -eq 1 ]] && echo "$o" | grep -q '^FAIL  git' || fail "missing git must FAIL with rc 1: rc=$rc"
+ln -sf "$(command -v git)" "$dir/sysbin/git"
 
 rm "$dir/fakebin/herdr" "$dir/fakebin/codex" "$dir/fakebin/agy"; echo '{}' >"$dir/settings.json"
 o=$(D); rc=$?
@@ -55,4 +62,4 @@ o=$(D); rc=$?
 
 rm "$dir/sabha.conf"; o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  no config' || fail "no config is a warning"
-echo "ok: doctor passes a healthy machine, FAILs only on missing claude or jq, warns (rc 0) on herdr, hook, optional CLIs, Team/Enterprise and SABHA_REMOTE"
+echo "ok: doctor passes a healthy machine, FAILs on a missing claude, jq, git or python3, warns (rc 0) on herdr, hook, optional CLIs, Team/Enterprise and SABHA_REMOTE"

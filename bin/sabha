@@ -65,7 +65,9 @@ cmd_init() {
   [[ $push == ntfy ]] && topic=sabha-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
 
   {
-    sed -e "s|^SABHA_WS=.*|SABHA_WS=$ws|" -e "s|^SABHA_IMPL=.*|SABHA_IMPL=$impl|" "$ROOT/sabha.conf.example"
+    # ENVIRON, not sed: a path may hold | & or a backslash
+    WS_VAL=$ws IMPL_VAL=$impl awk '/^SABHA_WS=/ { print "SABHA_WS=" ENVIRON["WS_VAL"]; next }
+      /^SABHA_IMPL=/ { print "SABHA_IMPL=" ENVIRON["IMPL_VAL"]; next } { print }' "$ROOT/sabha.conf.example"
     echo
     echo "# Written by sabha init: os $os; agent CLIs found: ${clis:-none}."
     echo "SABHA_PLAN=$plan"
@@ -110,6 +112,8 @@ cmd_doctor() {
     command -v "$c" >/dev/null 2>&1 && ok "$c: $(command -v "$c")" || warn "$c not installed (only needed for roster rows that use it)"
   done
   command -v jq >/dev/null 2>&1 && ok "jq: $(command -v jq)" || bad "jq not found (statusline and limits need it)"
+  command -v git >/dev/null 2>&1 && ok "git: $(command -v git)" || bad "git not found (worktrees, sabha update and the quickstart need it)"
+  command -v python3 >/dev/null 2>&1 && ok "python3: $(command -v python3)" || bad "python3 not found (the tracker builders and sheet sync need it)"
   if command -v herdr >/dev/null 2>&1; then ok "herdr: $(command -v herdr)"
   else warn "herdr not found (default terminal backend; the iTerm path still works on macOS)"; fi
 

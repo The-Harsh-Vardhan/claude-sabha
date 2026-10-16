@@ -35,6 +35,9 @@ grep -q '^SABHA_NTFY_TOPIC=' "$dir/c.conf" && fail "no topic without ntfy"
 
 S init --out "$out" </dev/null >/dev/null 2>&1 && fail "existing conf must not be replaced"
 S init --force --out "$out" </dev/null >/dev/null || fail "--force should replace"
+w='/tmp/a|b&c\d'
+S init --plan pro --ws "$w" --impl "$w/impl" --out "$dir/e.conf" </dev/null >/dev/null || fail "init with | & and a backslash in the path failed"
+grep -qxF "SABHA_WS=$w" "$dir/e.conf" && grep -qxF "SABHA_IMPL=$w/impl" "$dir/e.conf" || fail "path with | & \\ was mangled: $(grep '^SABHA_WS=\|^SABHA_IMPL=' "$dir/e.conf")"
 S init --plan gold --out "$dir/d.conf" </dev/null >/dev/null 2>&1 && fail "bad plan must fail"
 [[ -e $dir/d.conf ]] && fail "bad plan wrote a file"
 

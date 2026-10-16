@@ -4,11 +4,12 @@ You will run one small job through the whole loop: you ask the relay, the relay 
 briefs a builder, a reviewer reads the diff, a session is restarted fresh from its handoff, and the board shows it all.
 The job is trivial on purpose (create one file in a worktree); the loop is what you are testing.
 
-Status: written to be followed literally. It is run end to end on a Mac before release (plan item 4a); until that run
-is recorded, treat any step that fails as a bug in this page and report it. Windows is beta ([windows.md](windows.md)).
+Status: written to be followed literally. Steps 1-3 and the mechanical equivalent of steps 4-7 (shipped scripts, fake
+herdr and fake agents) have been run on a Mac; steps 4-7 as written need a real Claude and are not yet run end to end.
+Treat any step that fails as a bug in this page and report it. Windows is beta ([windows.md](windows.md)).
 
-You need: `claude` on your PATH and logged in, `git`, `python3`, `jq`, and `herdr` (`brew install herdr`), each checked
-in step 2. Run every command from a plain terminal, not from inside a Claude session (a Claude sandbox blocks the
+You need: `claude` on your PATH and logged in, `git`, `python3`, `jq`, and `herdr` (`brew install herdr`). Step 2 (`sabha doctor`)
+checks all five: a missing `claude`, `git`, `python3` or `jq` is a FAIL, a missing `herdr` a warning. Run every command from a plain terminal, not from inside a Claude session (a Claude sandbox blocks the
 terminal automation the launcher uses). All commands start in the sabha repository.
 
 ## 1. Write the config (1 minute)
@@ -49,6 +50,9 @@ bin/sabha-up.sh --plan pro
 herdr opens a workspace with one pane each for Vidur (the relay, the session you talk to), Yudhishthira, Bhima,
 Arjun and Nakul. Then start the reviewer, which has no pane on the Pro plan: `bin/sabha-up.sh Sahadev` (or print its
 line with `bin/sabha-up.sh --print Sahadev` and run it where you like).
+
+If it stops with `already running` because a claude session holds one of those names (for example a real sabha on
+the same machine), stop that one first; `--force` skips the check and is only for a machine you know is clear.
 
 Expected: each pane greets with its name, reads `PROTOCOL-core.md` and its own card, and checks its inbox.
 
@@ -105,8 +109,8 @@ bin/sabha-up.sh Arjun
 Expected: the new Arjun reads its card and `status/arjun.md`, says what it was doing and what is next, and does not
 redo the finished brief. Never use `--resume`: it would bring back the full context and defeat the restart.
 In normal use `bin/sabha-loop <Name>` does this for you at 30 percent context once the handoff is newer than the last
-start (see the README, "Restart loop"); this demo does it by hand so you see the mechanism. The automatic path is not
-covered by this page.
+start (see the README, "Restart loop"); this demo does it by hand so you see the mechanism. The automatic path is
+exercised in `tests/test-loop.sh` (a fake agent at 35 percent context restarts once the handoff is newer).
 
 ## 7. Look at the board (1 minute)
 

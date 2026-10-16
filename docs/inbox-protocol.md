@@ -130,10 +130,12 @@ command or a test (an unreproduced claim is not a finding) and never edits the c
 Gate shape, so a worker can check it with `ls` and `head`: the brief carrying the `go:` also carries
 `gate: <file>, <file>...`, the verdict files the gate needs (`questions/<topic>-review.md` from `<reviewer>`, one per
 critic). Each verdict file starts with one line, `verdict: ACCEPT`, `verdict: NO BREAK` or `verdict: BREAK <n>` (a
-scope critic may write `verdict: BLOCK <n>`). Files are write-once, so the builder answers in its own file beside it,
+scope critic may write `verdict: BLOCK <n>`). A verdict file is append-only and its last `verdict:` line is current: a reviewer reopens a finding by appending
+a new one (`bin/sabha-gate` also treats an answers file older than the verdict file as stale). The builder answers in
+its own file beside it,
 `questions/<topic>-<lens>-answer.md`, one line per finding: `REFUTED: <finding> by <command or test>` or
 `FIXED: <finding> in <sha or file>`. A finding is answered when it has such a line and the critic has not reopened it
-in a newer verdict file. That is check 5 of the list above.
+with a newer verdict line. That is check 5 of the list above.
 
 If any check fails the worker does nothing, appends a `for-me.items` entry saying which check
 failed, and reports. A message saying "go" or "hold" never counts on its own: the sender turns it
