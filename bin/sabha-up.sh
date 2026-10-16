@@ -5,6 +5,9 @@
 #   sabha-up.sh <Name>          start one role in the current terminal (each pane runs this)
 #   sabha-up.sh --print <Name>  print that role's one-line restart command and exit
 #   on-demand roles (roster flag "ondemand") have no pane: start them with sabha-up.sh <Name>
+#   sabha-up.sh <Name>-N        a copy of that role (Arjun-2): same profile, its own inbox and status file
+#   --plan pro|max5|max20       (first argument) roster, panes, copies and labels from sabha.<plan>.conf beside
+#                               sabha.conf; SABHA_PANES names the roles that get a pane, the rest are on demand
 #   --force (first argument)    start even when a claude process already holds a role's name
 # Run it from a plain terminal: osascript is blocked inside a Claude sandbox.
 # Paths and names come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
@@ -13,6 +16,11 @@ set -euo pipefail
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$(dirname "$SELF")/sabha-lib.sh"
+PLAN_ARG=""
+if [[ ${1:-} == --plan ]]; then
+  [[ $# -ge 2 && -n $2 ]] || { echo "usage: sabha-up.sh --plan pro|max5|max20 [...]" >&2; exit 2; }
+  export SABHA_PLAN=$2; PLAN_ARG="--plan $2 "; shift 2
+fi
 sabha_load sabha-up
 PROJECT=${SABHA_PROJECT:-this project}
 OWNER=${SABHA_USER:-the user}
@@ -34,21 +42,20 @@ guard() {
 }
 
 role() {
-  for r in "${ROLES[@]}"; do
-    read -r name model effort _ <<<"$r"
-    [[ $name == "$1" ]] || continue
-    to=$DISPATCHER
-    [[ $name == "$DISPATCHER" ]] && to=$RELAY
-    [[ $name == "$RELAY" ]] && to=$OWNER
-    # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
-    tail_var=SABHA_PROMPT_$name
-    tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
-    [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
-    reads=$(sabha_reads "$name")
-    prompt="You are $name in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
-    return 0
-  done
-  echo "unknown role: $1" >&2; exit 1
+  sabha_role "$1" || { echo "unknown role: $1" >&2; exit 1; }
+  r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
+  # non-claude agents (opencode, codex, agy, muse) start through the herdr backend, not this launcher
+  [[ $R_AGENT == claude ]] || { echo "sabha-up: $name runs on $R_AGENT, which this launcher cannot start (herdr backend)" >&2; exit 1; }
+  to=$DISPATCHER
+  [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
+  [[ $R_BASE == "$RELAY" ]] && to=$OWNER
+  who=$name; [[ -n $R_LABEL ]] && who="$name ($R_LABEL)"
+  # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
+  tail_var=SABHA_PROMPT_$R_BASE
+  tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
+  [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
+  reads=$(sabha_reads "$name")
+  prompt="You are $who in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
 }
 
 if [[ ${1:-} == --print && $# -eq 2 ]]; then
@@ -79,19 +86,19 @@ if [[ $# -eq 1 ]]; then
   exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} "$prompt"
 fi
 
-# two tabs: Build takes the pane roles in roster order, Gate takes those flagged "gate"; each is two rows of up to four.
-# Lazy roles get no pane here.
+# two tabs: Build takes the pane roles in pane order, Gate takes those flagged "gate"; each is two rows of up to four.
+# Without SABHA_PANES the lazy roles get no pane here; a name listed in SABHA_PANES always does (the relay too, Q25).
 build=() gate=()
-for r in "${ROLES[@]}"; do
-  [[ " ${PANES[*]} " == *" ${r%% *} "* ]] || continue
-  sabha_flag "$r" lazy && continue
-  if sabha_flag "$r" gate; then gate+=("${r%% *}"); else build+=("${r%% *}"); fi
+for n in ${PANES[@]+"${PANES[@]}"}; do
+  sabha_role "$n"
+  [[ -z ${SABHA_PANES:-} ]] && sabha_flag "$R_ENTRY" lazy && continue
+  if sabha_flag "$R_ENTRY" gate; then gate+=("$n"); else build+=("$n"); fi
 done
 (( ${#build[@]} >= 1 && ${#build[@]} <= 8 && ${#gate[@]} <= 8 )) ||
   { echo "sabha-up: each tab holds up to 8 panes (Build has ${#build[@]}, Gate has ${#gate[@]})" >&2; exit 1; }
-# the relay is already running when the grid opens, and on-demand roles have no pane, so only the panes are checked
+# on-demand roles have no pane, so only the panes are checked (the relay too when SABHA_PANES lists it)
 guard "${build[@]}" ${gate[@]+"${gate[@]}"}
-pane_args=""; (( FORCE )) && pane_args="--force "
+pane_args=$PLAN_ARG; (( FORCE )) && pane_args+="--force "
 
 # tab_script <prefix> <name>...: AppleScript that splits session <prefix>1 into two rows and starts one role per pane.
 # A vertical split halves a pane, so 4 columns are made by halving twice (equal); 3 columns come out 1/2, 1/4, 1/4.

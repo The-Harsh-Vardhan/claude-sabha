@@ -22,27 +22,29 @@ sq() { local q="'\\''"; case $1 in *[!A-Za-z0-9_./:=-]*) printf "'%s'" "${1//\'/
 
 # role_cmd <Name> <brief file>: sets CMD (the claude argv) for that role and brief
 role_cmd() {
-  local r name model effort lower to n
-  for r in "${ROLES[@]}"; do
-    read -r name model effort _ <<<"$r"
-    [[ $name == "$1" ]] && break
-  done
+  local r name model effort lower to n who
+  sabha_role "$1" || { echo "sabha-run: unknown role $1" >&2; return 1; }
+  r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
+  who=$name; [[ -n $R_LABEL ]] && who="$name ($R_LABEL)"
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   n=$(basename "$2"); n=${n:0:3}
-  to=$DISPATCHER; [[ $name == "$DISPATCHER" ]] && to=$RELAY
+  to=$DISPATCHER; [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   CMD=(claude -p -n "$name" --model "$model" --effort "$effort")
   # MCP servers each cost memory; "mcp" in the roster flags keeps them, as in sabha-up.sh
   sabha_flag "$r" mcp || CMD+=(--strict-mcp-config)
   # nobody is at a terminal: a prompt must turn into a denial, not a hang until the timeout
   CMD+=(--permission-prompts none)
-  CMD+=("You are $name in $PROJECT session setup, running headless (claude -p): nobody answers you or a permission prompt. Read $(sabha_reads "$name"), then the brief $2 (sabha-run already wrote its $n.ack). Do the brief, update status/$lower.md, write inbox/$name/$n.done (result for $to), then stop. A denied action ends the work: append the denial to $SABHA_IMPL/for-me.items, write $n.done with result: BLOCKED <the denial>, and stop; never work around a denial. Start no other brief.")
+  CMD+=("You are $who in $PROJECT session setup, running headless (claude -p): nobody answers you or a permission prompt. Read $(sabha_reads "$name"), then the brief $2 (sabha-run already wrote its $n.ack). Do the brief, update status/$lower.md, write inbox/$name/$n.done (result for $to), then stop. A denied action ends the work: append the denial to $SABHA_IMPL/for-me.items, write $n.done with result: BLOCKED <the denial>, and stop; never work around a denial. Start no other brief.")
 }
 
 # served: true when this pass may run <Name> (named = on the command line)
 served() {
   local r named=$2
   [[ $1 == "$RELAY" ]] && return 1
-  for r in "${ROLES[@]}"; do [[ ${r%% *} == "$1" ]] && break; done
+  sabha_role "$1" || return 1
+  r=$R_ENTRY
+  # only claude runs headless here; the other agents (opencode, codex, agy, muse) go through the herdr backend
+  [[ $R_AGENT == claude ]] || return 1
   (( named )) && return 0
   sabha_flag "$r" ondemand && return 1
   case ${SABHA_RUN_ROLES:-lazy} in

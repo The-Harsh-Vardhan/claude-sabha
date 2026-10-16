@@ -54,6 +54,21 @@ def load_conf():
     if not os.path.exists(path):
         sys.exit("sabha-for-me: no config at %s (copy sabha.conf.example to sabha.conf)" % path)
     conf = {}
+    read_conf(path, conf)
+    # a plan file (sabha.pro.conf ...) beside sabha.conf carries the roster, panes, copies and labels
+    plan = os.environ.get("SABHA_PLAN") or conf.get("SABHA_PLAN")
+    if plan:
+        ppath = os.path.join(os.environ.get("SABHA_PLAN_DIR") or os.path.dirname(path), "sabha.%s.conf" % plan)
+        if not os.path.exists(ppath):
+            sys.exit("sabha-for-me: no plan file at %s (plans: pro, max5, max20)" % ppath)
+        read_conf(ppath, conf)
+    for need in ("SABHA_IMPL", "SABHA_ROSTER"):
+        if need not in conf:
+            sys.exit("sabha-for-me: %s missing from %s" % (need, path))
+    return conf
+
+
+def read_conf(path, conf):
     for raw in open(path, encoding="ascii", errors="replace"):
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -63,10 +78,20 @@ def load_conf():
         # earlier keys and the environment both expand, so SABHA_IMPL can be written as $SABHA_WS/...
         os.environ[k.strip()] = os.path.expanduser(os.path.expandvars(v))
         conf[k.strip()] = os.environ[k.strip()]
-    for need in ("SABHA_IMPL", "SABHA_ROSTER"):
-        if need not in conf:
-            sys.exit("sabha-for-me: %s missing from %s" % (need, path))
-    return conf
+
+
+AGENTS = ("claude", "opencode", "codex", "agy", "muse")
+
+
+def roster_row(entry):
+    """Name:agent:model[:effort[:flags]] -> [name, model, effort, flags, agent]; a second field that is no
+    agent is the model (the older Name:model[:effort[:flags]] row), as sabha-lib.sh reads it."""
+    f = entry.split(":")
+    if len(f) > 1 and f[1] in AGENTS:
+        agent, rest = f[1], f[2:]
+    else:
+        agent, rest = "claude", f[1:]
+    return [f[0]] + rest[:3] + [""] * (3 - len(rest[:3])) + [agent]
 
 
 def split_blocks(text):
@@ -274,7 +299,7 @@ def agent_goals(b, name):
 
 def build(conf):
     impl = conf["SABHA_IMPL"]
-    roster = [r.split(":") for r in conf["SABHA_ROSTER"].split()]
+    roster = [roster_row(r) for r in conf["SABHA_ROSTER"].split()]
     waiting_people = conf.get("SABHA_WAITING", "").split()
     items = parse_items(os.path.join(impl, "for-me.items"))
     now = dt.datetime.now(dt.timezone.utc)
@@ -301,7 +326,9 @@ def build(conf):
         if not s["current"] and not s["idle"] and name in fallback:
             s["task"] = fallback[name]
         stale = s["age"] is not None and s["age"] > STALE_MIN and not s["idle"]
-        agents.append(dict(name=name, model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "", state=state_of(s), stale=stale, **s))
+        agents.append(dict(name=name, model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "",
+                           agent=entry[4] if len(entry) > 4 else "claude", label=conf.get("SABHA_LABEL_" + name, ""),
+                           state=state_of(s), stale=stale, **s))
     return dict(inbox=parse_inboxes(impl), now=now.strftime("%Y-%m-%d %H:%M:%SZ"), items=items, open=open_items, waiting=waiting, waiting_people=waiting_people,
                 done=done, agents=agents, epoch=int(time.time()), project=conf.get("SABHA_PROJECT", ""), goals=parse_goals(os.path.join(impl, "GOALS.md")))
 
@@ -376,7 +403,7 @@ def render_md(b):
     out += ["## Agents", "", "| Agent | Model | State | Goal | Task | Next | Ctx % | Updated |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for a in b["agents"]:
         out.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
-            a["name"], (a["model"] + " " + a["effort"]).strip(), state_label(a),
+            a["name"] + (" (%s)" % a["label"] if a.get("label") else ""), (a["model"] + " " + a["effort"]).strip(), state_label(a),
             short("; ".join(agent_goals(b, a["name"])), 60).replace("|", "/") or "-", short(a["task"], 90).replace("|", "/"),
             short(a["next"], 70).replace("|", "/") or "-", ctx_text(a), age_text(a["age"])))
     out.append("")
@@ -606,7 +633,7 @@ def render_html(b):
             cx = "<span class=k>-</span>"
         p.append("<tr><td class=nm>%s</td><td><span class='chip %s'>%s</span> <span class=k>%s</span></td><td><span class='st %s'>%s</span></td>"
                  "<td>%s</td><td>%s</td><td>%s</td><td class=mono>%s</td><td class=mono>%s</td></tr>" % (
-                     e(a["name"]), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
+                     e(a["name"]) + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
                      e("; ".join(agent_goals(b, a["name"]))) or "<span class=k>-</span>", e(short(a["task"], 160)) or "<span class=k>-</span>", e(short(a["next"], 160)) or "<span class=k>-</span>", cx, age_text(a["age"])))
     p.append("</tbody></table></div></section>")
     p.append("<div class=charts><div class=card><h3>Context per agent</h3><div class=cv><canvas id=ch-ctx aria-label='Context percent per agent'></canvas></div><div class=k>grey = no reading in 30 min</div></div>"

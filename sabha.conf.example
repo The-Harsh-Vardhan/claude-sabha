@@ -7,13 +7,27 @@ SABHA_IMPL=$SABHA_WS/path/to/impl
 # The opening prompt says "You are <Name> in $SABHA_PROJECT session setup"; the relay reports to $SABHA_USER.
 SABHA_PROJECT="My project"
 SABHA_USER="the user"
-# Roster: Name:model[:effort[:flags]] entries separated by spaces (a name with a space is not supported; effort defaults to
-# medium). The one roster source for the launchers, sabha-watch and the board. Order matters: the relay first, the
-# dispatcher second, then the panes in tab order (each tab: top row left to right, then the bottom row, up to 8).
-SABHA_ROSTER="Vidur:opus:medium Yudhishthira:opus:medium Bhishma:fable:medium Bhima:opus:high Arjun:opus:medium Sahadev:sonnet:high Nakul:sonnet:medium Karna:sonnet:medium Sanjaya:haiku:high Duryodhan:opus:high:gate,lazy Dushasan:sonnet:high:gate,lazy Shakuni:opus:high:gate,lazy Draupadi:sonnet:high:gate,lazy Gandhari:sonnet:medium:gate,lazy VedVyasa:sonnet:medium:gate,lazy Barbarika:haiku:medium:gate Abhimanyu:haiku:medium:gate Krishna:opus:medium:ondemand Ashwatthama:haiku:high:ondemand Dronacharya:sonnet:medium:ondemand"
+# Plan: the roster, panes, copies and labels of sabha.<plan>.conf beside this file (pro, max5, max20) replace the ones
+# below. `sabha-up.sh --plan pro` does the same for one run. Leave it unset to use the roster written here.
+#SABHA_PLAN=pro
+# Roster: Name:agent:model[:effort[:flags]] entries separated by spaces (a name with a space is not supported; effort
+# defaults to medium). The agent is claude, opencode, codex, agy or muse; a row without one (Name:model...) is claude,
+# so older rosters still parse. Only claude rows start from sabha-up.sh and sabha-run today. The one roster source
+# for the launchers, sabha-watch and the board. Order matters: the relay first, the dispatcher second, then the panes
+# in tab order (each tab: top row left to right, then the bottom row, up to 8).
+SABHA_ROSTER="Vidur:claude:opus:medium Yudhishthira:claude:opus:medium Bhishma:claude:fable:medium Bhima:claude:opus:high Arjun:claude:opus:medium Sahadev:claude:sonnet:high Nakul:claude:sonnet:medium Karna:claude:sonnet:medium Sanjaya:claude:haiku:high Duryodhan:claude:opus:high:gate,lazy Dushasan:claude:sonnet:high:gate,lazy Shakuni:claude:opus:high:gate,lazy Draupadi:claude:sonnet:high:gate,lazy Gandhari:claude:sonnet:medium:gate,lazy VedVyasa:claude:sonnet:medium:gate,lazy Barbarika:claude:haiku:medium:gate Abhimanyu:claude:haiku:medium:gate Krishna:claude:opus:medium:ondemand Ashwatthama:claude:haiku:high:ondemand Dronacharya:claude:sonnet:medium:ondemand"
 # Flags (comma list): ondemand = no pane, start it with sabha-up.sh <Name>; gate = a pane in the second tab (Gate);
 # lazy = no pane; bin/sabha-run starts it headless when a brief lands; mcp = keeps the user's MCP servers. No flag = a
 # Build-tab pane.
+# Panes: when set, exactly these roles get a pane, in this order (the relay first, so it restarts like the rest);
+# every other profile is on demand: a subagent of the dispatcher with its own model and effort, or sabha-up.sh <Name>.
+# When unset, the flags above decide.
+#SABHA_PANES="Vidur Yudhishthira Bhima Arjun Nakul"
+# Copies: Arjun-1, Arjun-2 ... take Arjun's profile with their own inbox, status file and worktree; at most this many
+# per role (2 on Pro, 4 on Max).
+#SABHA_MAX_COPIES=2
+# Role labels, shown as "Bhishma (Architect)" in the opening prompt and on the board.
+#SABHA_LABEL_Bhishma="Architect"
 # A role id is one word (Ved Vyasa is VedVyasa). SABHA_PROMPT_<Name> replaces the
 # opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
 SABHA_PROMPT_Krishna="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
@@ -25,6 +39,18 @@ SABHA_PROMPT_Krishna="then ask the user which topic to practise. You are the on-
 # One log per run (default $SABHA_IMPL/runs). SABHA_RUN_AUTO=1 makes each sabha-watch run end with a sabha-run pass.
 #SABHA_RUN_LOGS=$SABHA_IMPL/runs
 #SABHA_RUN_AUTO=1
+# Pane supervisor (bin/sabha-loop <Name>) and usage alerts (bin/statusline-sabha.sh, bin/sabha-limits.sh).
+# Claude panes restart fresh at SABHA_LOOP_LIMIT percent context once the handoff is saved; a context file older
+# than SABHA_LOOP_STALE seconds only warns. SABHA_NOTIFY lists the usage percentages (5-hour and 7-day windows) that
+# fire a notification, each once per window. At SABHA_STOP percent no new session starts until the window resets
+# (0 or off disables). SABHA_PUSH=ntfy also sends each alert to the ntfy topic (public topics are readable by name).
+#SABHA_LOOP_LIMIT=30
+#SABHA_LOOP_STALE=120
+#SABHA_NOTIFY="10 20 30 40 50 60 70 80 90"
+#SABHA_STOP=90
+#SABHA_PUSH=off
+#SABHA_NTFY_TOPIC=
+#SABHA_NTFY_URL=https://ntfy.sh
 SABHA_WAITING="Reviewer1 Reviewer2"
 # Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
 #SABHA_TASK_FALLBACK="Name=task text"
