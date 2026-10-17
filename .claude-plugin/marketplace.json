@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-sabha",
+  "description": "A team of named Claude Code sessions that hand work through plain files.",
+  "owner": {
+    "name": "Harsh Vardhan"
+  },
+  "plugins": [
+    {
+      "name": "claude-sabha",
+      "description": "Relay, dispatcher and workers that hand each other work through plain files and restart fresh before context fills up.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
