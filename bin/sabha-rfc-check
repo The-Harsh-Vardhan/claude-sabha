@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# sabha-rfc-check: lint a Markdown RFC. Bash 3.2 safe. Exit 0 = clean, 1 = problems, 2 = usage.
+#   sabha-rfc-check <rfc.md> [--sections "Summary,Problem,..."]
+# Checks: required "##" sections present and not empty (default list below, or SABHA_RFC_SECTIONS), no TODO/TBD/FIXME,
+# every (#anchor) link matches a heading, every relative file link exists, no non-ASCII bytes.
+#   sabha-rfc-check --self-test
+set -u
+if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-rfc-check.sh"; fi
+[[ $# -ge 1 && -f $1 ]] || { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+rfc=$1; shift
+sections=${SABHA_RFC_SECTIONS:-Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions}
+[[ ${1:-} == --sections ]] && sections=${2:-$sections}
+bad=0
+fail() { echo "FAIL $*"; bad=1; }
+
+slug() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9 _-]//g' -e 's/ /-/g'; }
+
+anchors=$(grep -E '^#{1,6} ' "$rfc" | sed -E 's/^#+ +//; s/ +$//' | while IFS= read -r h; do slug "$h"; echo; done)
+
+IFS=, read -r -a want <<<"$sections"
+for s in "${want[@]}"; do
+  s=${s# }
+  ln=$(grep -n -i -E "^## +$s *\$" "$rfc" | head -1 | cut -d: -f1)
+  if [[ -z $ln ]]; then fail "missing section: $s"; continue; fi
+  body=$(tail -n +"$((ln + 1))" "$rfc" | awk '/^#{1,2} /{exit} {print}' | tr -d '[:space:]')
+  [[ -n $body ]] || fail "empty section: $s (line $ln)"
+done
+
+ph=$(grep -n -E '\b(TODO|TBD|FIXME)\b' "$rfc")
+[[ -z $ph ]] || { printf 'FAIL placeholder: %s\n' "$ph"; bad=1; }
+
+while IFS= read -r a; do
+  [[ -n $a ]] || continue
+  printf '%s\n' "$anchors" | grep -q -x -F -- "${a#\#}" || fail "dead anchor: $a"
+done < <(grep -o -E '\]\(#[^)]*\)' "$rfc" | sed -E 's/^\]\(//; s/\)$//')
+
+base=$(cd "$(dirname "$rfc")" && pwd)
+while IFS= read -r l; do
+  [[ -n $l ]] || continue
+  p=${l%%#*}; [[ -n $p ]] || continue
+  case $p in http:*|https:*|mailto:*) continue ;; esac
+  [[ -e $base/$p ]] || fail "dead file link: $l"
+done < <(grep -o -E '\]\([^)#][^)]*\)' "$rfc" | sed -E 's/^\]\(//; s/\)$//')
+
+na=$(LC_ALL=C grep -n '[^ -~'$'\t'$'\r'']' "$rfc" | head -1 | cut -d: -f1)
+[[ -z $na ]] || fail "non-ASCII bytes (first at line $na)"
+if (( bad )); then echo "RFC CHECK FAILED"; exit 1; fi
+echo "RFC CHECK OK"

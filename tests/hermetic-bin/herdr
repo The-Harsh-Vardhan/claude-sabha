@@ -1,0 +1,6 @@
+#!/bin/sh
+# The only "herdr" a test may reach: forwards to tests/fake-herdr.sh. Never calls a real herdr.
+: "${FAKE_HERDR_DIR:=${TMPDIR:-/tmp}/sabha-fake-herdr}"
+mkdir -p "$FAKE_HERDR_DIR"
+export FAKE_HERDR_DIR
+exec bash "$(dirname "$0")/../fake-herdr.sh" "$@"

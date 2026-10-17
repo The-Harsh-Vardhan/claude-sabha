@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# sabha <command>: setup helpers. Written for bash 3.2 (macOS /bin/bash): no associative arrays, no ${x,,}.
+#   sabha init   [--plan pro|max5|max20] [--tracker html|xlsx|sheet] [--push ntfy|off] [--ws DIR] [--impl DIR]
+#                [--out FILE] [--force]    writes sabha.conf (gitignored); asks for what is not given when stdin is a tty
+#   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
+#   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
+#   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
+# Env: SABHA_CONF (config path, default ../sabha.conf beside this script), SABHA_SETTINGS (Claude settings.json to
+# check for the statusline hook, default ~/.claude/settings.json).
+BIN=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$BIN/.." && pwd)
+CONF=${SABHA_CONF:-$ROOT/sabha.conf}
+
+die() { echo "sabha: $*" >&2; exit 1; }
+
+# ask <var> <prompt> <default> <choices|"">: keeps a preset value, else asks on a tty, else takes the default
+ask() {
+  local var=$1 prompt=$2 def=$3 choices=$4 cur ans
+  cur=${!var}
+  if [[ -z $cur ]]; then
+    if [[ -t 0 ]]; then
+      printf '%s [%s]: ' "$prompt" "$def" >&2; read -r ans; cur=${ans:-$def}
+    else cur=$def; fi
+  fi
+  if [[ -n $choices ]]; then
+    case " $choices " in *" $cur "*) ;; *) die "$var must be one of: $choices (got '$cur')" ;; esac
+  fi
+  printf -v "$var" '%s' "$cur"
+}
+
+cmd_init() {
+  local plan="" tracker="" push="" ws="" impl="" out=$CONF force=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --plan) plan=${2:-}; shift 2 ;;
+      --tracker) tracker=${2:-}; shift 2 ;;
+      --push) push=${2:-}; shift 2 ;;
+      --ws) ws=${2:-}; shift 2 ;;
+      --impl) impl=${2:-}; shift 2 ;;
+      --out) out=${2:-}; shift 2 ;;
+      --force) force=1; shift ;;
+      *) die "init: unknown option $1" ;;
+    esac
+  done
+  [[ -e $out && $force == 0 ]] && die "init: $out exists (use --force to replace it)"
+  # a conf can carry a topic and paths: it must never land in a tracked file
+  if git -C "$(dirname "$out")" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$(dirname "$out")" check-ignore -q "$out" || die "init: $out is not gitignored; refusing to write it"
+  fi
+
+  local os clis="" c
+  case $(uname -s) in Darwin) os=macos ;; Linux) os=linux ;; MINGW*|MSYS*|CYGWIN*) os=windows ;; *) os=other ;; esac
+  for c in claude opencode codex agy; do command -v "$c" >/dev/null 2>&1 && clis="$clis $c"; done
+  clis=${clis# }
+
+  ask plan "Plan (pro = \$20, max5 = \$100, max20 = \$200)" pro "pro max5 max20"
+  [[ -f $ROOT/sabha.$plan.conf ]] || die "init: no plan file sabha.$plan.conf in $ROOT"
+  ask tracker "Tracker (html = local page, no login; sheet = Google Sheet, better: phone, sharing, Inbox/Decisions round trip; xlsx = offline file)" html "html xlsx sheet"
+  ask push "Phone push via ntfy (ntfy|off)" off "ntfy off"
+  ask ws "Workspace directory" '~/Work/my-workspace' ""
+  ask impl "Impl directory (status/, inbox/ live here)" "$ws/impl" ""
+
+  local topic=""
+  # SIGPIPE from head ends tr; LC_ALL=C keeps tr from choking on bytes
+  [[ $push == ntfy ]] && topic=sabha-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
+
+  {
+    # ENVIRON, not sed: a path may hold | & or a backslash
+    WS_VAL=$ws IMPL_VAL=$impl awk '/^SABHA_WS=/ { print "SABHA_WS=" ENVIRON["WS_VAL"]; next }
+      /^SABHA_IMPL=/ { print "SABHA_IMPL=" ENVIRON["IMPL_VAL"]; next } { print }' "$ROOT/sabha.conf.example"
+    echo
+    echo "# Written by sabha init: os $os; agent CLIs found: ${clis:-none}."
+    echo "SABHA_PLAN=$plan"
+    echo "SABHA_TRACKER=$tracker"
+    echo "SABHA_PUSH=$push"
+    if [[ -n $topic ]]; then
+      echo "# ntfy topics are readable by anyone who knows the name; this one is random. Self-host ntfy for privacy."
+      echo "SABHA_NTFY_TOPIC=$topic"
+    fi
+  } >"$out" || die "init: cannot write $out"
+  echo "wrote $out (plan $plan, tracker $tracker, push $push, os $os, CLIs: ${clis:-none})"
+  [[ $tracker != sheet ]] && echo "note: the Google Sheet tracker is the better option (phone, sharing, Inbox/Decisions round trip): sabha init --tracker sheet --force"
+  [[ -n $topic ]] && echo "ntfy topic: $topic (subscribe to it in the ntfy app)"
+  return 0
+}
+
+FAILS=0; WARNS=0
+ok()   { echo "ok    $*"; }
+warn() { echo "warn  $*"; WARNS=$((WARNS + 1)); }
+bad()  { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
+
+cmd_doctor() {
+  local c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
+  if [[ -f $CONF ]]; then
+    # shellcheck disable=SC1090
+    impl=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
+    remote=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_REMOTE:-}" )
+    push=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_PUSH:-}" )
+    ok "config $CONF"
+  else
+    warn "no config at $CONF (run: sabha init)"
+  fi
+
+  v=${BASH_VERSION%%.*}
+  if [[ $v -ge 4 ]]; then ok "bash $BASH_VERSION"
+  else
+    ok "bash $BASH_VERSION (macOS /bin/bash is 3.2): bin/ scripts and tests are written for 3.2 and run as they are; bash 4+ (brew install bash) is optional"
+  fi
+
+  command -v claude >/dev/null 2>&1 && ok "claude: $(command -v claude)" || bad "claude CLI not found (the default agent)"
+  for c in opencode codex agy; do
+    command -v "$c" >/dev/null 2>&1 && ok "$c: $(command -v "$c")" || warn "$c not installed (only needed for roster rows that use it)"
+  done
+  command -v jq >/dev/null 2>&1 && ok "jq: $(command -v jq)" || bad "jq not found (statusline and limits need it)"
+  command -v git >/dev/null 2>&1 && ok "git: $(command -v git)" || bad "git not found (worktrees, sabha update and the quickstart need it)"
+  command -v python3 >/dev/null 2>&1 && ok "python3: $(command -v python3)" || bad "python3 not found (the tracker builders and sheet sync need it)"
+  if command -v herdr >/dev/null 2>&1; then ok "herdr: $(command -v herdr)"
+  else warn "herdr not found (default terminal backend; the iTerm path still works on macOS)"; fi
+
+  if command -v jq >/dev/null 2>&1 && [[ -f $settings ]] && jq -e '.statusLine.command // "" | test("statusline-sabha")' "$settings" >/dev/null 2>&1; then
+    ok "statusline hook in $settings"
+  else
+    warn "statusline hook missing in $settings: set statusLine.command to bash $BIN/statusline-sabha.sh (context % and usage alerts need it)"
+  fi
+
+  # without a config there is no impl dir to protect yet, so a read-only install dir (brew, root-owned) is only a warning
+  for c in "${impl:-$ROOT}/status" "${impl:-$ROOT}"; do
+    if [[ -d $c && -w $c ]]; then ok "writable: $c"; break; fi
+    if [[ $c == "${impl:-$ROOT}" ]]; then
+      if [[ -n $impl ]]; then bad "not writable: $impl"; else warn "install dir not writable: $ROOT (sabha init must write SABHA_IMPL elsewhere)"; fi
+    fi
+  done
+
+  # Remote Control: Pro/Max personal seats only; Team/Enterprise seats and org policy block it. Warning only.
+  seat=${SABHA_DOCTOR_SEAT:-}
+  # UNTESTED: output format of `claude auth status` differs between versions; any mention of team/enterprise counts
+  [[ -z $seat ]] && command -v claude >/dev/null 2>&1 && seat=$(claude auth status 2>/dev/null | head -20)
+  if echo "$seat" | grep -qiE 'team|enterprise'; then
+    warn "Remote Control is blocked on Team/Enterprise seats (Pro/Max only) and can be blocked by org policy; SABHA_REMOTE=1 will not work on this login"
+  elif [[ $remote == 1 ]]; then
+    warn "SABHA_REMOTE=1: Remote Control needs a Pro/Max login and an org policy that allows it (UNTESTED here; claude may print \"Couldn't verify your organization's policy\")"
+  else
+    ok "Remote Control: off (SABHA_REMOTE unset); Pro/Max only, Team/Enterprise seats and org policy block it"
+  fi
+  [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
+
+  echo "doctor: $FAILS fail, $WARNS warn"
+  [[ $FAILS -eq 0 ]]
+}
+
+# update only fast-forwards the install dir; it never runs a script, a hook or an install step it pulled
+cmd_update() {
+  git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "update: $ROOT is not a git checkout"
+  git -C "$ROOT" pull --ff-only || die "update: pull --ff-only failed (local changes or diverged history); nothing changed"
+  echo "--- CHANGELOG.md (head)"
+  sed -n 1,25p "$ROOT/CHANGELOG.md" 2>/dev/null || echo "(no CHANGELOG.md)"
+}
+
+cmd_sheet() {
+  local c=$1; shift
+  [[ -f $BIN/sabha-sheet ]] || die "$c: not installed (bin/sabha-sheet is missing from this checkout; try: sabha update)"
+  exec python3 "$BIN/sabha-sheet" "${c#sheet-}" "$@"
+}
+
+case ${1:-} in
+  init) shift; cmd_init "$@" ;;
+  doctor) shift; cmd_doctor ;;
+  update) shift; cmd_update ;;
+  sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+esac

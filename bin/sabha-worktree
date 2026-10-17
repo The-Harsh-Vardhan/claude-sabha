@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# sabha-worktree: worktrees beside a clone as <repo>--<slug>, and a guard against commits in a main checkout.
+# Bash 3.2 safe.
+#   sabha-worktree create <repo-dir> <slug> <base> [--branch NAME]   new worktree <repo-dir>--<slug> on a new branch
+#                                                                    (default wt/<slug>) cut from <base>; prints its path
+#   sabha-worktree guard [dir]       exit 1 when dir (default: here) is a main checkout, 0 in a linked worktree
+#   sabha-worktree hook <repo-dir>   install a pre-commit hook that runs the guard (refuses to replace an existing hook)
+#   sabha-worktree --self-test
+# Never commits, pushes or fetches. Fold a finished worktree into the main checkout uncommitted, by hand.
+set -u
+if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-worktree.sh"; fi
+die() { echo "sabha-worktree: $*" >&2; exit 1; }
+usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+is_main() {
+  local g c
+  g=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || return 2
+  c=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || c=$(cd "$g/$(cat "$g/commondir" 2>/dev/null || echo .)" && pwd)
+  [[ $g == "$c" ]]
+}
+
+case ${1:-} in
+  create)
+    [[ $# -ge 4 ]] || usage
+    repo=$2 slug=$3 base=$4; shift 4
+    branch=wt/$slug
+    if [[ ${1:-} == --branch ]]; then branch=${2:-}; [[ -n $branch ]] || usage; fi
+    [[ $slug =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "bad slug '$slug'"
+    is_main "$repo"; rc=$?
+    [[ $rc -eq 0 ]] || die "$repo is not the main checkout of a git repository"
+    git -C "$repo" rev-parse --verify --quiet "$base^{commit}" >/dev/null || die "unknown base '$base'"
+    [[ $branch != "$base" ]] || die "branch name equals the base"
+    git -C "$repo" show-ref --verify --quiet "refs/heads/$branch" && die "branch $branch already exists"
+    repo=$(cd "$repo" && pwd)
+    wt=$repo--$slug
+    [[ ! -e $wt ]] || die "$wt already exists"
+    git -C "$repo" worktree add -b "$branch" "$wt" "$base" >/dev/null || die "git worktree add failed"
+    echo "$wt"
+    ;;
+  guard)
+    d=${2:-.}
+    is_main "$d"; rc=$?
+    [[ $rc -ne 2 ]] || die "$d is not in a git repository"
+    if [[ $rc -eq 0 ]]; then echo "sabha-worktree: refusing: $d is a main checkout; commit in a worktree (sabha-worktree create)" >&2; exit 1; fi
+    ;;
+  hook)
+    [[ $# -ge 2 ]] || usage
+    c=$(git -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "$2 is not a git repository"
+    h=$c/hooks/pre-commit
+    [[ ! -e $h ]] || die "$h exists; add 'sabha-worktree guard' to it by hand"
+    mkdir -p "$c/hooks"
+    me=$(cd "$(dirname "$0")" && pwd)/sabha-worktree
+    printf '#!/bin/sh\nexec "%s" guard\n' "$me" > "$h" && chmod +x "$h" || die "cannot write $h"
+    echo "$h"
+    ;;
+  *) usage ;;
+esac

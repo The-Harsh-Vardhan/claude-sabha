@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# sabha-nudge <Name> "text": prompts that role's agent through herdr and waits for it to settle. The text should point
+# at the file (a brief, a status line); the file stays the record, the nudge only wakes the agent.
+set -euo pipefail
+[[ $# -eq 2 ]] || { sed -n 2,3p "$0"; exit 2; }
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$(dirname "$0")/sabha-lib.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-herdr.sh
+. "$(dirname "$0")/sabha-herdr.sh"
+sabha_load sabha-nudge
+sabha_herdr_ready
+sabha_nudge "$1" "$2"
