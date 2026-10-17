@@ -1,0 +1,15 @@
+title: claude-sabha
+description: Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
+url: https://the-harsh-vardhan.github.io
+baseurl: /claude-sabha
+remote_theme: just-the-docs/just-the-docs@v0.10.1
+plugins:
+  - jekyll-remote-theme
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+color_scheme: light
+search_enabled: true
+aux_links:
+  GitHub: https://github.com/The-Harsh-Vardhan/claude-sabha

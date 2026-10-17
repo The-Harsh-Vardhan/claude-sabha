@@ -1,3 +1,8 @@
+---
+title: Quickstart
+nav_order: 2
+---
+
 # Quickstart: a 10-minute demo
 
 You will run one small job through the whole loop: you ask the relay, the relay briefs the dispatcher, the dispatcher

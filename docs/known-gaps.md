@@ -1,3 +1,8 @@
+---
+title: Known gaps
+nav_order: 6
+---
+
 # Known gaps
 
 What is untested or limited in this release, why, and what to run to confirm it. Nothing here blocks the local

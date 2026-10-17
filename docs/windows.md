@@ -1,3 +1,8 @@
+---
+title: Windows
+nav_order: 3
+---
+
 # Running claude-sabha on Windows
 
 **Status: not tested on a real Windows machine (beta).** The PowerShell and cmd launchers are gone: Windows uses the

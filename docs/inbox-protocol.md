@@ -1,3 +1,8 @@
+---
+title: Inbox protocol
+nav_order: 5
+---
+
 # Inbox protocol
 
 How sessions hand work to each other in a sabha: write-once files under `<IMPL>`, with a message

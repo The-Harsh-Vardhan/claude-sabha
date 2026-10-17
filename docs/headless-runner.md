@@ -1,3 +1,8 @@
+---
+title: Headless runner
+nav_order: 4
+---
+
 # Headless runner (`bin/sabha-run`)
 
 Why: an interactive role holds a `claude` process, and its memory, while it waits. Sixteen idle panes exhausted a
