@@ -1,0 +1,22 @@
+# Role|Id: the role name each theme file is keyed by, and the internal role id the plan files, inbox and status
+# folders and role cards (template/impl/protocol/<Id>.md) use. One line per role, in the canonical order.
+Relay|Vidur
+Dispatcher|Yudhishthira
+Architect|Bhishma
+BuilderHeavy|Bhima
+BuilderPrecise|Arjun
+Reviewer|Sahadev
+Writer|Nakul
+Runner|Karna
+Scribe|Sanjaya
+BackendCritic|Duryodhan
+FrontendCritic|Dushasan
+SecurityCritic|Shakuni
+ScopeCritic|Draupadi
+BlindReviewer|Gandhari
+Keeper|VedVyasa
+Observer|Barbarika
+Housekeeper|Abhimanyu
+Tutor|Krishna
+Watcher|Ashwatthama
+Coach|Dronacharya

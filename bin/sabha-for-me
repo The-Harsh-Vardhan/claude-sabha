@@ -72,18 +72,21 @@ def load_conf():
 
 
 def apply_theme(conf, bindir):
-    """The same renaming as sabha_theme in sabha-lib.sh: themes/<SABHA_THEME>.theme, "Id|Name|#hex|persona" lines."""
+    """The same renaming as sabha_theme in sabha-lib.sh: themes/<SABHA_THEME>.theme, "Role|Name|#hex|persona" lines."""
     theme = os.environ.get("SABHA_THEME") or conf.get("SABHA_THEME")
     path = os.path.join(os.environ.get("SABHA_THEME_DIR") or os.path.join(bindir, "..", "themes"), "%s.theme" % (theme or "mahabharat"))
     if not os.path.exists(path):
         if theme:
             sys.exit("sabha-for-me: no theme file at %s" % path)
         return
+    # theme lines are keyed by the plain role name (Relay); themes/roles.map gives the id the plan files use
+    mp = os.path.join(os.path.dirname(path), "roles.map")
+    ids = dict(l.strip().split("|", 1) for l in open(mp, encoding="ascii") if "|" in l and not l.startswith("#")) if os.path.exists(mp) else {}
     for raw in open(path, encoding="ascii", errors="replace"):
         f = raw.strip().split("|")
         if len(f) < 4 or f[0].startswith("#"):
             continue
-        rid, name, color, persona = f[0], f[1], f[2], f[3]
+        rid, name, color, persona = ids.get(f[0], f[0]), f[1], f[2], f[3]
         if "SABHA_ROSTER" in conf:
             conf["SABHA_ROSTER"] = " ".join(name + e[len(rid):] if e.split(":")[0] == rid else e for e in conf["SABHA_ROSTER"].split())
         if "SABHA_PANES" in conf:

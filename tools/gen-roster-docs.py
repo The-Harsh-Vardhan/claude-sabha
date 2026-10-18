@@ -28,11 +28,13 @@ def read(p):
 
 
 def theme_rows(theme):
+    # theme files are keyed by the plain role name; themes/roles.map gives the id the cards, plans and icons use
+    ids = dict(l.split("|") for l in read("themes/roles.map").splitlines() if "|" in l and not l.startswith("#"))
     rows = []
     for line in read("themes/%s.theme" % theme).splitlines():
         if line.strip() and not line.startswith("#"):
             rid, name, colour, persona = line.split("|", 3)
-            rows.append({"id": rid, "name": name, "colour": colour, "persona": persona})
+            rows.append({"id": ids.get(rid, rid), "name": name, "colour": colour, "persona": persona})
     return rows
 
 

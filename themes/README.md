@@ -6,11 +6,16 @@ Scripts, roles and models stay the same; only names, colours and personality cha
 ## File format
 
 `themes/<name>.theme`: lines starting with `#` are comments. Exactly 20 other
-lines follow, in the canonical role order (Vidur, Yudhishthira, Bhishma, Bhima,
-Arjun, Sahadev, Nakul, Karna, Sanjaya, Duryodhan, Dushasan, Shakuni, Draupadi,
-Gandhari, VedVyasa, Barbarika, Abhimanyu, Krishna, Ashwatthama, Dronacharya):
+lines follow, one per role, keyed by the plain role name (Relay, Dispatcher,
+Architect, BuilderHeavy, BuilderPrecise, Reviewer, Writer, Runner, Scribe,
+BackendCritic, FrontendCritic, SecurityCritic, ScopeCritic, BlindReviewer,
+Keeper, Observer, Housekeeper, Tutor, Watcher, Coach):
 
-    CanonicalId|ThemedName|#RRGGBB|persona
+    Role|ThemedName|#RRGGBB|persona
+
+`themes/roles.map` maps each role to the internal id the plan files, inbox and
+status folders and role cards use (Relay is Vidur). A theme keyed by those ids
+still loads.
 
 - ThemedName: one word matching `^[A-Za-z][A-Za-z0-9]*$`, unique in the file,
   with no dash (copies are named `Name-1`).

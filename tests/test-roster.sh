@@ -133,5 +133,14 @@ r1=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.conf.example")
 r2=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.max20.conf")
 check "sabha.conf.example and sabha.max20.conf carry the same roster" '[[ -n $r1 && $r1 == "$r2" ]]'
 
+# themes are keyed by the plain role (Relay|Jarvis); roles.map turns that into the plan id; an id key still loads
+th=$("$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Vidur a b c -" "Shakuni a b c -"); SABHA_THEME=avengers sabha_theme t; echo "${ROLES[*]} $SABHA_ID_Jarvis"' _ "$BIN")
+check "a role-keyed theme renames the plan ids (avengers: Relay->Jarvis)" '[[ $th == "Jarvis a b c - Widow a b c - Vidur" ]]'
+printf 'Vidur|Thor|#112233|old key\n' >"$dir/old.theme"
+th=$(SABHA_THEME_DIR=$dir "$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Vidur a b c -"); SABHA_THEME=old sabha_theme t; echo "${ROLES[*]}"' _ "$BIN")
+check "a theme keyed by the internal id still loads" '[[ $th == "Thor a b c -" ]]'
+check "every theme file has the 20 roles of roles.map, in order" '! for f in "$ROOT"/themes/*.theme; do
+  [[ $(grep -v "^#" "$f" | cut -d"|" -f1) == "$(grep -v "^#" "$ROOT/themes/roles.map" | cut -d"|" -f1)" ]] || echo "$f"; done | grep -q .'
+
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"

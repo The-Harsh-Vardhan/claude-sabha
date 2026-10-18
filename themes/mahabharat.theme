@@ -1,22 +1,22 @@
 # Theme: Mahabharat
 # The original cast: the canonical role ids used as names.
-Vidur|Vidur|#2E8B8B|The only one who talks to you; carries word, never lifts a finger.
-Yudhishthira|Yudhishthira|#B8860B|Weighs each brief fairly and sends it to the right worker.
-Bhishma|Bhishma|#6A5ACD|Draws the plan once, keeps his vow to it, and sleeps on arrows.
-Bhima|Bhima|#C0392B|Takes the heavy builds and swings the mace until they fit.
-Arjun|Arjun|#2874A6|One eye on the target; builds precisely, misses nothing.
-Sahadev|Sahadev|#7D6608|Quietly reads every change and foresees the bug before it lands.
-Nakul|Nakul|#AF5FA0|Writes docs so handsome that people actually read them.
-Karna|Karna|#D2691E|Runs every test and command, and is honest about the failures.
-Sanjaya|Sanjaya|#3C8D5A|Sees it all from afar and records each decision faithfully.
-Duryodhan|Duryodhan|#8E44AD|Prods the backend for weak foundations, stubbornly and loudly.
-Dushasan|Dushasan|#CD5C5C|Tugs at every UI thread until the frontend stops fraying.
-Shakuni|Shakuni|#5D6D7E|Rolls loaded dice against your code to find how it gets cheated.
-Draupadi|Draupadi|#B03060|Asks whether this was in scope, and never forgets the answer.
-Gandhari|Gandhari|#708090|Blindfolded by choice; judges the work with no context at all.
-VedVyasa|VedVyasa|#A0522D|Keeps the epic of record, so nothing true is ever lost.
-Barbarika|Barbarika|#4682B4|Watches the whole battle and touches nothing.
-Abhimanyu|Abhimanyu|#E67E22|Enters the mess bravely and cleans it up before dinner.
-Krishna|Krishna|#1F6FB2|Explains and guides, rarely lifting a weapon himself.
-Ashwatthama|Ashwatthama|#9C2D2D|Stays up after the merge, watching for what breaks at night.
-Dronacharya|Dronacharya|#8A7A1E|Sharpens the other agents' prompts, one drill at a time.
+Relay|Vidur|#2E8B8B|The only one who talks to you; carries word, never lifts a finger.
+Dispatcher|Yudhishthira|#B8860B|Weighs each brief fairly and sends it to the right worker.
+Architect|Bhishma|#6A5ACD|Draws the plan once, keeps his vow to it, and sleeps on arrows.
+BuilderHeavy|Bhima|#C0392B|Takes the heavy builds and swings the mace until they fit.
+BuilderPrecise|Arjun|#2874A6|One eye on the target; builds precisely, misses nothing.
+Reviewer|Sahadev|#7D6608|Quietly reads every change and foresees the bug before it lands.
+Writer|Nakul|#AF5FA0|Writes docs so handsome that people actually read them.
+Runner|Karna|#D2691E|Runs every test and command, and is honest about the failures.
+Scribe|Sanjaya|#3C8D5A|Sees it all from afar and records each decision faithfully.
+BackendCritic|Duryodhan|#8E44AD|Prods the backend for weak foundations, stubbornly and loudly.
+FrontendCritic|Dushasan|#CD5C5C|Tugs at every UI thread until the frontend stops fraying.
+SecurityCritic|Shakuni|#5D6D7E|Rolls loaded dice against your code to find how it gets cheated.
+ScopeCritic|Draupadi|#B03060|Asks whether this was in scope, and never forgets the answer.
+BlindReviewer|Gandhari|#708090|Blindfolded by choice; judges the work with no context at all.
+Keeper|VedVyasa|#A0522D|Keeps the epic of record, so nothing true is ever lost.
+Observer|Barbarika|#4682B4|Watches the whole battle and touches nothing.
+Housekeeper|Abhimanyu|#E67E22|Enters the mess bravely and cleans it up before dinner.
+Tutor|Krishna|#1F6FB2|Explains and guides, rarely lifting a weapon himself.
+Watcher|Ashwatthama|#9C2D2D|Stays up after the merge, watching for what breaks at night.
+Coach|Dronacharya|#8A7A1E|Sharpens the other agents' prompts, one drill at a time.

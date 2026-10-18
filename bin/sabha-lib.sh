@@ -84,8 +84,8 @@ sabha_load() {
   MAX_COPIES=${SABHA_MAX_COPIES:-2}
 }
 
-# sabha_theme <caller>: SABHA_THEME (default mahabharat) names themes/<theme>.theme, one "Id|Name|#hex|persona" line
-# per role id. It renames ROLES, SABHA_PANES and SABHA_LABEL_<Id> to the themed names and sets SABHA_COLOR_<Name> and
+# sabha_theme <caller>: SABHA_THEME (default mahabharat) names themes/<theme>.theme, one "Role|Name|#hex|persona" line
+# per role (Role from themes/roles.map; an internal id there still works). It renames ROLES, SABHA_PANES and SABHA_LABEL_<Id> to the themed names and sets SABHA_COLOR_<Name> and
 # SABHA_PERSONA_<Name>. The plan files keep the Mahabharat ids, so one plan works with every theme.
 sabha_theme() {
   local file=${SABHA_THEME_DIR:-$SABHA_BIN/../themes}/${SABHA_THEME:-mahabharat}.theme id name color persona i v panes p
@@ -94,8 +94,13 @@ sabha_theme() {
     echo "$1: no theme file at $file (themes: $(ls "${file%/*}" 2>/dev/null | sed -n 's/\.theme$//p' | tr '\n' ' '))" >&2
     return 1
   fi
+  # a theme line is keyed by the plain role name (Relay); themes/roles.map turns it into the id the plan files use
+  # read once as "|Relay=Vidur|Dispatcher=Yudhishthira..." so each line is a parameter expansion, not a process
+  local map=${file%/*}/roles.map m= t
+  [[ -f $map ]] && m=$(tr -d '\r' <"$map" | sed -n 's/^\([A-Za-z0-9]*\)|\([A-Za-z0-9]*\)$/|\1=\2/p' | tr -d '\n')
   while IFS='|' read -r id name color persona || [[ -n $id ]]; do
     [[ -z $id || $id == \#* ]] && continue
+    if [[ $m == *"|$id="* ]]; then t=${m#*"|$id="}; id=${t%%|*}; fi
     persona=${persona%$'\r'}
     printf -v "SABHA_ID_$name" '%s' "$id"
     for i in "${!ROLES[@]}"; do [[ ${ROLES[i]%% *} == "$id" ]] && ROLES[i]="$name ${ROLES[i]#* }"; done
