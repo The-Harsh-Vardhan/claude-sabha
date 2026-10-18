@@ -5,6 +5,32 @@
 Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other
 work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
 
+**[Docs site](https://the-harsh-vardhan.github.io/claude-sabha/)** -
+**[Quickstart demo](docs/quickstart.md)** -
+**[Themes](themes/README.md)** -
+made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
+
+## Quick start
+
+1. Install the plugin. Inside Claude Code:
+
+       /plugin marketplace add The-Harsh-Vardhan/claude-sabha
+       /plugin install claude-sabha@claude-sabha
+
+2. Get the scripts, write your config and check the machine (bash, `jq`, python3; Git Bash on Windows):
+
+       git clone https://github.com/The-Harsh-Vardhan/claude-sabha ~/claude-sabha
+       cd ~/claude-sabha
+       bin/sabha init --plan pro --theme mahabharat    # plans: pro, max5, max20; themes: see themes/
+       bin/sabha doctor
+
+3. Copy the starter project folder and start the team from a plain terminal (needs herdr; see [Setup](#setup)):
+
+       bin/sabha-up.sh --plan pro
+
+4. Talk only to the relay (Vidur in the Mahabharat theme). It briefs the dispatcher, the workers build, a reviewer
+   gates the change, and you say GO and push.
+
 ![claude-sabha architecture](docs/diagrams/architecture.png)
 
 Status: 1.0.0, first public release. macOS is used daily; Windows (Git Bash) is beta (see
@@ -186,8 +212,8 @@ from the scripts):
 5. Install the deny list if you want it: merge `share/claude-settings.json` into your Claude settings (no remote
    pushes, `gh pr`, recursive deletes, `.env` or `.npmrc` reads).
 
-The roster names are the default theme (Mahabharat); rename them in the roster in `sabha.conf` or a plan file, the one
-roster source for the launchers, `sabha-watch` and the board.
+The roster names come from the theme (default Mahabharat, see [Themes](#themes)); the plan files keep the Mahabharat
+ids and the theme renames them for the launchers, `sabha-watch`, the hooks, the statusline and the board.
 
 ## What is in it
 
