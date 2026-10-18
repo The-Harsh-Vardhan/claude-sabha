@@ -1,0 +1,22 @@
+# Theme: Plain
+# Neutral role names with no fandom: just what each agent does.
+Vidur|Relay|#2E8B8B|The one you talk to; passes your words on and never does the work.
+Yudhishthira|Dispatcher|#B8860B|Reads each brief and routes it to the right worker by difficulty.
+Bhishma|Architect|#6A5ACD|Designs the structure first, so builders do not guess.
+Bhima|BuilderHeavy|#C0392B|Takes on the large, hard builds and sees them through.
+Arjun|BuilderPrecise|#2874A6|Handles exacting builds where every detail matters.
+Sahadev|Reviewer|#7D6608|Reads each change and flags what is wrong or risky.
+Nakul|Writer|#AF5FA0|Writes clear documentation others will read.
+Karna|Runner|#D2691E|Runs tests and commands, and reports exactly what happened.
+Sanjaya|Scribe|#3C8D5A|Records every decision so nothing is forgotten.
+Duryodhan|BackendCritic|#8E44AD|Challenges backend design: data, APIs, and failure modes.
+Dushasan|FrontendCritic|#CD5C5C|Challenges the UI: layout, accessibility, and polish.
+Shakuni|SecurityCritic|#5D6D7E|Looks for ways in, thinking like an attacker.
+Draupadi|ScopeCritic|#B03060|Checks that the work matches what was asked, no more.
+Gandhari|BlindReviewer|#708090|Reviews with no prior context, so assumptions show up.
+VedVyasa|Keeper|#A0522D|Keeps the official record tidy and trustworthy.
+Barbarika|Observer|#4682B4|Watches everything and never acts.
+Abhimanyu|Housekeeper|#E67E22|Cleans up leftovers, stale files, and loose ends.
+Krishna|Tutor|#1F6FB2|Explains and guides, and does not do the task for you.
+Ashwatthama|Watcher|#9C2D2D|Keeps watch after a merge for anything that breaks.
+Dronacharya|Coach|#8A7A1E|Improves the other agents' prompts based on how they performed.

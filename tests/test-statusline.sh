@@ -14,6 +14,8 @@ reset=$(( $(date +%s) + 600 ))
 
 json() { printf '{"session_name":"Arjun","model":{"display_name":"Opus"},"context_window":{"used_percentage":%s},"cwd":"%s","rate_limits":{"five_hour":{"used_percentage":55.2,"resets_at":%s},"seven_day":{"used_percentage":21,"resets_at":%s}}}' "$1" "$dir" "$reset" "$reset"; }
 out=$(json 31.5 | bash "$BIN/statusline-sabha.sh") || fail "statusline exited $?"
+[[ $out == $'\033[38;2;'* ]] || fail "a themed role's name should open with its 24-bit colour: $out"
+out=$(sed $'s/\033\\[[0-9;]*m//g' <<<"$out")
 [[ $out == Arjun* && $out == *31.5%* && $out == *RESTART* ]] || fail "line should carry the name, 31.5% and RESTART: $out"
 [[ $out == *'5h 55%'* && $out == *'7d 21%'* ]] || fail "line should show both windows: $out"
 [[ $(cat "$dir/status/context/arjun.txt") == 31.5 ]] || fail "context file should hold 31.5"

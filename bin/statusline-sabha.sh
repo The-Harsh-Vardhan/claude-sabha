@@ -39,6 +39,13 @@ fi
 [ -n "$effort" ] && model="$model $(echo "${effort:0:1}" | tr '[:lower:]' '[:upper:]')${effort:1}"
 
 [ -z "$name" ] && name="unnamed"
+# the role's theme colour as a 24-bit escape (a copy Thor-1 takes Thor's); a name in no theme stays plain
+shown=$name
+hex=$(awk -F'|' -v n="${name%-[0-9]*}" '$2 == n { print $3; exit }' "$(dirname "$0")/../themes/"*.theme 2>/dev/null)
+case $hex in
+  \#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])
+    shown=$(printf '\033[38;2;%d;%d;%dm%s\033[0m' "0x${hex:1:2}" "0x${hex:3:2}" "0x${hex:5:2}" "$name") ;;
+esac
 
 # Trailing " | 5h 23% 7d 41% | dir @ branch* | $cost"; each part drops out on its own when missing.
 extra=""
@@ -60,14 +67,14 @@ fi
 
 if [ -z "$pct" ]; then
   # null early in a session or after /compact: show it, never estimate
-  printf '%s | %s | ctx n/a%s\n' "$name" "$model" "$extra"
+  printf '%s | %s | ctx n/a%s\n' "$shown" "$model" "$extra"
 else
   p=${pct%.*}
   tag=""
   if   [ "$p" -ge 30 ]; then c='\033[31m'; tag=" RESTART"
   elif [ "$p" -ge 25 ]; then c='\033[33m'
   else c='\033[32m'; fi
-  printf '%s | %s | ctx '"$c"'%s%%%s\033[0m%s\n' "$name" "$model" "$pct" "$tag" "$extra"
+  printf '%s | %s | ctx '"$c"'%s%%%s\033[0m%s\n' "$shown" "$model" "$pct" "$tag" "$extra"
 fi
 
 if [ -n "$CTX_DIR" ] && [ -n "$pct" ] && [ "$name" != "unnamed" ]; then

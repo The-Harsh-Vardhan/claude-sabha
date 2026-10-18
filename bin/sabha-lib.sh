@@ -64,6 +64,7 @@ sabha_load() {
       ROLES+=("$n $a $m ${f:-medium} ${g:--}")
     done
   fi
+  sabha_theme "$1" || exit 1
   NAMES=() PANES=() LAZY=()
   local r i=0
   for r in "${ROLES[@]}"; do
@@ -81,6 +82,32 @@ sabha_load() {
   RELAY=${NAMES[0]}
   DISPATCHER=${NAMES[1]}
   MAX_COPIES=${SABHA_MAX_COPIES:-2}
+}
+
+# sabha_theme <caller>: SABHA_THEME (default mahabharat) names themes/<theme>.theme, one "Id|Name|#hex|persona" line
+# per role id. It renames ROLES, SABHA_PANES and SABHA_LABEL_<Id> to the themed names and sets SABHA_COLOR_<Name> and
+# SABHA_PERSONA_<Name>. The plan files keep the Mahabharat ids, so one plan works with every theme.
+sabha_theme() {
+  local file=${SABHA_THEME_DIR:-$SABHA_BIN/../themes}/${SABHA_THEME:-mahabharat}.theme id name color persona i v panes p
+  if [[ ! -f $file ]]; then
+    [[ -z ${SABHA_THEME:-} ]] && return 0
+    echo "$1: no theme file at $file (themes: $(ls "${file%/*}" 2>/dev/null | sed -n 's/\.theme$//p' | tr '\n' ' '))" >&2
+    return 1
+  fi
+  while IFS='|' read -r id name color persona || [[ -n $id ]]; do
+    [[ -z $id || $id == \#* ]] && continue
+    persona=${persona%$'\r'}
+    printf -v "SABHA_ID_$name" '%s' "$id"
+    for i in "${!ROLES[@]}"; do [[ ${ROLES[i]%% *} == "$id" ]] && ROLES[i]="$name ${ROLES[i]#* }"; done
+    panes=
+    for p in ${SABHA_PANES:-}; do [[ $p == "$id" ]] && p=$name; panes="$panes $p"; done
+    [[ -n ${SABHA_PANES:-} ]] && SABHA_PANES=${panes# }
+    v=SABHA_LABEL_$id
+    [[ -n ${!v:-} ]] && printf -v "SABHA_LABEL_$name" '%s' "${!v}"
+    printf -v "SABHA_COLOR_$name" '%s' "$color"
+    printf -v "SABHA_PERSONA_$name" '%s' "$persona"
+  done <"$file"
+  return 0
 }
 
 # sabha_role <Name>: sets R_ENTRY (the ROLES line), R_NAME, R_AGENT, R_MODEL, R_EFFORT, R_FLAGS, R_BASE and R_LABEL
@@ -109,12 +136,16 @@ sabha_role() {
 # SABHA_PROTOCOL_CORE (file under SABHA_IMPL) + SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the
 # role file, then the top block of the status file.
 sabha_reads() {
-  local lower
+  # a copy Thor-1 shares Thor's card and persona; a dash is not legal in a variable name
+  local lower card=$1 id=SABHA_ID_${1%-[0-9]*} persona=SABHA_PERSONA_${1%-[0-9]*} tail=
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
+  # a themed role keeps the card of its Mahabharat id unless the project has a card under the themed name
+  [[ -n ${!id:-} && ! -f $SABHA_IMPL/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=${!id}
+  [[ -n ${!persona:-} ]] && tail=". Your persona: ${!persona}"
   if [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]]; then
-    echo "$SABHA_IMPL/$SABHA_PROTOCOL_CORE, then $SABHA_IMPL/$SABHA_ROLE_DIR/$1.md, then the top block of status/$lower.md"
+    echo "$SABHA_IMPL/$SABHA_PROTOCOL_CORE, then $SABHA_IMPL/$SABHA_ROLE_DIR/$card.md, then the top block of status/$lower.md$tail"
   else
-    echo "$SABHA_IMPL/PROTOCOL.md, then status/$lower.md"
+    echo "$SABHA_IMPL/PROTOCOL.md, then status/$lower.md$tail"
   fi
 }
 
