@@ -41,7 +41,8 @@ allow() {
 fail=0
 while IFS= read -r f; do
   [[ $f == "$self" || ! -f $f ]] && continue
-  hits=$(grep -I -n -i -E -e "$re" -- "$f" | cut -c1-120)
+  # the public repo slug and its Pages host carry the owner's handle by design; strip exactly those before matching
+  hits=$(sed -e 's#The-Harsh-Vardhan/claude-sabha##g' -e 's#the-harsh-vardhan\.github\.io##g' -- "$f" | grep -I -n -i -E -e "$re" | cut -c1-120)
   hits=$(allow "$f" "$hits")
   if [[ -n $hits ]]; then
     printf 'LEAK %s\n%s\n' "$f" "$hits"

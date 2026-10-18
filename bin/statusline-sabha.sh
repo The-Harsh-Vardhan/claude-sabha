@@ -71,7 +71,7 @@ else
 fi
 
 if [ -n "$CTX_DIR" ] && [ -n "$pct" ] && [ "$name" != "unnamed" ]; then
-  f=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-\n' '-')
+  f=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._\n-' '-')
   mkdir -p "$CTX_DIR" 2>/dev/null && printf '%s\n' "$pct" > "$CTX_DIR/$f.txt" 2>/dev/null
 fi
 if [ -n "${SABHA_IMPL:-}" ] && { [ -n "$h5" ] || [ -n "$d7" ]; }; then
