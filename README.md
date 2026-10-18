@@ -47,7 +47,7 @@ Ideas go in [GitHub Discussions](https://github.com/The-Harsh-Vardhan/claude-sab
 
 ![How one brief moves through the team](docs/diagrams/brief-lifecycle.png)
 [RULES.md](RULES.md) holds the seven working rules (paste them into your `CLAUDE.md`). [template/impl/](template/impl)
-is a starter project folder: a generic core protocol, six role cards, one status file, a goals file and sample items.
+is a starter project folder: a generic core protocol, a role card for each of the 20 roles, one status file, a goals file and sample items.
 
 ## Pick a plan
 

@@ -13,14 +13,13 @@ here, so this file never drifts from them. The file formats (briefs, acks, dones
 ## Files, owners and when they change
 
 A file has one owner role; other roles propose changes through a brief to the owner. Role names are the default roster
-(`sabha.<plan>.conf`); the role cards in `protocol/` cover Vidur, Yudhishthira, Bhishma, Bhima, Arjun, Sahadev,
-Nakul and Dronacharya (the coach, Max 20x plan). The extra scribe (Sanjaya) has no card yet; on a smaller plan the
-relay assigns a missing role's files to the nearest role.
+(`sabha.<plan>.conf`); every role in the default roster has a card in `protocol/`. On a smaller plan the relay assigns
+a missing role's files to the nearest role (without Sanjaya, Nakul keeps `DECISIONS.md`).
 
 | File | Owner role | When it is updated |
 | --- | --- | --- |
 | `ARCHITECTURE.md` | architect (Bhishma) | When a design changes, in the same change as its decision |
-| `DECISIONS.md` | scribe (Nakul) | When a costly-to-undo choice is made or a question card is answered; append only |
+| `DECISIONS.md` | scribe (Sanjaya) | When a costly-to-undo choice is made or a question card is answered; append only |
 | `LESSONS.md` | coach (Dronacharya) | After a mistake that cost time or usage; one rule per entry |
 | `TODOS.md` | relay (Vidur) | Regenerated from the tracker whenever a row changes; never edited by hand |
 | `status/<name>.md` | every role, its own file only | After each task and before a restart; the top block is the handoff |
