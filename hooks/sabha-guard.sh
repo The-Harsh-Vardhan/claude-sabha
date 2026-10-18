@@ -51,11 +51,21 @@ code=$(printf '%s\n' "$code" | sed -e "s/\"[^\"]*\"//g" -e "s/'[^']*'//g")
 code=$(printf '%s\n' "$code" | awk '{ gsub(/&&?|\|\|?|;|\$?\(|\)|\{|\}|`/, "\n"); gsub(/(^|[ \t])(then|do|else)([ \t]|$)/, "\n"); print }' |
   sed -E 's/^[[:space:]]+//; s/^(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|exec|time|nohup|env|sudo|nice|timeout[[:space:]]+[0-9]+[a-z]?)[[:space:]]+)*//; s/^\\//; s#^[^[:space:]]*/##')
 
-git_push='^git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+push([[:space:]]|$)'
-gh_pr='^gh([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]-][^[:space:]]*)?)*[[:space:]]+pr[[:space:]]+(create|merge|comment|edit)([[:space:]]|$)'
-if printf '%s\n' "$code" | grep -Eq "$git_push|$gh_pr" ||
-   { printf '%s' "$cmd" | grep -q 'curl' && printf '%s' "$cmd" | grep -q 'hooks\.slack\.com'; }; then
-  echo "sabha-guard: only the human pushes; write a brief to the relay ($HK_RELAY)" >&2
+git_pre='^git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+'
+gh_pre='^gh([[:space:]]+-[^[:space:]]+([[:space:]]+[^[:space:]-][^[:space:]]*)?)*[[:space:]]+'
+git_push="${git_pre}push([[:space:]]|\$)"
+# a new or changed remote is the first step of a push somewhere the human did not pick
+git_remote="${git_pre}remote[[:space:]]+(add|set-url)([[:space:]]|\$)"
+gh_write="${gh_pre}(pr[[:space:]]+(create|merge|comment|edit|review|close|reopen|ready)|issue[[:space:]]+(create|comment|edit|close|reopen|delete|transfer)|release[[:space:]]+(create|edit|delete|upload)|repo[[:space:]]+(create|edit|delete|rename|archive|fork|sync)|gist[[:space:]]+(create|edit|delete)|secret[[:space:]]+(set|delete)|workflow[[:space:]]+run)([[:space:]]|\$)"
+# gh api is a read unless it names a write method or sends fields (gh then defaults to POST)
+gh_api_write='[[:space:]](-X|--method)([[:space:]]+|=)?(POST|PUT|PATCH|DELETE)|[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]]|=|$)'
+# a webhook URL is often quoted, so the host is looked for in the raw command, and only when a network client runs
+hook_host='hooks\.slack\.com|slack\.com/api/|discord(app)?\.com/api/webhooks|api\.telegram\.org/bot|webhook\.office\.com|outlook\.office\.com/webhook'
+client='^(curl|wget|http|https|xh|python[0-9.]*|node|deno|bun|ruby|perl|php|nc|ncat|pwsh|powershell|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)([[:space:]]|$)'
+if printf '%s\n' "$code" | grep -Eq "$git_push|$git_remote|$gh_write" ||
+   printf '%s\n' "$code" | grep -E "${gh_pre}api([[:space:]]|\$)" | grep -Eiq -- "$gh_api_write" ||
+   { printf '%s' "$cmd" | grep -Eiq "$hook_host" && printf '%s\n' "$code" | grep -Eq "$client"; }; then
+  echo "sabha-guard: only the human pushes, publishes or posts; write a brief to the relay ($HK_RELAY)" >&2
   exit 2
 fi
 exit 0

@@ -211,6 +211,8 @@ from the scripts):
    `bin/sabha-up.sh --plan pro`.
 5. Install the deny list if you want it: merge `share/claude-settings.json` into your Claude settings (no remote
    pushes, `gh pr`, recursive deletes, `.env` or `.npmrc` reads).
+6. In each repository the roles work on, run `bin/sabha-worktree hook <repo>` (no commits in the main checkout) and
+   `bin/sabha-worktree push-hook <repo>` (only you and the relay push). See [SECURITY.md](SECURITY.md).
 
 The roster names come from the theme (default Mahabharat, see [Themes](#themes)); the plan files keep the Mahabharat
 ids and the theme renames them for the launchers, `sabha-watch`, the hooks, the statusline and the board.

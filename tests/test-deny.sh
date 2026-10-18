@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# share/claude-settings.json parses and denies push (also git -C), gh pr, every rm -rf spelling, Bash reads of env and
+# share/claude-settings.json parses and denies push (also git -C), remote add/set-url, gh pr and gh release/repo/issue/api writes, every rm -rf spelling, Bash reads of env and
 # npmrc files, and Read of env, npmrc and key files. One line per rule in RULES. Run: tests/test-deny.sh
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
@@ -7,6 +7,18 @@ RULES=(
   'Bash(git push:*)'
   'Bash(git -C * push:*)'
   'Bash(gh pr:*)'
+  'Bash(git remote add:*)'
+  'Bash(git remote set-url:*)'
+  'Bash(gh release create:*)'
+  'Bash(gh release upload:*)'
+  'Bash(gh release delete:*)'
+  'Bash(gh repo create:*)'
+  'Bash(gh repo edit:*)'
+  'Bash(gh repo delete:*)'
+  'Bash(gh issue create:*)'
+  'Bash(gh issue comment:*)'
+  'Bash(gh api -X:*)'
+  'Bash(gh api --method:*)'
   'Bash(rm -rf:*)'
   'Bash(rm -fr:*)'
   'Bash(rm -r -f:*)'

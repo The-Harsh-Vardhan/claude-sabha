@@ -92,6 +92,29 @@ for c in "sh -c 'echo \"git push\"'" 'eval "echo git push"' 'cat <<< "git push"'
   run sabha-guard.sh "$(bash_json Bhima "$c")"
   [[ $rc == 0 ]] || fail "guard should allow ($rc): $c"
 done
+# 1.0 hardening: gh writes beyond pr, gh api writes, a new or changed remote, webhook hosts through any client
+for c in 'gh pr review 5 --approve' 'gh pr close 5' 'gh pr ready 5' 'gh issue comment 3 -b hi' 'gh issue create -t x' \
+         'gh release create v1.0.0' 'gh release upload v1 a.zip' 'gh repo create me/x --public' 'gh repo edit --visibility public' \
+         'gh repo delete me/x --yes' 'gh gist create a.md' 'gh secret set TOKEN' 'gh workflow run ci.yml' \
+         'gh api -X POST repos/a/b/issues' 'gh api repos/a/b/issues --method PATCH' 'gh api -XDELETE repos/a/b' \
+         'gh api repos/a/b/issues -f title=x' 'gh api graphql -F query=@q.graphql' 'gh api repos/a/b --input body.json' \
+         'gh -R a/b release create v2' 'git remote add evil https://x/y.git' 'git -C /a remote set-url origin https://x/y.git' \
+         'wget --post-data=x https://hooks.slack.com/services/T/B/C' \
+         "python3 -c 'import urllib.request as u; u.urlopen(\"https://hooks.slack.com/services/T/B/C\", b\"x\")'" \
+         'curl -d x "https://discord.com/api/webhooks/1/abc"' 'http POST https://slack.com/api/chat.postMessage text=hi' \
+         "node -e 'fetch(\"https://api.telegram.org/bot1:x/sendMessage\")'" 'curl -d x https://acme.webhook.office.com/x'; do
+  run sabha-guard.sh "$(bash_json Bhima "$c")"
+  [[ $rc == 2 ]] || fail "guard should block ($rc): $c"
+  [[ $err == *"only the human pushes"* ]] || fail "guard reason: $err"
+done
+for c in 'gh pr view 5' 'gh pr list' 'gh pr diff 5' 'gh issue list' 'gh issue view 3' 'gh release list' 'gh repo view' \
+         'gh api repos/a/b' 'gh api repos/a/b/pulls --paginate' 'gh api -X GET repos/a/b' 'git remote -v' \
+         'git remote get-url origin' 'git config --get remote.origin.url' 'grep -rn hooks.slack.com docs' \
+         'echo "webhook: https://hooks.slack.com/services/T" >> notes.md' 'curl https://example.com/discord' \
+         'git commit -m "guard gh release create and gh api -X POST"'; do
+  run sabha-guard.sh "$(bash_json Bhima "$c")"
+  [[ $rc == 0 ]] || fail "guard should allow ($rc): $c"
+done
 # B4 without jq (a failing jq stub): the raw-JSON path unescapes \n and \" before matching
 mkdir -p "$dir/nojq"; printf '#!/bin/sh\nexit 1\n' >"$dir/nojq/jq"; chmod +x "$dir/nojq/jq"
 PATH=$dir/nojq:$PATH SABHA_ROLE=Bhima run sabha-guard.sh "$(bash_json Bhima 'echo hi\ngit push')"

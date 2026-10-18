@@ -118,6 +118,10 @@ if [[ $# -eq 1 ]]; then
     printf '\033]0;%s\a' "$name"
   fi
   cd "$SABHA_WS"
+  # the hooks and the pre-push hook (sabha-worktree push-guard) read the role from here; a worker gets no GitHub
+  # token, so a push or a gh write that slips past the guard has nothing to sign in with (gh's keyring login stays)
+  export SABHA_ROLE=$name
+  [[ $R_BASE == "$RELAY" ]] || unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
   # MCP servers each cost memory and the roles do not use them; "mcp" in the roster flags keeps them
   mcp=(--strict-mcp-config); sabha_flag "$r" mcp && mcp=()
   remote=(); [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=(--remote-control)

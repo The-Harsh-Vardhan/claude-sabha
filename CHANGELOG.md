@@ -8,6 +8,11 @@
 - Fix: the statusline's `tr` set broke on GNU tr (Linux, Git Bash).
 - Windows (Git Bash) path fix for the board and tracker.
 - Skill renamed to `sabha-handoff-writing` (it clashed with the `/sabha-handoff` command).
+- Security: the guard also blocks `gh` release/repo/issue/gist/secret/workflow writes, more `gh pr` verbs, `gh api`
+  writes, `git remote add|set-url`, and chat webhooks reached through any common client (wget, python, node, ...).
+  New `sabha-worktree push-hook` (git pre-push: only the human and the relay push); `sabha-up.sh` exports
+  `SABHA_ROLE` and gives worker roles no GitHub token from the environment. Deny list widened to match.
+- Role cards for all 20 roles (`template/impl/protocol/`), including the security critic (Shakuni).
 
 All of it UNTESTED live until it has run inside Claude Code.
 

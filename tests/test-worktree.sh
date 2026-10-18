@@ -28,4 +28,22 @@ h=$("$bin/sabha-worktree" hook proj) || { echo "FAIL: hook"; exit 1; }
 "$bin/sabha-worktree" hook proj 2>/dev/null && { echo "FAIL: hook replaced"; exit 1; }
 git -C proj commit -q --allow-empty -m nope 2>/dev/null && { echo "FAIL: main checkout commit allowed"; exit 1; }
 git -C "$wt" commit -q --allow-empty -m ok || { echo "FAIL: worktree commit blocked"; exit 1; }
-echo "ok: worktree <repo>--<slug> on a new branch, bad base/slug/reuse refused, hook blocks main-checkout commits only"
+# pre-push: the human (no SABHA_ROLE) and the relay push; a worker, or a role the roster cannot resolve, is refused
+unset SABHA_ROLE SABHA_IMPL SABHA_PLAN SABHA_ROSTER
+mkdir -p "$dir/impl"
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_ROSTER="%s"\n' "$dir" "$dir/impl" "Vidur:claude:opus Bhima:claude:opus" >"$dir/sabha.conf"
+export SABHA_CONF=$dir/sabha.conf
+git init -q --bare remote.git && git -C proj remote add origin "$dir/remote.git" || { echo "FAIL: remote setup"; exit 1; }
+p=$("$bin/sabha-worktree" push-hook proj) || { echo "FAIL: push-hook"; exit 1; }
+[[ -x $p && $p == */hooks/pre-push ]] || { echo "FAIL: push-hook path $p"; exit 1; }
+"$bin/sabha-worktree" push-hook proj 2>/dev/null && { echo "FAIL: push-hook replaced"; exit 1; }
+"$bin/sabha-worktree" push-guard || { echo "FAIL: push-guard refused the human"; exit 1; }
+SABHA_ROLE=Vidur "$bin/sabha-worktree" push-guard || { echo "FAIL: push-guard refused the relay"; exit 1; }
+SABHA_ROLE=Bhima "$bin/sabha-worktree" push-guard 2>/dev/null && { echo "FAIL: push-guard passed a worker"; exit 1; }
+SABHA_ROLE=Bhima-2 "$bin/sabha-worktree" push-guard 2>/dev/null && { echo "FAIL: push-guard passed a copy"; exit 1; }
+SABHA_ROLE=Bhima SABHA_CONF=$dir/missing.conf "$bin/sabha-worktree" push-guard 2>/dev/null &&
+  { echo "FAIL: push-guard passed an unresolvable role"; exit 1; }
+SABHA_ROLE=Bhima git -C "$wt" push -q origin wt/feat 2>/dev/null && { echo "FAIL: worker push allowed"; exit 1; }
+git -C "$wt" push -q origin wt/feat 2>/dev/null || { echo "FAIL: human push blocked"; exit 1; }
+echo "ok: worktree <repo>--<slug> on a new branch, bad base/slug/reuse refused, hook blocks main-checkout commits only,"
+echo "    pre-push hook refuses worker and unresolvable roles, lets the human and the relay push"

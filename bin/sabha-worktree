@@ -5,12 +5,14 @@
 #                                                                    (default wt/<slug>) cut from <base>; prints its path
 #   sabha-worktree guard [dir]       exit 1 when dir (default: here) is a main checkout, 0 in a linked worktree
 #   sabha-worktree hook <repo-dir>   install a pre-commit hook that runs the guard (refuses to replace an existing hook)
+#   sabha-worktree push-hook <repo-dir>   install a pre-push hook that runs push-guard (refuses to replace one)
+#   sabha-worktree push-guard        exit 1 when SABHA_ROLE names a role other than the relay (or cannot be resolved)
 #   sabha-worktree --self-test
 # Never commits, pushes or fetches. Fold a finished worktree into the main checkout uncommitted, by hand.
 set -u
 if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-worktree.sh"; fi
 die() { echo "sabha-worktree: $*" >&2; exit 1; }
-usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 is_main() {
   local g c
@@ -52,6 +54,29 @@ case ${1:-} in
     me=$(cd "$(dirname "$0")" && pwd)/sabha-worktree
     printf '#!/bin/sh\nexec "%s" guard\n' "$me" > "$h" && chmod +x "$h" || die "cannot write $h"
     echo "$h"
+    ;;
+  push-hook)
+    [[ $# -ge 2 ]] || usage
+    c=$(git -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "$2 is not a git repository"
+    h=$c/hooks/pre-push
+    [[ ! -e $h ]] || die "$h exists; add 'sabha-worktree push-guard' to it by hand"
+    mkdir -p "$c/hooks"
+    me=$(cd "$(dirname "$0")" && pwd)/sabha-worktree
+    printf '#!/bin/sh
+exec "%s" push-guard
+' "$me" > "$h" && chmod +x "$h" || die "cannot write $h"
+    echo "$h"
+    ;;
+  push-guard)
+    # sabha-up.sh exports SABHA_ROLE for every role it starts; the human's own shell has none and may push
+    role=${SABHA_ROLE:-}
+    [[ -n $role ]] || exit 0
+    lib=$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh
+    # shellcheck source=/dev/null
+    relay=$(. "$lib" 2>/dev/null && sabha_load worktree >/dev/null 2>&1 && echo "$RELAY") || relay=
+    [[ -n $relay && ${role%-[0-9]*} == "$relay" ]] && exit 0
+    echo "sabha-worktree: refusing push: SABHA_ROLE=$role is not the relay${relay:+ ($relay)}; only the human pushes" >&2
+    exit 1
     ;;
   *) usage ;;
 esac
