@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" alt="claude-sabha logo" width="128"></p>
+
 # claude-sabha
 
 Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other
