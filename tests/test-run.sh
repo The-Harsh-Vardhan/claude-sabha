@@ -20,7 +20,7 @@ SABHA_IMPL=$dir/impl
 SABHA_PROJECT=Test
 SABHA_ROSTER="Vidur:opus:medium Yudhi:opus:medium Arjun:sonnet:high Lazy1:haiku:low:gate,lazy Lazy2:sonnet:medium:lazy,mcp Lazy3:haiku:high:lazy Tutor:opus:medium:ondemand"
 EOF
-# fake claude: logs its argv; FAKE_SLEEP holds it running; FAKE_DONE=1 writes the brief's .done as a real run would
+# fake claude: logs its argv; FAKE_SLEEP or FAKE_HOLD holds it running; FAKE_DONE=1 writes the brief's .done as a real run would
 cat > "$dir/stubs/claude" <<'STUB'
 #!/bin/sh
 echo "FAKE claude $*"
@@ -28,6 +28,8 @@ echo "$*" >> "$CALLS"
 # FAKE_GRANDCHILD: a tool subprocess (a build, a server) that would outlive claude unless its group is killed
 [ -n "$FAKE_GRANDCHILD" ] && { sleep 60 & echo $! > "$FAKE_GRANDCHILD"; }
 [ -n "$FAKE_SLEEP" ] && exec sleep "$FAKE_SLEEP"
+# FAKE_HOLD: stay running while that file exists (at most 120 s), so a test controls when a run ends
+if [ -n "$FAKE_HOLD" ]; then i=0; while [ -e "$FAKE_HOLD" ] && [ $i -lt 240 ]; do sleep 0.5; i=$((i+1)); done; exit 0; fi
 if [ "$FAKE_DONE" = 1 ]; then
   f=$(printf '%s\n' "$*" | sed -n 's/.*write \(inbox\/[A-Za-z0-9]*\/[0-9]*\.done\).*/\1/p' | head -1)
   printf 'utc: x\nresult: ok\n' > "$IMPL/$f"
@@ -37,7 +39,7 @@ STUB
 chmod +x "$dir/stubs/claude"
 : > "$dir/ps.txt"
 export SABHA_CONF=$dir/sabha.conf SABHA_PS_FILE=$dir/ps.txt PATH=$dir/stubs:$PATH IMPL=$dir/impl CALLS=$dir/calls
-export FAKE_SLEEP="" FAKE_DONE=1 FAKE_GRANDCHILD=""
+export FAKE_SLEEP="" FAKE_HOLD="" FAKE_DONE=1 FAKE_GRANDCHILD=""
 brief() { mkdir -p "$dir/impl/inbox/$1"; echo "to: $1" > "$dir/impl/inbox/$1/$2-yudhi-task.md"; }
 reset() { rm -rf "$dir/impl/inbox" "$dir/impl/runs"; : > "$CALLS"; }
 run() { out=$("$SH" "$BIN/sabha-run" "$@" 2>&1); rc=$?; }
@@ -80,14 +82,17 @@ echo "  111 ttys001  Tue Oct 13 09:00:01 2026     claude -n Lazy1 --model haiku"
 out=$(SABHA_PS_FILE=$dir/ps-live.txt "$SH" "$BIN/sabha-run" --wait 2>&1)
 check "a live interactive claude -n Lazy1 keeps the runner off" 'grep -q "live claude -n Lazy1" <<<"$out" && [[ ! -s $CALLS ]]'
 
-# cap: three due roles, cap 2, runs held open by FAKE_SLEEP
+# cap: three due roles, cap 2, runs held open by FAKE_HOLD
 reset; brief Lazy1 001; brief Lazy2 001; brief Lazy3 001
-out=$(FAKE_SLEEP=5 SABHA_RUN_MAX=2 "$SH" "$BIN/sabha-run" 2>&1)
+# the held runs stay up until the test removes the hold file: a fixed sleep raced on slow machines (Git Bash)
+: > "$dir/hold"
+out=$(FAKE_HOLD=$dir/hold SABHA_RUN_MAX=2 "$SH" "$BIN/sabha-run" 2>&1)
 echo "--- cap 2 (rc $rc)"; echo "$out"
 check "cap 2: two started, the third waits" '(( $(grep -c "^sabha-run: started" <<<"$out") == 2 )) && grep -q "Lazy3 001: cap of 2" <<<"$out"'
 out=$(SABHA_RUN_MAX=2 "$SH" "$BIN/sabha-run" 2>&1)
 check "cap counts runs started by an earlier pass" 'grep -q "Lazy3 001: cap of 2" <<<"$out" && ! grep -q "^sabha-run: started" <<<"$out"'
-for _ in $(seq 1 20); do ls "$dir"/impl/inbox/*/run.lock >/dev/null 2>&1 || break; sleep 1; done
+rm -f "$dir/hold"
+for _ in $(seq 1 30); do ls "$dir"/impl/inbox/*/run.lock >/dev/null 2>&1 || break; sleep 1; done
 out=$(SABHA_RUN_MAX=2 "$SH" "$BIN/sabha-run" --wait 2>&1)
 check "after the runs end the third starts" 'grep -q "started Lazy3 001" <<<"$out"'
 
