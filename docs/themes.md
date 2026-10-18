@@ -1,12 +1,23 @@
 ---
 title: Themes
-nav_order: 8
+nav_order: 9
 ---
 
 # Themes
 
 A theme renames the 20 roles and gives each one a colour and a one-line persona.
 Scripts, roles and models stay the same; only names, colours and personality change.
+
+![The 20 roles in five themes](assets/banner.png)
+
+Every theme, role by role, with its icons and personas: [Roster](roster.md).
+
+## Icons
+
+`icons/<theme>/<id>.png` holds one 256px icon per role, keyed by the canonical id (so `icons/avengers/vidur.png` is
+Jarvis). They are generic symbols in one style: a single object on a navy tile, never a face, costume, logo or
+likeness. A theme without icons still works. After changing a theme or an icon,
+run `python3 tools/gen-roster-docs.py` to rebuild the roster page and the docs copies.
 
 ## File format
 

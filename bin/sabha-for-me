@@ -39,6 +39,7 @@ import datetime as dt
 import html
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -90,6 +91,10 @@ def apply_theme(conf, bindir):
         if "SABHA_LABEL_" + rid in conf:
             conf["SABHA_LABEL_" + name] = conf["SABHA_LABEL_" + rid]
         conf["SABHA_COLOR_" + name], conf["SABHA_PERSONA_" + name] = color, persona
+        # icons/<theme>/<id>.png beside themes/, keyed by the canonical id; a theme without icons shows the colour dot
+        icon = os.path.join(os.path.dirname(path), "..", "icons", theme or "mahabharat", rid.lower() + ".png")
+        if os.path.exists(icon):
+            conf["SABHA_ICON_" + name] = pathlib.Path(os.path.abspath(icon)).as_uri()
 
 
 def read_conf(path, conf):
@@ -362,10 +367,20 @@ def build(conf):
         stale = s["age"] is not None and s["age"] > STALE_MIN and not s["idle"]
         agents.append(dict(name=name, model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "",
                            agent=entry[4] if len(entry) > 4 else "claude", label=conf.get("SABHA_LABEL_" + name, ""),
+                           icon=conf.get("SABHA_ICON_" + name, ""),
                            color=conf.get("SABHA_COLOR_" + name, "") if re.match(r"^#[0-9A-Fa-f]{6}$", conf.get("SABHA_COLOR_" + name, "")) else "",
                            state=state_of(s), stale=stale, **s))
     return dict(inbox=parse_inboxes(impl), now=now.strftime("%Y-%m-%d %H:%M:%SZ"), items=items, open=open_items, waiting=waiting, waiting_people=waiting_people,
                 done=done, agents=agents, epoch=int(time.time()), project=conf.get("SABHA_PROJECT", ""), goals=parse_goals(os.path.join(impl, "GOALS.md")))
+
+
+def role_mark(a):
+    """The theme's icon for a role, else its colour dot, else nothing."""
+    if a.get("icon"):
+        return "<img class=ri src=\"%s\" width=20 height=20 alt=\"\" onerror=\"this.remove()\"> " % html.escape(a["icon"])
+    if a.get("color"):
+        return "<span style=\"color:%s\">&#9679;</span> " % a["color"]
+    return ""
 
 
 def state_label(a):
@@ -518,7 +533,7 @@ details summary{cursor:pointer;color:var(--mut);font-size:12px;margin-top:6px;li
 .move .row{font-size:13px;margin:2px 0}
 .cmd{position:relative;margin-top:8px}.cmd pre{margin:0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 70px 10px 10px;
 font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}.cmd button{position:absolute;top:6px;right:6px}
-.atw{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.at{border-collapse:collapse;width:100%;min-width:900px;font-size:12.5px}.at th{position:sticky;top:0;z-index:1;background:var(--panel2);color:var(--mut);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:1px solid var(--line)}.at td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}.at td.nm{font-weight:600;white-space:nowrap}.at .st{margin-left:0;display:inline-block;white-space:nowrap}.cx.w{color:var(--warn)}.cx.b{color:var(--bad)}.cx.old{color:var(--mut)}\n.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.atw{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.at{border-collapse:collapse;width:100%;min-width:900px;font-size:12.5px}.at th{position:sticky;top:0;z-index:1;background:var(--panel2);color:var(--mut);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:1px solid var(--line)}.at td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}.at td.nm{font-weight:600;white-space:nowrap}.ri{vertical-align:-5px;border-radius:5px}.at .st{margin-left:0;display:inline-block;white-space:nowrap}.cx.w{color:var(--warn)}.cx.b{color:var(--bad)}.cx.old{color:var(--mut)}\n.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
 .ag{padding:10px 12px;display:flex;flex-direction:column;gap:6px}.ag .h{display:flex;align-items:center;gap:8px}
 .ag .nm{font-weight:650}.chip{font-size:11px;border:1px solid currentColor;border-radius:999px;padding:0 7px;line-height:18px;opacity:.9}
 .fable{color:var(--fable)}.opus{color:var(--opus)}.sonnet{color:var(--sonnet)}.haiku{color:var(--haiku)}
@@ -668,7 +683,7 @@ def render_html(b):
             cx = "<span class=k>-</span>"
         p.append("<tr><td class=nm>%s</td><td><span class='chip %s'>%s</span> <span class=k>%s</span></td><td><span class='st %s'>%s</span></td>"
                  "<td>%s</td><td>%s</td><td>%s</td><td class=mono>%s</td><td class=mono>%s</td></tr>" % (
-                     ("<span style=\"color:%s\">&#9679;</span> " % a["color"] if a.get("color") else "") + e(a["name"]) + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
+                     role_mark(a) + e(a["name"]) + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
                      e("; ".join(agent_goals(b, a["name"]))) or "<span class=k>-</span>", e(short(a["task"], 160)) or "<span class=k>-</span>", e(short(a["next"], 160)) or "<span class=k>-</span>", cx, age_text(a["age"])))
     p.append("</tbody></table></div></section>")
     p.append("<div class=charts><div class=card><h3>Context per agent</h3><div class=cv><canvas id=ch-ctx aria-label='Context percent per agent'></canvas></div><div class=k>grey = no reading in 30 min</div></div>"

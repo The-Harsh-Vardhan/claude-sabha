@@ -7,6 +7,8 @@ work through plain files, keep their progress in plain files, and restart fresh 
 
 **[Docs site](https://the-harsh-vardhan.github.io/claude-sabha/)** -
 **[Quickstart demo](docs/quickstart.md)** -
+**[How it works](docs/how-it-works.md)** -
+**[Roster](docs/roster.md)** -
 **[Themes](themes/README.md)** -
 made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
@@ -70,6 +72,8 @@ Pick who your team is: `SABHA_THEME` in `sabha.conf`, or `bin/sabha init --theme
 gives each a colour (statusline and board) and a one-line persona (in its opening prompt); scripts, roles and models
 stay the same.
 
+![The 20 roles in each of the five themes: mahabharat, avengers, hogwarts, middle-earth, plain](docs/assets/banner.png)
+
 | Theme | Relay | Dispatcher | Architect | Builders |
 | --- | --- | --- | --- | --- |
 | `mahabharat` (default) | Vidur | Yudhishthira | Bhishma | Bhima, Arjun |
@@ -78,7 +82,8 @@ stay the same.
 | `middle-earth` | Gwaihir | Aragorn | Elrond | Gimli, Legolas |
 | `plain` | Relay | Dispatcher | Architect | BuilderHeavy, BuilderPrecise |
 
-All 20 roles per theme, the file format and how to add your own: [themes/README.md](themes/README.md). The Avengers,
+Each role has an icon per theme in `icons/<theme>/<id>.png` (generic symbols, no likenesses or logos). All 20 roles
+side by side: [Roster](docs/roster.md). The file format and how to add your own: [themes/README.md](themes/README.md). The Avengers,
 Hogwarts and Middle-earth themes are fan themes; the names belong to their owners and claude-sabha is not affiliated
 with or endorsed by them.
 

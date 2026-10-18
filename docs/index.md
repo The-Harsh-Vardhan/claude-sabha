@@ -8,6 +8,11 @@ nav_order: 1
 Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other
 work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
 
+![The 20 roles in five themes](assets/banner.png)
+
+Twenty roles, one job each, in the theme you pick: see the [Roster](roster.md). New here? [How it works](how-it-works.md)
+explains the whole system in five pictures.
+
 ![claude-sabha architecture](diagrams/architecture.png)
 
 Interactive version: [architecture](diagrams/architecture.html). Design notes: [Architecture](architecture.md).

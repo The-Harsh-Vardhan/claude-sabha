@@ -14,3 +14,5 @@ search_enabled: true
 aux_links:
   GitHub: https://github.com/The-Harsh-Vardhan/claude-sabha
 logo: "/logo.png"
+mermaid:
+  version: "10.9.1"
