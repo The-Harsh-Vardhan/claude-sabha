@@ -3,6 +3,9 @@
 ## 1.0.0 - 2026-10-18
 
 - First public release.
+- Themes: `SABHA_THEME` / `sabha init --theme` picks role names, colours and personas: mahabharat (default),
+  avengers, hogwarts, middle-earth, plain.
+- Fix: the statusline's `tr` set broke on GNU tr (Linux, Git Bash).
 - Windows (Git Bash) path fix for the board and tracker.
 - Skill renamed to `sabha-handoff-writing` (it clashed with the `/sabha-handoff` command).
 

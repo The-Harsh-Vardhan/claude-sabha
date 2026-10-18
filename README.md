@@ -36,6 +36,24 @@ A profile is `Name (Role) = agent:model:effort`; a roster row is `Name:agent:mod
 without a pane is an on-demand subagent of the dispatcher with its own model and effort. `SABHA_PANES` picks the panes;
 `SABHA_MAX_COPIES` allows `Arjun-1`, `Arjun-2` ... each with its own inbox, status file and worktree.
 
+## Themes
+
+Pick who your team is: `SABHA_THEME` in `sabha.conf`, or `bin/sabha init --theme <name>`. A theme renames the roles,
+gives each a colour (statusline and board) and a one-line persona (in its opening prompt); scripts, roles and models
+stay the same.
+
+| Theme | Relay | Dispatcher | Architect | Builders |
+| --- | --- | --- | --- | --- |
+| `mahabharat` (default) | Vidur | Yudhishthira | Bhishma | Bhima, Arjun |
+| `avengers` | Jarvis | Fury | Stark | Hulk, Hawkeye |
+| `hogwarts` | Hedwig | McGonagall | Dumbledore | Hagrid, Harry |
+| `middle-earth` | Gwaihir | Aragorn | Elrond | Gimli, Legolas |
+| `plain` | Relay | Dispatcher | Architect | BuilderHeavy, BuilderPrecise |
+
+All 20 roles per theme, the file format and how to add your own: [themes/README.md](themes/README.md). The Avengers,
+Hogwarts and Middle-earth themes are fan themes; the names belong to their owners and claude-sabha is not affiliated
+with or endorsed by them.
+
 ## Agents
 
 | Agent | Role in sabha | Status |
