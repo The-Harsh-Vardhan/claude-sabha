@@ -201,7 +201,7 @@ roster source for the launchers, `sabha-watch` and the board.
 | `docs/quickstart.md`, `docs/windows.md`, `docs/headless-runner.md` | The demo, the Windows notes and the runner design |
 | `share/claude-settings.json` | The safe-defaults deny list |
 | `RULES.md` | Seven working rules for your own `CLAUDE.md` |
-| `icons/` | One icon per role (optional) |
+| `icons/<theme>/` | One icon per role for each theme (optional) |
 
 ## Headless roles
 
