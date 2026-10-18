@@ -12,8 +12,8 @@ mkdir -p "$dir/fakebin" "$dir/sysbin"
 for c in grep sed head tr uname dirname git mktemp date awk cat sh env rm mkdir; do p=$(command -v $c) && ln -sf "$p" "$dir/sysbin/$c"; done
 for c in claude opencode; do printf '#!/bin/sh\nexit 0\n' >"$dir/fakebin/$c"; chmod +x "$dir/fakebin/$c"; done
 P="$dir/fakebin:$dir/sysbin"
-# Git Bash: copied tools need msys-2.0.dll from /usr/bin; no agent CLI lives there
-case $(uname -s) in MINGW*|MSYS*) P=$P:/usr/bin ;; esac
+# Git Bash: a copied tool cannot load msys-2.0.dll (git its libexec), so use the real dirs; no agent CLI lives there
+case $(uname -s) in MINGW*|MSYS*) P="$dir/fakebin:/mingw64/bin:/usr/bin" ;; esac
 S() { PATH=$P "${BASH:-bash}" "$ROOT/bin/sabha" "$@"; }
 
 out=$dir/a.conf

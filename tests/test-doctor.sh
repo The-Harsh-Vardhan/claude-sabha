@@ -17,7 +17,10 @@ mk claude 'echo "Logged in: personal, plan Max"'; mk python3; mk herdr; mk openc
 echo "SABHA_WS=$dir
 SABHA_IMPL=$dir/impl" >"$dir/sabha.conf"
 echo '{"statusLine":{"type":"command","command":"bash /x/bin/statusline-sabha.sh"}}' >"$dir/settings.json"
-D() { PATH="$dir/fakebin:$dir/sysbin" SABHA_CONF=$dir/sabha.conf SABHA_SETTINGS=$dir/settings.json "${BASH:-bash}" "$ROOT/bin/sabha" doctor 2>&1; }
+# Git Bash: a copied tool cannot load msys-2.0.dll, so /usr/bin goes first (it holds no git and no agent CLI)
+SB=$dir/sysbin
+case $(uname -s) in MINGW*|MSYS*) SB=/usr/bin:$dir/sysbin ;; esac
+D() { PATH="$dir/fakebin:$SB" SABHA_CONF=$dir/sabha.conf SABHA_SETTINGS=$dir/settings.json "${BASH:-bash}" "$ROOT/bin/sabha" doctor 2>&1; }
 
 o=$(D); rc=$?
 [[ $rc -eq 0 ]] || fail "healthy machine should pass, rc=$rc: $o"
