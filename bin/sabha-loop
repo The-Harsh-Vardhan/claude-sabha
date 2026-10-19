@@ -35,7 +35,7 @@ decide() {
     fi
     echo wait
   else
-    for d in "$inbox"/[0-9][0-9][0-9].done; do
+    for d in "$inbox"/[0-9][0-9][0-9]*.done; do
       [[ -e $d ]] && (( $(mtime "$d") > last )) && { echo restart; return; }
     done
     echo wait

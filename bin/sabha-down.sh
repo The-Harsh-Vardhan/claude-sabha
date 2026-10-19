@@ -77,7 +77,7 @@ for name in $(awk '{ print $1 }' <<<"$victims" | awk '!seen[$0]++'); do
   dir=$SABHA_IMPL/inbox/$name
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   # shellcheck disable=SC2010  # names are NNN.claim and NNN-<from>-<slug>.md, plain ASCII by the protocol
-  n=$(ls "$dir" 2>/dev/null | grep -E '^[0-9]{3}[.-]' | cut -c1-3 | sort | tail -1)
+  n=$(ls "$dir" 2>/dev/null | sed -n 's/^\([0-9]\{3,\}\)[.-].*/\1/p' | sort -n | tail -1)
   n=$(printf '%03d' $(( 10#${n:-0} + 1 )))
   if (( YES )); then
     mkdir -p "$dir"

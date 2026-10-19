@@ -22,7 +22,7 @@ age_min() { echo $(( (now - $(date -r "$1" +%s)) / 60 )); }
 # mid-task = a brief with an .ack and neither .done nor .cancel
 mid_task() {
   local a n
-  for a in "$IMPL/inbox/$1"/[0-9][0-9][0-9].ack; do
+  for a in "$IMPL/inbox/$1"/[0-9][0-9][0-9]*.ack; do
     [[ -e $a ]] || continue
     n=${a%.ack}
     [[ -e $n.done || -e $n.cancel ]] || { echo "inbox/$1/$(basename "$n") acked $(date -r "$a" +%H:%M), no done"; return 0; }
@@ -66,9 +66,9 @@ if [[ -f $IMPL/for-me.items ]]; then
 fi
 
 unacked=""
-for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]-*.md; do
+for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]*-*.md; do
   [[ -e $b ]] || continue
-  n=$(basename "$b"); n=${n:0:3}; d=$(dirname "$b")
+  n=$(basename "$b"); n=${n%%-*}; d=$(dirname "$b")
   [[ -e $d/$n.ack || -e $d/$n.cancel ]] && continue
   (( $(age_min "$b") > UNACKED_MIN )) && unacked+="inbox/$(basename "$d")/$n (sent $(date -r "$b" +%H:%M)) "
 done

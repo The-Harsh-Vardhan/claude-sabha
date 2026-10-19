@@ -22,6 +22,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 . "$(dirname "$SELF")/sabha-lib.sh"
 # shellcheck source-path=SCRIPTDIR source=sabha-herdr.sh
 . "$(dirname "$SELF")/sabha-herdr.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-limits.sh
+. "$(dirname "$SELF")/sabha-limits.sh"
 if [[ ${1:-} == --plan ]]; then
   [[ $# -ge 2 && -n $2 ]] || { echo "usage: sabha-up.sh --plan pro|max5|max20 [...]" >&2; exit 2; }
   export SABHA_PLAN=$2; shift 2
@@ -80,6 +82,9 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   echo "pane: cd \"$SABHA_WS\" && '$LOOP' $name"
   exit 0
 fi
+
+# SABHA_STOP: no session starts while a usage window is at the stop line (--print above only prints)
+if why=$(sabha_limits_stopped); then echo "sabha-up: $why" >&2; exit 3; fi
 
 # herdr_agent <Name> <pane_id>: starts the role's non-claude agent in that pane and submits its opening prompt
 # (no --wait: the prompt starts a whole session, and a nudge waits for what it needs)
