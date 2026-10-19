@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# sabha-alert [--once] [<Name>...]: tells the user when a pane waits at a permission prompt or a question.
+# For each role (default: every role in status/herdr-panes.txt) it blocks on `herdr agent wait --until blocked`; when
+# one blocks it copies the pane's visible screen verbatim to status/blocked/<name>.txt, appends a line to
+# status/blocked/alerts.log, shows a herdr toast with the request sound, then waits for the pane to leave blocked and
+# removes the screen file. It never answers a prompt: no send-keys, no prompt, no keys of any kind. The relay reads
+# status/blocked/ and brings the prompt to the user word for word. --once handles one block per role and exits (tests).
+# SABHA_ALERT_TIMEOUT (600000 ms) is each wait; after a failed or timed-out wait it retries after SABHA_ALERT_RETRY (5) s.
+# UNTESTED on a real herdr: the exit status of `agent wait` and `notification show` (help text only, herdr 0.9.5).
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+# shellcheck source=sabha-limits.sh
+. "$BIN/sabha-limits.sh"
+# shellcheck source=sabha-herdr.sh
+. "$BIN/sabha-herdr.sh"
+once=0
+[[ ${1:-} == --once ]] && { once=1; shift; }
+[[ ${1:-} == -* ]] && { sed -n 2,9p "$0"; exit 2; }
+sabha_load sabha-alert
+sabha_herdr_ready || exit 1
+dir=$SABHA_IMPL/status/blocked
+mkdir -p "$dir"
+tmo=${SABHA_ALERT_TIMEOUT:-600000} retry=${SABHA_ALERT_RETRY:-5}
+
+# watch <Name>: one loop per role, run in the background
+watch() {
+  local name=$1 t lower f
+  t=$(sabha_target "$name") lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+  f=$dir/$lower.txt
+  while :; do
+    if ! sabha_h agent wait "$t" --until blocked --timeout "$tmo" >/dev/null 2>&1; then
+      (( once )) && return 1
+      sleep "$retry"; continue
+    fi
+    { echo "utc: $(sabha_utc)"; echo "role: $name"; echo "pane: $t"; echo "---"
+      sabha_h agent read "$t" --source visible 2>&1; } >"$f.tmp" && mv "$f.tmp" "$f"
+    echo "$(sabha_utc) blocked $name $t" >>"$dir/alerts.log"
+    sabha_h notification show "sabha: $(sabha_display "$name") needs you" \
+      --body "waiting at a prompt; see status/blocked/$lower.txt" --sound request >/dev/null 2>&1
+    # re-arm only after the prompt is gone, so one prompt gives one toast
+    until sabha_h agent wait "$t" --until idle --until working --until done --timeout "$tmo" >/dev/null 2>&1; do
+      sleep "$retry"
+    done
+    rm -f "$f"
+    (( once )) && return 0
+  done
+}
+
+names=("$@")
+if (( ${#names[@]} == 0 )); then
+  while read -r n _; do [[ -n $n ]] && names+=("$n"); done <"$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null
+fi
+(( ${#names[@]} )) || { echo "sabha-alert: no roles to watch (name them, or start the grid first)" >&2; exit 2; }
+pids=()
+trap 'kill "${pids[@]}" 2>/dev/null; exit 0' INT TERM
+for n in "${names[@]}"; do watch "$n" & pids+=($!); done
+echo "sabha-alert: watching ${names[*]}"
+rc=0
+for p in "${pids[@]}"; do wait "$p" || rc=1; done
+exit $rc

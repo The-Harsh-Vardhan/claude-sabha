@@ -30,6 +30,8 @@ case "$1 $2" in
   "pane list") echo '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","terminal_id":"t","workspace_id":"w1","cwd":"/","foreground_cwd":"/","agent_status":"unknown"}],"type":"pane_list"}}' ;;
   "agent list") echo '{"result":{"agents":[],"type":"agent_list"}}' ;;
   "agent get") exit 1 ;;
+  "agent read") echo "${FAKE_HERDR_SCREEN:-Allow Bash(ls)? 1. Yes 2. No}" ;;
+  "agent wait") [[ ${FAKE_HERDR_FAIL_WAIT:-} == 1 ]] && { echo '{"error":"timeout"}'; exit 1; }; echo '{"result":{}}' ;;
   "agent prompt") [[ ${FAKE_HERDR_FAIL_PROMPT:-} == 1 ]] && { echo '{"error":"agent_blocked"}'; exit 1; }; echo '{"result":{}}' ;;
   *) echo '{"result":{}}' ;;
 esac
