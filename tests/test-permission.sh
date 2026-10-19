@@ -17,7 +17,7 @@ fails=0
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
 
 impl=$dir/impl
-P=$impl/inbox/Relay/permissions
+P=$impl/permissions
 mkdir -p "$impl/status" "$dir/ws" "$dir/stubs" "$dir/nojq"
 # the grid writes this map; sabha_nudge stops (set -e) when it is missing
 echo "Relay w1:p9" >"$impl/status/herdr-panes.txt"
@@ -44,6 +44,7 @@ waitfor() { local i; for i in $(seq 1 100); do eval "$1" && return 0; sleep 0.1;
 done_rc() { waitfor "[[ -s $dir/rc.$1 ]]" && cat "$dir/rc.$1"; }
 nonce_of() { sed -n 's/^nonce: //p' "$P/$1.req"; }
 write_dec() { printf 'id: %s\nutc: x\nby: Relay\nnonce: %s\nwords: %s\n' "$1" "$3" "$4" >"$P/$1.$2"; }
+rp() { SABHA_ROLE=Relay "$perm" "$@"; }
 input_of() { sed -n '/^input:$/,$p' "$P/$1.req" | sed 1d; }
 
 # 1-3: silent cases
@@ -78,13 +79,13 @@ check "nonce is 32 hex" '[[ $(nonce_of BuilderHeavy-001) =~ ^[0-9a-f]{32}$ ]]'
 h=$(printf '%s' "$TI" | shasum -a 256 | cut -d" " -f1)
 check "hash is sha256 of the input" 'grep -q "^hash: $h$" $r'
 waitfor "grep -q 'permissions/BuilderHeavy-001.req' $FAKE_HERDR_LOG 2>/dev/null"
-check "nudge to the relay names the request" 'grep -q "agent prompt w1:p9 see inbox/Relay/permissions/BuilderHeavy-001.req" $FAKE_HERDR_LOG'
+check "nudge to the relay names the request" 'grep -q "agent prompt w1:p9 see permissions/BuilderHeavy-001.req" $FAKE_HERDR_LOG'
 check "every herdr call carries --session" '! grep -v -- "--session" $FAKE_HERDR_CALLS'
 waitfor "[[ -s $dir/curl.calls ]]"
 check "ntfy body: role and tool, never the command" 'grep -q "^sabha: BuilderHeavy asks permission (Bash), see Relay$" $dir/curl.calls && ! grep -q "go test" $dir/curl.calls && grep -q "^http://ntfy.invalid/t-test$" $dir/curl.calls'
 sleep 1
 check "still waiting before a decision" '[[ ! -e $dir/rc.a ]]'
-"$perm" allow BuilderHeavy-001 "yes, run the go tests" >/dev/null
+rp allow BuilderHeavy-001 "yes, run the go tests" >/dev/null
 rc=$(done_rc a); out=$(cat "$dir/out.a")
 check "allow: exit 0" '[[ $rc == 0 ]]'
 check "allow: decision JSON" '[[ $(printf "%s" "$out" | jq -r .hookSpecificOutput.decision.behavior) == allow && $(printf "%s" "$out" | jq -r .hookSpecificOutput.hookEventName) == PermissionRequest ]]'
@@ -94,7 +95,7 @@ sed -i.bak '/^SABHA_PUSH/d; /^SABHA_NTFY/d' "$dir/sabha.conf"
 # 6: deny, words with quotes stay valid JSON
 hook_bg b "$(req_json)"
 waitfor "[[ -f $P/BuilderHeavy-002.req ]]"
-"$perm" deny BuilderHeavy-002 'no, not "now"' >/dev/null
+rp deny BuilderHeavy-002 'no, not "now"' >/dev/null
 rc=$(done_rc b); out=$(cat "$dir/out.b")
 check "deny: behavior and message" '[[ $rc == 0 && $(printf "%s" "$out" | jq -r .hookSpecificOutput.decision.behavior) == deny && $(printf "%s" "$out" | jq -r .hookSpecificOutput.decision.message) == *"no, not \"now\""* ]]'
 check "deny: log row" 'awk -F"\t" "\$3==\"BuilderHeavy-002\" && \$6==\"deny\"" $P/log.tsv | grep -q .'
@@ -107,14 +108,14 @@ write_dec BuilderHeavy-003 allow 0123456789abcdef0123456789abcdef forged
 waitfor "ls $P | grep -q '^BuilderHeavy-003.bad-'"
 check "wrong nonce: file renamed .bad-*" '[[ ! -e $P/BuilderHeavy-003.allow ]] && ls $P | grep -q "^BuilderHeavy-003.bad-"'
 check "wrong nonce: logged, still waiting" 'awk -F"\t" "\$3==\"BuilderHeavy-003\" && \$6==\"nonce-mismatch\"" $P/log.tsv | grep -q . && [[ ! -e $dir/rc.c ]]'
-"$perm" allow BuilderHeavy-003 "yes" >/dev/null
+rp allow BuilderHeavy-003 "yes" >/dev/null
 rc=$(done_rc c)
 check "wrong nonce: then the right one is honoured" '[[ $rc == 0 && $(jq -r .hookSpecificOutput.decision.behavior <$dir/out.c) == allow ]]'
 
 # 8: pane hands back to the ordinary prompt
 hook_bg d "$(req_json)"
 waitfor "[[ -f $P/BuilderHeavy-004.req ]]"
-"$perm" pane BuilderHeavy-004 >/dev/null
+rp pane BuilderHeavy-004 >/dev/null
 rc=$(done_rc d)
 check "pane: exit 0, no stdout, logged" '[[ $rc == 0 && ! -s $dir/out.d ]] && awk -F"\t" "\$3==\"BuilderHeavy-004\" && \$6==\"pane\"" $P/log.tsv | grep -q .'
 
@@ -124,7 +125,7 @@ out=$(req_json | SABHA_ROLE=BuilderHeavy SABHA_RELAY_WAIT=2 bash "$hook" 2>/dev/
 el=$((SECONDS - t0))
 check "timeout: exit 0, no stdout, about the wait ($el s)" '[[ $rc == 0 && -z $out && $el -ge 2 && $el -le 5 ]]'
 check "timeout: .expired and log row" '[[ -f $P/BuilderHeavy-005.expired ]] && awk -F"\t" "\$3==\"BuilderHeavy-005\" && \$6==\"timeout\"" $P/log.tsv | grep -q .'
-check "late answer refused" '! "$perm" allow BuilderHeavy-005 yes 2>/dev/null'
+check "late answer refused" '! rp allow BuilderHeavy-005 yes 2>/dev/null'
 
 # 10: two requests from one role at once, each answered by its own file
 hook_bg e "$(req_json '{"command":"echo A"}')"
@@ -133,7 +134,7 @@ waitfor "[[ -f $P/BuilderHeavy-006.req && -f $P/BuilderHeavy-007.req ]]"
 ida=BuilderHeavy-006 idb=BuilderHeavy-007
 [[ $(input_of $ida) == *'echo A'* ]] || { ida=BuilderHeavy-007 idb=BuilderHeavy-006; }
 check "two requests: distinct nonces" '[[ $(nonce_of BuilderHeavy-006) != $(nonce_of BuilderHeavy-007) ]]'
-"$perm" allow "$ida" "yes A" >/dev/null; "$perm" deny "$idb" "no B" >/dev/null
+rp allow "$ida" "yes A" >/dev/null; rp deny "$idb" "no B" >/dev/null
 done_rc e >/dev/null; done_rc f >/dev/null
 check "two requests: each gets its own decision" '[[ $(jq -r .hookSpecificOutput.decision.behavior <$dir/out.e) == allow && $(jq -r .hookSpecificOutput.decision.behavior <$dir/out.f) == deny ]]'
 
@@ -146,7 +147,7 @@ pretty=$(printf '{\n  "permission_mode": "default",\n  "tool_name": "MultiEdit",
 ( printf '%s' "$pretty" | PATH=$dir/nojq:$PATH SABHA_ROLE=BuilderHeavy bash "$hook" >"$dir/out.g" 2>/dev/null; echo $? >"$dir/rc.g" ) &
 waitfor "[[ -f $P/BuilderHeavy-008.req ]]"
 check "no jq: nested, pretty input verbatim" '[[ "$(input_of BuilderHeavy-008)" == "$NESTED" ]] && grep -q "^tool: MultiEdit$" $P/BuilderHeavy-008.req'
-PATH=$dir/nojq:$PATH "$perm" allow BuilderHeavy-008 "ok" >/dev/null
+PATH=$dir/nojq:$PATH rp allow BuilderHeavy-008 "ok" >/dev/null
 rc=$(done_rc g)
 check "no jq: allow honoured" '[[ $rc == 0 ]] && grep -q "\"behavior\":\"allow\"" $dir/out.g'
 
@@ -154,7 +155,7 @@ check "no jq: allow honoured" '[[ $rc == 0 ]] && grep -q "\"behavior\":\"allow\"
 mkdir -p "$dir/badh"; printf '#!/bin/sh\nexit 1\n' >"$dir/badh/herdr"; chmod +x "$dir/badh/herdr"
 ( printf '%s' "$(req_json)" | SABHA_HERDR_BIN=$dir/badh/herdr SABHA_ROLE=BuilderHeavy bash "$hook" >"$dir/out.h" 2>/dev/null; echo $? >"$dir/rc.h" ) &
 waitfor "[[ -f $P/BuilderHeavy-009.req ]]"
-"$perm" allow BuilderHeavy-009 "yes" >/dev/null
+rp allow BuilderHeavy-009 "yes" >/dev/null
 rc=$(done_rc h)
 check "nudge failure: still allowed" '[[ $rc == 0 && $(jq -r .hookSpecificOutput.decision.behavior <$dir/out.h) == allow ]]'
 waitfor "grep -q 'refusing to touch a real herdr' $P/nudge.log 2>/dev/null"
@@ -175,27 +176,75 @@ hook_bg j "$(req_json)"
 waitfor "[[ -f $P/BuilderHeavy-011.req ]]"
 check "list: the open request only" '[[ $("$perm" list | cut -f1) == BuilderHeavy-011 ]]'
 check "show: verbatim" '[[ "$("$perm" show BuilderHeavy-011)" == "$(cat $P/BuilderHeavy-011.req)" ]]'
-check "allow without words refused" '! "$perm" allow BuilderHeavy-011 2>/dev/null && ! "$perm" allow BuilderHeavy-011 "  " 2>/dev/null'
-check "a worker cannot answer" '! SABHA_ROLE=BuilderHeavy "$perm" allow BuilderHeavy-011 yes 2>/dev/null && SABHA_ROLE=Relay "$perm" allow BuilderHeavy-011 "$(printf "fine\tby me")" >/dev/null'
+check "allow without words refused" '! rp allow BuilderHeavy-011 2>/dev/null && ! rp allow BuilderHeavy-011 "  " 2>/dev/null'
+check "a worker or a session with no role cannot answer" '! SABHA_ROLE=BuilderHeavy "$perm" allow BuilderHeavy-011 yes 2>/dev/null && ! "$perm" allow BuilderHeavy-011 yes 2>/dev/null && ! SABHA_ROLE=Relay-1 "$perm" allow BuilderHeavy-011 yes 2>/dev/null && rp allow BuilderHeavy-011 "$(printf "fine\tby me")" >/dev/null'
 check "decision copies the nonce, words collapsed" 'grep -q "^nonce: $(nonce_of BuilderHeavy-011)$" $P/BuilderHeavy-011.allow && grep -q "^words: fine by me$" $P/BuilderHeavy-011.allow'
-check "second decision refused" '! "$perm" allow BuilderHeavy-011 yes 2>/dev/null && ! "$perm" deny BuilderHeavy-011 no 2>/dev/null'
+check "second decision refused" '! rp allow BuilderHeavy-011 yes 2>/dev/null && ! rp deny BuilderHeavy-011 no 2>/dev/null'
 check "relay.tsv row" 'awk -F"\t" "\$2==\"BuilderHeavy-011\" && \$3==\"allow\" && \$4==\"fine by me\"" $P/relay.tsv | grep -q .'
-check "bad id refused" '! "$perm" show "../x" 2>/dev/null && ! "$perm" allow BuilderHeavy-999 yes 2>/dev/null'
+check "bad id refused" '! "$perm" show "../x" 2>/dev/null && ! rp allow BuilderHeavy-999 yes 2>/dev/null'
 printf 'id: X-001\nutc: x\nexpires: 2000-01-01T00:00:00Z\nnonce: n\ninput:\n{}\n' >"$P/Old-001.req"
-check "expired by time refused and not listed" '! "$perm" allow Old-001 yes 2>/dev/null && ! "$perm" list | grep -q Old-001'
+check "expired by time refused and not listed" '! rp allow Old-001 yes 2>/dev/null && ! "$perm" list | grep -q Old-001'
 done_rc j >/dev/null
 printf '2026-10-19T00:00:00Z\tBuilderHeavy\tBuilderHeavy-077\tBash\th\tallow\tforged\n' >>"$P/log.tsv"
 out=$("$perm" audit); rc=$?
 check "audit: hand-written allows reported, relay-written ones not" '[[ $rc == 1 && $out == *BuilderHeavy-077* && $out == *BuilderHeavy-010* && $out != *BuilderHeavy-011* && $out != *BuilderHeavy-003* ]]'
 
 # snippet (Q1-B: per-user mode and allow list, shipped list as the default)
+# covers <path> <kind> <snippet>: true when an allow rule of that kind matches the path, compared case-insensitively
+# (APFS folds case; Claude Code's matcher is UNVERIFIED either way). Rule //abs/** -> glob /abs/*
+covers() {
+  local r g t
+  t=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r r; do
+    g=${r#"$2("}; g=${g%)}; g=${g#/}; g=${g//\*\*/*}
+    g=$(printf '%s' "$g" | tr '[:upper:]' '[:lower:]')
+    # shellcheck disable=SC2053  # g is a glob on purpose
+    [[ $t == $g ]] && return 0
+  done < <(printf '%s' "$3" | jq -r ".permissions.allow[] | select(startswith(\"$2(\"))")
+  return 1
+}
+in_deny() { printf '%s' "$2" | jq -e --arg r "$1" '.permissions.deny | index($r)' >/dev/null; }
 s=$("$perm" snippet)
-check "snippet: JSON, default mode, routine rules" 'printf "%s" "$s" | jq -e ".permissions.defaultMode == \"default\" and (.permissions.allow | index(\"Read\")) and (.permissions.allow | index(\"Edit(/$impl/**)\")) and (.permissions.allow | index(\"Write(/$impl/**)\"))" >/dev/null'
-check "snippet: decision files denied to Edit/Write" 'printf "%s" "$s" | jq -e ".permissions.deny == [\"Edit(/$P/**)\", \"Write(/$P/**)\"]" >/dev/null'
+check "snippet: JSON, default mode, routine writes" 'printf "%s" "$s" | jq -e ".permissions.defaultMode == \"default\"" >/dev/null && covers "$impl/inbox/Dispatcher/001-x.md" Write "$s" && covers "$impl/status/relay.md" Edit "$s" && covers "$impl/questions/a.md" Write "$s" && covers "$impl/for-me.items" Edit "$s" && covers "$dir/ws/repo--feat/a.go" Edit "$s"'
+# SecurityCritic 1: a write to the sourced config is code in every hook
+check "F1: no allow covers the config or a new file under IMPL; the running sabha copy is denied" '! covers "$SABHA_CONF" Write "$s" && ! covers "$SABHA_CONF" Edit "$s" && ! covers "$impl/sabha.conf" Write "$s" && in_deny "Write(/$root/**)" "$s" && in_deny "Edit(/$root/**)" "$s" && ! covers "$impl/evil.sh" Write "$s"'
+cp "$dir/sabha.conf" "$impl/sabha.conf"
+s2=$(SABHA_CONF=$impl/sabha.conf "$perm" snippet)
+check "F1: the resolved config and the plan files are denied" 'in_deny "Write(/$impl/sabha.conf)" "$s2" && in_deny "Edit(/$impl/sabha.conf)" "$s2" && in_deny "Write(/$root/sabha.*.conf)" "$s2"'
+rm -f "$impl/sabha.conf"
+# SecurityCritic 2, 3, 4, 7: no shipped rule that writes files or runs new code
+check "F2-4,7: no git log/diff/show, test, find or mkdir rule" '[[ -z $(printf "%s" "$s" | jq -r ".permissions.allow[]" | grep -E "^Bash\((git (log|diff|show)|bash |tests/|find|mkdir)") ]]'
+# SecurityCritic 5: the permissions folder sits outside every allowed tree, in any case
+check "F5: no allow covers the permissions folder in any case" '[[ $P != "$impl"/inbox/* ]] && ! covers "$P/BuilderHeavy-001.allow" Write "$s" && ! covers "$(printf "%s" "$P" | tr "[:lower:]" "[:upper:]")/x.allow" Edit "$s" && in_deny "Write(/$P/**)" "$s"'
+# SecurityCritic 9: Read is scoped and secrets are denied
+check "F9: no bare Read; .env, key files and ~/.ssh denied" '! printf "%s" "$s" | jq -e ".permissions.allow | index(\"Read\")" >/dev/null && for r in "Read(//**/.env)" "Read(//**/.env.*)" "Read(**/.env)" "Read(//**/.npmrc)" "Read(//**/*.pem)" "Read(//**/id_rsa*)" "Read(~/.ssh/**)"; do in_deny "$r" "$s" || exit 1; done'
+check "git metadata and .sabha config denied to Edit/Write" 'in_deny "Edit(//**/.git)" "$s" && in_deny "Write(//**/.git/**)" "$s" && in_deny "Write(//**/.sabha/config)" "$s"'
 s=$(SABHA_PERMISSION_MODE=acceptEdits SABHA_PERMISSION_ALLOW='default; Bash(make test)' "$perm" snippet)
-check "snippet: user mode, default plus own rule" 'printf "%s" "$s" | jq -e ".permissions.defaultMode == \"acceptEdits\" and (.permissions.allow | index(\"Read\")) and .permissions.allow[-1] == \"Bash(make test)\"" >/dev/null'
+check "snippet: user mode, default plus own rule" 'printf "%s" "$s" | jq -e ".permissions.defaultMode == \"acceptEdits\" and (.permissions.allow | index(\"Bash(ls:*)\")) and .permissions.allow[-1] == \"Bash(make test)\"" >/dev/null'
 s=$(SABHA_PERMISSION_ALLOW='Read;Bash(echo "x")' "$perm" snippet)
-check "snippet: own list replaces the default, quotes escaped" 'printf "%s" "$s" | jq -e ".permissions.allow == [\"Read\", \"Bash(echo \\\"x\\\")\"]" >/dev/null'
+check "snippet: own list replaces the default, quotes escaped, deny kept" 'printf "%s" "$s" | jq -e ".permissions.allow == [\"Read\", \"Bash(echo \\\"x\\\")\"]" >/dev/null && in_deny "Write(/$P/**)" "$s"'
+
+# SecurityCritic 7: the unsandboxed hook never writes through a planted symlink or folder, and never takes a symlinked
+# or copied request as a decision
+hook_bg k "$(req_json)"
+waitfor "[[ -f $P/BuilderHeavy-012.req ]]"
+ln -s BuilderHeavy-012.req "$P/BuilderHeavy-012.allow"
+waitfor "ls $P | grep -q '^BuilderHeavy-012.bad-'"
+check "F7: a symlink to the .req is not an allow" '[[ ! -s $dir/out.k && ! -e $dir/rc.k ]] && awk -F"\t" "\$3==\"BuilderHeavy-012\" && \$6==\"nonce-mismatch\"" $P/log.tsv | grep -q .'
+cp "$P/BuilderHeavy-012.req" "$P/BuilderHeavy-012.allow"
+waitfor "[[ \$(ls $P | grep -c '^BuilderHeavy-012.bad-') == 2 ]]"
+check "F7: a copy of the .req is not an allow" '[[ ! -s $dir/out.k && ! -e $dir/rc.k ]]'
+rp deny BuilderHeavy-012 "no" >/dev/null; done_rc k >/dev/null
+mkdir "$P/BuilderHeavy-013.req.tmp"
+out=$(req_json | SABHA_ROLE=BuilderHeavy bash "$hook" 2>/dev/null); rc=$?
+check "F7: a planted .req.tmp folder: fail safe, nothing written" '[[ $rc == 0 && -z $out && ! -e $P/BuilderHeavy-013.req ]]'
+: >"$dir/victim"; mv "$P/log.tsv" "$dir/log.keep"; ln -s "$dir/victim" "$P/log.tsv"
+out=$(req_json | SABHA_ROLE=BuilderHeavy SABHA_RELAY_WAIT=0 bash "$hook" 2>/dev/null); rc=$?
+check "F7: log.tsv as a symlink: no request, no write through it" '[[ $rc == 0 && -z $out && ! -s $dir/victim ]]'
+mv "$P/relay.tsv" "$dir/relay.keep"; ln -s "$dir/victim" "$P/relay.tsv"
+printf 'id: Fake-001\nutc: x\nexpires: 2999-01-01T00:00:00Z\nnonce: n\ninput:\n{}\n' >"$P/Fake-001.req"
+check "F7: sabha-perm refuses a symlinked relay.tsv" '! rp pane Fake-001 2>/dev/null && [[ ! -s $dir/victim && ! -e $P/Fake-001.pane ]]'
+rm -f "$P/log.tsv" "$P/relay.tsv" "$P/Fake-001.req"; mv "$dir/log.keep" "$P/log.tsv"; mv "$dir/relay.keep" "$P/relay.tsv"
 
 # 15: hooks.json and syntax
 check "hooks.json: four events, PermissionRequest timeout 1800, no onFailure" 'jq -e "(.hooks | keys) == [\"PermissionRequest\",\"PreToolUse\",\"SessionStart\",\"Stop\"] and .hooks.PermissionRequest[0].hooks[0].timeout == 1800 and (.hooks.PermissionRequest[0].hooks[0] | has(\"onFailure\") | not) and (.hooks.PermissionRequest[0] | has(\"matcher\") | not)" $root/hooks/hooks.json >/dev/null'
