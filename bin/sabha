@@ -8,14 +8,18 @@
 #                <ws>/.sabha/local to your folder (kept out of git through .git/info/exclude); asks for what is not
 #                given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
+#   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
+#   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
-# Env: SABHA_CONF (config path; else ./.sabha/local/sabha.conf, else ../sabha.conf beside this script),
+# Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$BIN/.." && pwd)
+# shellcheck source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
 CONF=${SABHA_CONF:-}
-[[ -z $CONF && -f $PWD/.sabha/local/sabha.conf ]] && CONF=$PWD/.sabha/local/sabha.conf
+[[ -z $CONF ]] && { CONF=$(sabha_find_local) || CONF=; }
 CONF=${CONF:-$ROOT/sabha.conf}
 
 die() { echo "sabha: $*" >&2; exit 1; }
@@ -135,6 +139,16 @@ link_ws() {
   echo "link: $l -> $impl"
 }
 
+# print_sandbox_hint <impl>: Claude Code's sandbox blocks writes outside the workspace, so every role write to the
+# sabha folder prompts or is denied. Prints the setting that allows it; never edits a settings or permission file.
+print_sandbox_hint() {
+  local p=$1 bs='\' dq='"'
+  p=${p//"$bs"/"$bs$bs"}; p=${p//"$dq"/"$bs$dq"}
+  echo "sandbox: roles write $1 from inside Claude Code's sandbox. To allow it without a prompt per write, add this to"
+  echo "your Claude Code settings (~/.claude/settings.json, or .claude/settings.local.json in the workspace); sabha does not edit any settings file:"
+  printf '{\n  "sandbox": {\n    "filesystem": {\n      "allowWrite": ["%s"]\n    }\n  }\n}\n' "$p"
+}
+
 cmd_init() {
   local plan="" theme="" tracker="" push="" ws="" home="" name="" impl="" out="" share="" force=0
   while [[ $# -gt 0 ]]; do
@@ -164,8 +178,9 @@ cmd_init() {
   local themes
   themes=$(ls "$ROOT/themes" 2>/dev/null | sed -n 's/\.theme$//p' | tr '
 ' ' ')
-  ask theme "Theme (role names, colours and personas)" plain "${themes% }"
+  ask theme "Theme (character names, colours and voices; roles keep their ids)" plain "${themes% }"
   [[ -f $ROOT/themes/$theme.theme ]] || die "init: no theme file themes/$theme.theme in $ROOT"
+  "${BASH:-bash}" "$ROOT/bin/sabha-theme" validate "$ROOT/themes/$theme.theme" >/dev/null || die "init: themes/$theme.theme does not validate (run: bin/sabha-theme validate $theme)"
   ask tracker "Tracker (html = local page, no login; sheet = Google Sheet, better: phone, sharing, Inbox/Decisions round trip; xlsx = offline file)" html "html xlsx sheet"
   ask push "Phone push via ntfy (ntfy|off)" off "ntfy off"
   ask ws "Workspace directory (the roles start here: the folder that holds your repos)" '~/Work' ""
@@ -235,6 +250,8 @@ cmd_init() {
   case $out in "$(tilde "$impl")/sabha.conf") ;; *) echo "note: run the scripts with SABHA_CONF=$out" ;; esac
   [[ $tracker != sheet ]] && echo "note: the Google Sheet tracker is the better option (phone, sharing, Inbox/Decisions round trip): sabha init --tracker sheet --force"
   [[ -n $topic ]] && echo "ntfy topic: $topic (subscribe to it in the ntfy app)"
+  print_sandbox_hint "$(tilde "$impl")"
+  command -v python3 >/dev/null 2>&1 && python3 "$BIN/sabha-for-me" --tip-of-day 2>/dev/null
   return 0
 }
 
@@ -244,7 +261,7 @@ warn() { echo "warn  $*"; WARNS=$((WARNS + 1)); }
 bad()  { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
 
 cmd_doctor() {
-  local c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
+  local ka ka_eff ka_src sd ca c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
   if [[ -f $CONF ]]; then
     # shellcheck disable=SC1090
     impl=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
@@ -285,10 +302,57 @@ cmd_doctor() {
   if command -v herdr >/dev/null 2>&1; then ok "herdr: $(command -v herdr)"
   else warn "herdr not found (default terminal backend; the iTerm path still works on macOS)"; fi
 
+  ka=$( [[ -f $CONF ]] && { set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_KEEP_AWAKE:-auto}|${SABHA_KEEP_AWAKE_AC:-}|${SABHA_KEEP_AWAKE_BATTERY:-}"; } )
+  ka=${ka:-auto||}
+  # shellcheck source=sabha-herdr.sh
+  . "$BIN/sabha-herdr.sh"
+  ka_eff=$( IFS='|'; set -- $ka; SABHA_KEEP_AWAKE=$1 SABHA_KEEP_AWAKE_AC=$2 SABHA_KEEP_AWAKE_BATTERY=$3; sabha_keep_awake_mode )
+  ka_src=$(sabha_power_source)
+  if command -v pmset >/dev/null 2>&1; then
+    sd=$(pmset -g 2>/dev/null | awk '$1 == "SleepDisabled" { print $2 }')
+    ca=$(pmset -g assertions 2>/dev/null | grep -c 'caffeinate')
+    if [[ $ka_eff == lid && ${sd:-0} != 1 ]]; then warn "keep awake: ${ka%%|*} -> lid on $ka_src power, but SleepDisabled is ${sd:-0}: run sudo pmset -a disablesleep 1 (docs/keep-awake.md)"
+    elif [[ $ka_eff != lid && ${sd:-0} == 1 ]]; then warn "keep awake: ${ka%%|*} -> $ka_eff on $ka_src power, but SleepDisabled is 1: a closed lid will not sleep (drains the battery). Undo, run by you: sudo pmset -a disablesleep 0 (auto cannot undo it; docs/keep-awake.md)"
+    else ok "keep awake: ${ka%%|*} -> $ka_eff on $ka_src power (disablesleep ${sd:-0}, caffeinate assertions $ca)"; fi
+  else
+    ok "keep awake: ${ka%%|*} -> $ka_eff (no pmset on this machine)"
+  fi
+
   if command -v jq >/dev/null 2>&1 && [[ -f $settings ]] && jq -e '.statusLine.command // "" | test("statusline-sabha")' "$settings" >/dev/null 2>&1; then
     ok "statusline hook in $settings"
   else
     warn "statusline hook missing in $settings: set statusLine.command to bash $BIN/statusline-sabha.sh (context % and usage alerts need it)"
+  fi
+
+  # warnings only, nothing is deleted or moved: a statusline script that is an old standalone copy, a second claude-sabha
+  # copy, and a copy whose own sabha.conf belongs to another project (its context files and board land in that project)
+  local sl w here copies cand real other seen
+  if command -v jq >/dev/null 2>&1 && [[ -f $settings ]]; then
+    sl=$(jq -r '.statusLine.command // ""' "$settings" 2>/dev/null)
+    for w in $sl; do
+      [[ $w == *statusline-sabha.sh && -f $w ]] || continue
+      grep -q SABHA_CONF "$w" || warn "statusLine runs $w, an old standalone copy with no sabha.conf lookup (its context files can land in another project's folder): set statusLine.command to bash $BIN/statusline-sabha.sh"
+    done
+  fi
+  here=$(cd "$ROOT" && pwd -P)
+  seen=" $here "
+  copies=${SABHA_DOCTOR_COPIES-"${HOME:-}/Work/claude-sabha ${HOME:-}/claude-sabha ${HOME:-}/.claude/plugins/marketplaces/claude-sabha"}
+  for cand in $copies; do
+    [[ -f $cand/bin/sabha-lib.sh ]] || continue
+    real=$(cd "$cand" && pwd -P)
+    [[ $seen == *" $real "* ]] && continue
+    seen="$seen$real "
+    warn "a second claude-sabha copy at $cand (this one is $ROOT): with no project config found, each copy's scripts use their own sabha.conf; keep one copy, or set SABHA_CONF"
+    other=$( set +u; [[ -f $cand/sabha.conf ]] && . "$cand/sabha.conf" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
+    [[ -n $other && -n $impl && $other != "$impl" ]] && warn "$cand/sabha.conf names SABHA_IMPL=$other, not $impl: a script of that copy run outside a project folder writes there"
+  done
+  if [[ -f $ROOT/sabha.conf ]]; then
+    other=$( set +u; . "$ROOT/sabha.conf" >/dev/null 2>&1; echo "${SABHA_IMPL:-}|${SABHA_WS:-}" )
+    if [[ $CONF == "$ROOT/sabha.conf" ]]; then
+      case $PWD/ in "${other#*|}"/*) ;; *) [[ -n ${other#*|} ]] && warn "running from $PWD with $CONF, which belongs to another project (SABHA_WS=${other#*|}): cd into your project (it has .sabha/local) or set SABHA_CONF" ;; esac
+    elif [[ -n ${other%|*} && -n $impl && ${other%|*} != "$impl" ]]; then
+      warn "this copy's own $ROOT/sabha.conf names SABHA_IMPL=${other%|*}, but the active config $CONF names $impl: a script of this copy run without that config would write there"
+    fi
   fi
 
   # without a config there is no impl dir to protect yet, so a read-only install dir (brew, root-owned) is only a warning
@@ -313,7 +377,23 @@ cmd_doctor() {
   [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
 
   echo "doctor: $FAILS fail, $WARNS warn"
+  command -v python3 >/dev/null 2>&1 && python3 "$BIN/sabha-for-me" --tip-of-day 2>/dev/null
   [[ $FAILS -eq 0 ]]
+}
+
+# keep-awake [auto|off|open|lid]: no argument prints the setting; a mode rewrites SABHA_KEEP_AWAKE in the config
+# (a running sabha-loop picks it up on its next poll). lid still needs the user's sudo step (docs/keep-awake.md).
+cmd_keep_awake() {
+  local m=${1:-}
+  [[ -f $CONF ]] || die "keep-awake: no config at $CONF (run: sabha init)"
+  if [[ -z $m ]]; then
+    ( set +u; . "$CONF" >/dev/null 2>&1; echo "SABHA_KEEP_AWAKE=${SABHA_KEEP_AWAKE:-auto}" ); return 0
+  fi
+  case $m in auto|off|open|lid) ;; *) die "keep-awake: use auto, off, open or lid" ;; esac
+  { grep -v '^#\{0,1\}SABHA_KEEP_AWAKE=' "$CONF"; echo "SABHA_KEEP_AWAKE=$m"; } >"$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+  echo "keep-awake: SABHA_KEEP_AWAKE=$m in $CONF"
+  [[ $m == lid || $m == auto ]] && echo "lid (and auto on AC power) also needs, run by you once: sudo pmset -a disablesleep 1 (never in a bag; see docs/keep-awake.md)"
+  return 0
 }
 
 # update only fast-forwards the install dir; it never runs a script, a hook or an install step it pulled
@@ -333,7 +413,10 @@ cmd_sheet() {
 case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
+  keep-awake) shift; cmd_keep_awake "$@" ;;
   update) shift; cmd_update ;;
+  tips) python3 "$BIN/sabha-for-me" --tips ;;
+  help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
 esac

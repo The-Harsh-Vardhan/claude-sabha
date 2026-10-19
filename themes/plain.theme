@@ -1,22 +1,26 @@
-# Theme: Plain
-# Neutral role names with no fandom: just what each agent does.
-Relay|Relay|#2E8B8B|The one you talk to; passes your words on and never does the work.
-Dispatcher|Dispatcher|#B8860B|Reads each brief and routes it to the right worker by difficulty.
-Architect|Architect|#6A5ACD|Designs the structure first, so builders do not guess.
-BuilderHeavy|BuilderHeavy|#C0392B|Takes on the large, hard builds and sees them through.
-BuilderPrecise|BuilderPrecise|#2874A6|Handles exacting builds where every detail matters.
-Reviewer|Reviewer|#7D6608|Reads each change and flags what is wrong or risky.
-Writer|Writer|#AF5FA0|Writes clear documentation others will read.
-Runner|Runner|#D2691E|Runs tests and commands, and reports exactly what happened.
-Scribe|Scribe|#3C8D5A|Records every decision so nothing is forgotten.
-BackendCritic|BackendCritic|#8E44AD|Challenges backend design: data, APIs, and failure modes.
-FrontendCritic|FrontendCritic|#CD5C5C|Challenges the UI: layout, accessibility, and polish.
-SecurityCritic|SecurityCritic|#5D6D7E|Looks for ways in, thinking like an attacker.
-ScopeCritic|ScopeCritic|#B03060|Checks that the work matches what was asked, no more.
-BlindReviewer|BlindReviewer|#708090|Reviews with no prior context, so assumptions show up.
-Keeper|Keeper|#A0522D|Keeps the official record tidy and trustworthy.
-Observer|Observer|#4682B4|Watches everything and never acts.
-Housekeeper|Housekeeper|#E67E22|Cleans up leftovers, stale files, and loose ends.
-Tutor|Tutor|#1F6FB2|Explains and guides, and does not do the task for you.
-Watcher|Watcher|#9C2D2D|Keeps watch after a merge for anything that breaks.
-Coach|Coach|#8A7A1E|Improves the other agents' prompts based on how they performed.
+title: Plain
+author: claude-sabha
+category: neutral
+fan: no
+description: Neutral role names with no fandom, and the default layer under every other theme.
+licence: MIT
+Relay|Relay|#2E8B8B|-|
+Dispatcher|Dispatcher|#B8860B|-|
+Architect|Architect|#6A5ACD|-|
+BuilderHeavy|BuilderHeavy|#C0392B|-|
+BuilderPrecise|BuilderPrecise|#2874A6|-|
+Reviewer|Reviewer|#7D6608|-|
+Writer|Writer|#AF5FA0|-|
+Runner|Runner|#D2691E|-|
+Scribe|Scribe|#3C8D5A|-|
+BackendCritic|BackendCritic|#8E44AD|-|
+FrontendCritic|FrontendCritic|#CD5C5C|-|
+SecurityCritic|SecurityCritic|#5D6D7E|-|
+ScopeCritic|ScopeCritic|#B03060|-|
+BlindReviewer|BlindReviewer|#708090|-|
+Keeper|Keeper|#A0522D|-|
+Observer|Observer|#4682B4|-|
+Housekeeper|Housekeeper|#E67E22|-|
+Tutor|Tutor|#1F6FB2|-|
+Watcher|Watcher|#9C2D2D|-|
+Coach|Coach|#8A7A1E|-|

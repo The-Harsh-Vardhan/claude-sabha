@@ -22,11 +22,14 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 . "$(dirname "$SELF")/sabha-lib.sh"
 # shellcheck source-path=SCRIPTDIR source=sabha-herdr.sh
 . "$(dirname "$SELF")/sabha-herdr.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-limits.sh
+. "$(dirname "$SELF")/sabha-limits.sh"
 if [[ ${1:-} == --plan ]]; then
   [[ $# -ge 2 && -n $2 ]] || { echo "usage: sabha-up.sh --plan pro|max5|max20 [...]" >&2; exit 2; }
   export SABHA_PLAN=$2; shift 2
 fi
 sabha_load sabha-up
+sabha_theme sabha-up || exit 1
 [[ $(sabha_backend) == herdr ]] && { sabha_session_valid || exit 2; }
 PROJECT=${SABHA_PROJECT:-this project}
 OWNER=${SABHA_USER:-the user}
@@ -56,7 +59,7 @@ role() {
   to=$DISPATCHER
   [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   [[ $R_BASE == "$RELAY" ]] && to=$OWNER
-  who=$name; [[ -n $R_LABEL && $R_LABEL != "$name" ]] && who="$name ($R_LABEL)"
+  who=$(sabha_who "$name")
   # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
   tail_var=SABHA_PROMPT_$R_BASE
   tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
@@ -79,6 +82,9 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   echo "pane: cd \"$SABHA_WS\" && '$LOOP' $name"
   exit 0
 fi
+
+# SABHA_STOP: no session starts while a usage window is at the stop line (--print above only prints)
+if why=$(sabha_limits_stopped); then echo "sabha-up: $why" >&2; exit 3; fi
 
 # herdr_agent <Name> <pane_id>: starts the role's non-claude agent in that pane and submits its opening prompt
 # (no --wait: the prompt starts a whole session, and a nudge waits for what it needs)
@@ -107,6 +113,8 @@ if [[ $# -eq 1 ]]; then
     exit 0
   fi
   guard "$name"
+  # a role that starts (or restarts) inside a herdr pane says where it is, so the nudge map follows it
+  [[ $(sabha_backend) == herdr && -n ${HERDR_PANE_ID:-} ]] && sabha_pane_note "$name" "$HERDR_PANE_ID"
   # iTerm2 badge: "Fable Medium"; macOS bash 3.2 has no ${v^}, hence awk
   if [[ ${LC_TERMINAL:-${TERM_PROGRAM:-}} == iTerm* ]]; then
     badge=$(awk '{for (i = 1; i <= NF; i++) $i = toupper(substr($i, 1, 1)) substr($i, 2)} 1' <<<"$model $effort")
@@ -115,7 +123,7 @@ if [[ $# -eq 1 ]]; then
     printf '\033]1337;SetColors=bg=000000\a\033]1337;SetColors=fg=00ff00\a\033]1337;SetColors=curbg=23ff18\a'
     # the toolbelt's session list shows the title; claude would replace the role name with its own
     export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
-    printf '\033]0;%s\a' "$name"
+    printf '\033]0;%s\a' "$(sabha_display "$name")"
   fi
   cd "$SABHA_WS"
   # the hooks and the pre-push hook (sabha-worktree push-guard) read the role from here; a worker gets no GitHub
@@ -144,6 +152,9 @@ guard "${build[@]}" ${gate[@]+"${gate[@]}"}
 # --force reach that inner sabha-up.sh as environment, since sabha-loop takes only the name
 pane_args=""; [[ -n ${SABHA_PLAN:-} ]] && pane_args="SABHA_PLAN=$SABHA_PLAN "
 (( FORCE )) && pane_args+="SABHA_FORCE=1 "
+# a spawned pane has no inherited env (herdr pane run, a fresh iTerm tab): pass the config path sabha_conf_read found,
+# or sabha-loop falls back to its own no-fallback search and fails with "no config"
+[[ -n ${SABHA_CONF:-} ]] && pane_args+="SABHA_CONF='$SABHA_CONF' "
 
 # herdr backend (the default): one workspace, Build as its first tab and Gate as a second; each tab is two rows of up
 # to four panes. fill_tab <root pane id> <name>...: columns by splitting right, the second row by splitting down, then
@@ -166,7 +177,10 @@ fill_tab() {
     p=${ids[$k]}
     [[ -n $p ]] || { echo "sabha-up: herdr gave no pane id for $name" >&2; exit 1; }
     role "$name"
-    sabha_h pane rename "$p" "$name" >/dev/null
+    sabha_h pane rename "$p" "$(sabha_display "$name")" >/dev/null
+    # the Agent sidebar row shows the agent's name, not the pane label (herdr cli-reference: "Use --display-agent to
+    # change the visible name"); the statusline re-sends it, so a restarted agent gets it back (UNTESTED live)
+    sabha_h pane report-metadata "$p" --source sabha:name --display-agent "$(sabha_display "$name")" >/dev/null 2>&1
     if [[ $R_AGENT == claude ]]; then
       sabha_pane_note "$name" "$p"
       sabha_h pane run "$p" "$pane_args'$LOOP' $name" >/dev/null
@@ -178,6 +192,8 @@ fill_tab() {
 }
 if [[ $(sabha_backend) == herdr ]]; then
   sabha_herdr_ready || exit 1
+  sabha_pane_reset
+  sabha_keep_awake || true
   echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
   out=$(sabha_h workspace create --cwd "$SABHA_WS" --label "$PROJECT" --no-focus) || exit 1
   ws=$(sabha_jid "$out" workspace_id)
@@ -209,10 +225,13 @@ tab_script() {
   done
   k=1
   for name in "$@"; do
-    printf '    tell %s%d\n      set name to "%s"\n      write text "%s"\n    end tell\n' "$p" "$k" "$name" "$pane_args'$LOOP' $name"
+    printf '    tell %s%d\n      set name to "%s"\n      write text "%s"\n    end tell\n' "$p" "$k" "$(sabha_display "$name")" "cd '$SABHA_WS' && ${pane_args}'$LOOP' $name"
     k=$(( k + 1 ))
   done
 }
+# $SABHA_WS and $SABHA_CONF go into AppleScript text (tab_script) and a shell line it writes: a quote, $ or backtick
+# in either would break both
+[[ $SABHA_WS${SABHA_CONF:-} != *[\"\$\`]* ]] || { echo "sabha-up: config value holds a quote, \$ or backtick" >&2; exit 1; }
 echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
 gate_tab=""
 if (( ${#gate[@]} )); then

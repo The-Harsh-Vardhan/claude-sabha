@@ -51,14 +51,26 @@ sabha_shared_read() {
   done <"$1"
 }
 
-# sabha_conf_read <caller>: finds sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf beside the
-# scripts) and exports SABHA_CONF, so every pane, hook and worktree session finds the same file whatever its cwd. Then
+# sabha_find_local: the nearest <dir>/.sabha/local/sabha.conf from the cwd upward, i.e. the project the cwd is in; false
+# when there is none. Only the exact cwd used to count, so a role in a subdirectory fell through to a sabha.conf beside
+# the scripts, which can belong to another project.
+sabha_find_local() {
+  local d=$PWD
+  while [[ -n $d ]]; do
+    [[ -f $d/.sabha/local/sabha.conf ]] && { echo "$d/.sabha/local/sabha.conf"; return 0; }
+    d=${d%/*}
+  done
+  return 1
+}
+
+# sabha_conf_read <caller>: finds sabha.conf (SABHA_CONF, else the nearest .sabha/local/sabha.conf upward from the cwd,
+# else ../sabha.conf beside the scripts) and exports SABHA_CONF, so every pane, hook and worktree session finds the same file whatever its cwd. Then
 # layers: sabha.conf, the plan file sabha.<SABHA_PLAN>.conf, the team's .sabha/config (SABHA_SHARED), and sabha.conf
 # again, so a key you set yourself wins over the team's. Docs (PROTOCOL-core.md, protocol/) come from SABHA_SHARED when
 # it holds them, else SABHA_IMPL (SABHA_DOCS). Returns 1 (message on stderr) when a file is missing.
 sabha_conf_read() {
   CONF=${SABHA_CONF:-}
-  [[ -z $CONF && -f $PWD/.sabha/local/sabha.conf ]] && CONF=$PWD/.sabha/local/sabha.conf
+  [[ -z $CONF ]] && { CONF=$(sabha_find_local) || CONF=; }
   CONF=${CONF:-$SABHA_BIN/../sabha.conf}
   [[ -f $CONF ]] || { echo "$1: no config at $CONF (run bin/sabha init, or cd to a project that has .sabha/local)" >&2; return 1; }
   export SABHA_CONF=$CONF
@@ -116,7 +128,6 @@ sabha_load() {
       ROLES+=("$n $a $m ${f:-medium} ${g:--}")
     done
   fi
-  sabha_theme "$1" || exit 1
   NAMES=() PANES=() LAZY=()
   local r i=0
   for r in "${ROLES[@]}"; do
@@ -136,31 +147,48 @@ sabha_load() {
   MAX_COPIES=${SABHA_MAX_COPIES:-2}
 }
 
-# sabha_theme <caller>: a theme is a skin. SABHA_THEME (default plain) names themes/<theme>.theme, one
-# "Role|Name|#hex|persona" line per role id. It renames ROLES, SABHA_PANES and SABHA_LABEL_<Role> to the themed names
-# and sets SABHA_COLOR_<Name> and SABHA_PERSONA_<Name>. The plan files keep the role ids, so one plan works with every
-# theme.
+# sabha_theme [caller]: a theme is a skin over the role ids and never renames a role (ROLES, NAMES, PANES and every file
+# name stay Relay, BuilderHeavy, ...). bin/sabha-theme resolve (SABHA_THEME: a theme or a preset, default plain) gives the
+# 20 resolved rows; this sets SABHA_NAME_<RoleId>, SABHA_COLOR_<RoleId>, SABHA_ICON_<RoleId> (a stem under icons/) and
+# SABHA_VOICE_<RoleId>. Run once per process and not by sabha_load, so a hook does not pay for it. A bad SABHA_THEME fails
+# here; without one, a missing plain.theme is not an error.
 sabha_theme() {
-  local file=${SABHA_THEME_DIR:-$SABHA_BIN/../themes}/${SABHA_THEME:-plain}.theme id name color persona i v panes p
-  if [[ ! -f $file ]]; then
+  [[ -n ${_SABHA_THEME_DONE:-} ]] && return 0
+  local out id name color icon voice
+  # sabha.conf is sourced, not exported: hand the three settings over by name
+  if ! out=$(SABHA_THEME="${SABHA_THEME:-}" SABHA_THEME_DIR="${SABHA_THEME_DIR:-}" SABHA_PRESET_DIR="${SABHA_PRESET_DIR:-}" "${BASH:-bash}" "$SABHA_BIN/sabha-theme" resolve 2>&1); then
     [[ -z ${SABHA_THEME:-} ]] && return 0
-    echo "$1: no theme file at $file (themes: $(ls "${file%/*}" 2>/dev/null | sed -n 's/\.theme$//p' | tr '\n' ' '))" >&2
+    echo "${1:-sabha}: $out" >&2
     return 1
   fi
-  while IFS='|' read -r id name color persona || [[ -n $id ]]; do
-    [[ -z $id || $id == \#* ]] && continue
-    persona=${persona%$'\r'}
-    printf -v "SABHA_ID_$name" '%s' "$id"
-    for i in "${!ROLES[@]}"; do [[ ${ROLES[i]%% *} == "$id" ]] && ROLES[i]="$name ${ROLES[i]#* }"; done
-    panes=
-    for p in ${SABHA_PANES:-}; do [[ $p == "$id" ]] && p=$name; panes="$panes $p"; done
-    [[ -n ${SABHA_PANES:-} ]] && SABHA_PANES=${panes# }
-    v=SABHA_LABEL_$id
-    [[ -n ${!v:-} ]] && printf -v "SABHA_LABEL_$name" '%s' "${!v}"
-    printf -v "SABHA_COLOR_$name" '%s' "$color"
-    printf -v "SABHA_PERSONA_$name" '%s' "$persona"
-  done <"$file"
+  while IFS='|' read -r id name color icon voice; do
+    printf -v "SABHA_NAME_$id" '%s' "$name"
+    printf -v "SABHA_COLOR_$id" '%s' "$color"
+    printf -v "SABHA_ICON_$id" '%s' "$icon"
+    printf -v "SABHA_VOICE_$id" '%s' "$voice"
+  done <<<"$out"
+  _SABHA_THEME_DONE=1
   return 0
+}
+
+# sabha_display <Name>: what is shown for a role (statusline, board, pane title, chat sign-off): the character the theme
+# gives its role id; a copy Id-N shows as Character-N (A2). Plain role ids when there is no theme.
+sabha_display() {
+  local base=$1 suffix="" v
+  [[ $1 =~ ^(.+)-([0-9]+)$ ]] && base=${BASH_REMATCH[1]} suffix=-${BASH_REMATCH[2]}
+  sabha_theme >/dev/null 2>&1
+  v=SABHA_NAME_$base
+  echo "${!v:-$base}$suffix"
+}
+
+# sabha_who <Name>: "RoleId", "RoleId, shown as Character" and the roster label after it, for the opening prompts.
+# Call after sabha_role (it reads R_LABEL).
+sabha_who() {
+  local who=$1 disp
+  disp=$(sabha_display "$1")
+  [[ $disp != "$1" ]] && who="$1, shown as $disp"
+  [[ -n ${R_LABEL:-} && $R_LABEL != "$1" ]] && who="$who ($R_LABEL)"
+  echo "$who"
 }
 
 # sabha_role <Name>: sets R_ENTRY (the ROLES line), R_NAME, R_AGENT, R_MODEL, R_EFFORT, R_FLAGS, R_BASE and R_LABEL
@@ -188,13 +216,20 @@ sabha_role() {
 # sabha_reads <Name>: what a role reads at start, shared by sabha-up.sh and sabha-run so both open the same way.
 # SABHA_PROTOCOL_CORE (file under SABHA_DOCS: the team's .sabha/ when it holds the docs, else SABHA_IMPL) +
 # SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the role file, then the top block of the status file.
+# The role id names the card and the status file. Only the roles that chat with the user (Relay, Tutor, Coach) get the
+# character's voice, and the job comes first (Q9).
 sabha_reads() {
-  # a copy Thor-1 shares Thor's card and persona; a dash is not legal in a variable name
-  local lower card=$1 id=SABHA_ID_${1%-[0-9]*} persona=SABHA_PERSONA_${1%-[0-9]*} tail= docs=${SABHA_DOCS:-$SABHA_IMPL}
+  # a copy Thor-1 shares Thor's card; a dash is not legal in a variable name
+  local lower card=$1 base=${1%-[0-9]*} voice tail= docs=${SABHA_DOCS:-$SABHA_IMPL}
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
-  # a themed role keeps the card of its role id unless the project has a card under the themed name
-  [[ -n ${!id:-} && ! -f $docs/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=${!id}
-  [[ -n ${!persona:-} ]] && tail=". Your persona: ${!persona}"
+  # a copy keeps the card of its base role unless the project has a card under the copy's own name
+  [[ ! -f $docs/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=$base
+  sabha_theme >/dev/null 2>&1
+  case $base in
+    Relay|Tutor|Coach)
+      voice=SABHA_VOICE_$base
+      [[ -n ${!voice:-} ]] && tail=". Your voice, in chat with the user only: ${!voice} Files, commits and code stay plain, and your job comes first" ;;
+  esac
   if [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]]; then
     echo "$docs/$SABHA_PROTOCOL_CORE, then $docs/$SABHA_ROLE_DIR/$card.md, then the top block of status/$lower.md$tail"
   else

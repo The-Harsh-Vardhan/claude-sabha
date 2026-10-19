@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# sabha-item: add or close a for-me.items entry (inbox protocol, section 7). The id is claimed like a brief number
+# (noclobber claim file), the block is written with its leading --- in one append, so parallel writers neither share an
+# id nor merge blocks. Bash 3.2 safe.
+#   sabha-item add <owner> "<title>" [--ask WHO] [--state OPEN]      the other keys (why:, q:, explain:, opta:..., rec:,
+#                                                                    cmd: last) come from stdin, one per line; prints the id
+#   sabha-item close <id> [DONE|DROPPED]                             appends the closing block (default DONE)
+# Files: $SABHA_IMPL/for-me.items (default: ./for-me.items), claims in status/item-ids/<id>.
+set -u
+IMPL=${SABHA_IMPL:-.}
+F=$IMPL/for-me.items
+die() { echo "sabha-item: $*" >&2; exit "${2:-1}"; }
+utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+[[ $# -ge 1 ]] || { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+cmd=$1; shift
+case $cmd in
+  add)
+    [[ $# -ge 2 ]] || die "usage: sabha-item add <owner> \"<title>\" [--ask WHO] [--state OPEN]" 2
+    owner=$1 title=$2; shift 2
+    ask="" state=OPEN
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --ask) ask=${2:-}; shift 2 ;;
+        --state) state=${2:-}; shift 2 ;;
+        *) die "unknown option $1" 2 ;;
+      esac
+    done
+    [[ $owner =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "bad owner '$owner' (letters, digits, - _)" 2
+    [[ $title != *$'\n'* && $ask != *$'\n'* ]] || die "title and ask are one line" 2
+    body=""; [[ -p /dev/stdin || -f /dev/stdin ]] && body=$(cat)
+    [[ $body != *$'\n---\n'* && $body != ---$'\n'* && $body != *$'\n---' ]] || die "the body cannot hold a line of exactly ---" 2
+    dir=$IMPL/status/item-ids
+    mkdir -p "$dir" "$IMPL" || exit 1
+    # the next id: past every id in the file and every claim, so items written by hand are never reused
+    # shellcheck disable=SC2010  # claims are plain numbers
+    n=$( { sed -n 's/^id: \([0-9][0-9]*\)$/\1/p' "$F" 2>/dev/null; ls "$dir" 2>/dev/null | grep -E '^[0-9]+$'; } | sort -n | tail -1)
+    n=$(( ${n:-0} + 1 ))
+    until (set -C; : >"$dir/$n") 2>/dev/null; do n=$(( n + 1 )); done
+    block="---"$'\n'"id: $n"$'\n'"utc: $(utc)"$'\n'"owner: $owner"$'\n'"state: $state"$'\n'"title: $title"$'\n'
+    [[ -z $ask ]] || block+="ask: $ask"$'\n'
+    [[ -z $body ]] || block+="$body"$'\n'
+    printf '%s' "$block" >>"$F" || die "cannot write $F"
+    echo "$n"
+    ;;
+  close)
+    [[ $# -ge 1 ]] || die "usage: sabha-item close <id> [DONE|DROPPED]" 2
+    id=$1 st=${2:-DONE}
+    [[ $id =~ ^[0-9]+$ ]] || die "bad id '$id'" 2
+    case $st in DONE|DROPPED) ;; *) die "state must be DONE or DROPPED" 2 ;; esac
+    grep -qx "id: $id" "$F" 2>/dev/null || die "no item $id in $F"
+    printf -- '---\nid: %s\nutc: %s\nstate: %s\n' "$id" "$(utc)" "$st" >>"$F" || die "cannot write $F"
+    ;;
+  *) die "unknown command $cmd (add, close)" 2 ;;
+esac

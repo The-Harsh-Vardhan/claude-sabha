@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# sabha-herdr-config: prints the herdr settings sabha suggests, with this install's paths filled in, for the user to
+# merge by hand into herdr's config (~/.config/herdr/config.toml; HERDR_CONFIG_PATH overrides). It writes nothing:
+# herdr's config is global, so it also changes the user's own sessions, and a table that is already there must be
+# merged, not appended twice (TOML refuses a repeated table). Restart the herdr server to apply [session].
+#   [session]                 idea 10: restored agents start 2 s apart (no RAM spike), resume stays on
+#   [ui.sidebar.agents] rows  idea 4: the brief and ctx tokens the statusline hook reports
+#   [ui.sound.agents]         idea 5: herdr's own claude sounds off; sabha-alert chimes for the relay only
+#   [[keys.command]]          idea 6: prefix+alt+b the board, prefix+alt+c sabha-check (popups in less with
+#                             LESSSECURE=1: no shell, no editor), prefix+alt+v focuses the relay's pane (no text sent)
+# The keys run this copy's bin/ and conf at the user's keypress, so run it from the installed plugin copy, never a
+# worktree agents edit (it warns when run from one). It refuses a path holding $ ` ' " or \ (the shell or TOML would
+# read it).
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+[[ $# -eq 0 ]] || { sed -n 2,13p "$0"; exit 2; }
+sabha_load sabha-herdr-config
+# shellcheck source=sabha-herdr.sh
+. "$BIN/sabha-herdr.sh"
+sabha_session_valid || exit 2
+conf=${SABHA_CONF:-}
+[[ -n $conf ]] || conf=$(cd "$BIN/.." && pwd)/sabha.conf
+relay=$(tr '[:upper:]' '[:lower:]' <<<"$RELAY")
+for p in "$SABHA_IMPL" "$BIN" "$conf"; do
+  case $p in *[\$\`\'\"\\]*)
+    echo "sabha-herdr-config: refusing a path with \$, a backtick, a quote or a backslash: $p" >&2; exit 2 ;;
+  esac
+done
+gd=$(git -C "$BIN" rev-parse --path-format=absolute --git-dir 2>/dev/null)
+gc=$(git -C "$BIN" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+[[ -n $gd && $gd != "$gc" ]] &&
+  echo "sabha-herdr-config: warning: $BIN is in a git worktree; the keys would run code agents edit. Run the installed plugin copy's bin/sabha-herdr-config instead" >&2
+cat <<EOF
+# claude-sabha: suggested herdr settings (bin/sabha-herdr-config). Merge into herdr's config.toml by hand, then
+# restart the sabha herdr server and check \`herdr --session $(sabha_session) status server\` (a wrong key stops it loading).
+# The keys run this copy: $BIN (use the installed plugin copy, not a worktree).
+[session]
+resume_agents_on_restore = true
+startup_per_agent_delay_ms = 2000
+
+[ui.sidebar.agents]
+rows = [
+  ["state_icon", "agent", "\$brief", "\$ctx"],
+  ["workspace", "tab"],
+]
+
+[ui.sound.agents]
+claude = "off"
+
+[[keys.command]]
+key = "prefix+alt+b"
+type = "popup"
+command = "LESSSECURE=1 less \"$SABHA_IMPL/FOR-ME.md\""
+description = "sabha: the board (read-only)"
+width = "90%"
+height = "90%"
+
+[[keys.command]]
+key = "prefix+alt+c"
+type = "popup"
+command = "SABHA_CONF=\"$conf\" \"$BIN/sabha-check\" --explain | LESSSECURE=1 less"
+description = "sabha: roles and herdr states (read-only)"
+width = "90%"
+height = "90%"
+
+[[keys.command]]
+key = "prefix+alt+v"
+type = "shell"
+command = "herdr --session $(sabha_session) agent focus $relay"
+description = "sabha: focus $(sabha_display "$RELAY")'s input"
+EOF

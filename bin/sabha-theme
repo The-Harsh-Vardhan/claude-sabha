@@ -1,0 +1,334 @@
+#!/usr/bin/env bash
+# sabha-theme: the one parser for theme and preset files. Bash 3.2 safe, no jq, no TOML.
+#   sabha-theme resolve [name]       the 20 resolved rows "RoleId|Name|#colour|icon-stem|voice", plain.theme order
+#                                    (name: a theme or a preset; default $SABHA_THEME, else plain)
+#   sabha-theme list                 shipped themes, then your presets; * marks the current one
+#   sabha-theme show [name]          the resolved rows as a table
+#   sabha-theme use <name>           validate, then set SABHA_THEME=<name> in the config SABHA_CONF names
+#   sabha-theme validate <name|file>...   check a theme (strict: any error refuses, exit 1) or a preset (lenient:
+#                                    voice, name, colour and icon problems are warnings; unknown roles, themes or
+#                                    characters are errors)
+#   sabha-theme --self-test
+# A theme is a skin over the 20 role ids (Relay, Dispatcher, ...): it never renames a role, it only says what is shown.
+# Layers: plain.theme (default) -> a theme -> a preset. Theme format, preset format and rules: themes/README.md.
+# Directories: SABHA_THEME_DIR (default ../themes), SABHA_PRESET_DIR (default ~/.config/claude-sabha/presets).
+# shellcheck disable=SC2016  # the awk programs are single-quoted on purpose
+set -u
+export LC_ALL=C
+BIN=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$BIN/.." && pwd)
+if [[ ${1:-} == --self-test ]]; then exec "$ROOT/tests/test-theme.sh"; fi
+THEME_DIR=${SABHA_THEME_DIR:-$ROOT/themes}
+PRESET_DIR=${SABHA_PRESET_DIR:-${HOME:-/nonexistent}/.config/claude-sabha/presets}
+ROLE_IDS="Relay Dispatcher Architect BuilderHeavy BuilderPrecise Reviewer Writer Runner Scribe BackendCritic FrontendCritic SecurityCritic ScopeCritic BlindReviewer Keeper Observer Housekeeper Tutor Watcher Coach"
+
+die() { echo "sabha-theme: $*" >&2; exit 1; }
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+# ids of the files in a directory with the given suffix, space separated
+names() { local f out=; for f in "$1"/*."$2"; do [[ -f $f ]] || continue; f=${f##*/}; out="$out ${f%."$2"}"; done; echo "${out# }"; }
+
+# locate <name|path>: sets FILE and KIND (theme or preset); false when there is none. A theme wins over a preset of the
+# same name, so a shipped theme is never shadowed.
+locate() {
+  FILE='' KIND=''
+  if [[ -f $1 && ( $1 == *.theme || $1 == *.preset ) ]]; then
+    FILE=$1 KIND=${1##*.}
+    return 0
+  fi
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
+  if [[ -f $THEME_DIR/$1.theme ]]; then FILE=$THEME_DIR/$1.theme KIND=theme
+  elif [[ -f $PRESET_DIR/$1.preset ]]; then FILE=$PRESET_DIR/$1.preset KIND=preset
+  else return 1; fi
+}
+
+# body <file>: the lines that are neither comments nor blank, CR removed
+body() { tr -d '\r' <"$1" | awk '!/^[ \t]*#/ && !/^[ \t]*$/'; }
+# header_val <file> <key>
+header_val() { body "$1" | awk -v k="$2" 'index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }'; }
+# rows <file>: every line that is not a "key: value" header
+rows() { body "$1" | awk '!/^[a-z]+: /'; }
+
+# stream <file> <kind>: the tagged lines the resolver applies in order. T = a theme row (T|Char|Role|colour|icon|voice),
+# S = a preset assignment (S|Role|Char|colour|icon|voice), F = a field edit (F|Char|field|value), X = a problem.
+stream() {
+  local file=$1 kind=$2 base a b rest th ch
+  rows "$THEME_DIR/plain.theme" 2>/dev/null | awk '{ print "T|" $0 }'
+  [[ -f $THEME_DIR/plain.theme ]] || echo "X|no default theme at $THEME_DIR/plain.theme"
+  if [[ $kind == theme ]]; then
+    [[ ${file##*/} == plain.theme ]] || rows "$file" | awk '{ print "T|" $0 }'
+    return 0
+  fi
+  base=$(header_val "$file" theme)
+  if [[ -n $base && $base != plain ]]; then
+    if [[ -f $THEME_DIR/$base.theme ]]; then rows "$THEME_DIR/$base.theme" | awk '{ print "T|" $0 }'
+    else echo "X|${file##*/}: base theme $base not found in $THEME_DIR"; fi
+  fi
+  rows "$file" | while IFS='|' read -r a b rest; do
+    case $a in
+      *.*) echo "F|${a%%.*}|${a#*.}|$b${rest:+|$rest}" ;;
+      *)
+        case $b in
+          ?*:?*)
+            th=${b%%:*} ch=${b#*:}
+            if [[ ! $th =~ ^[a-z][a-z0-9-]*$ || ! -f $THEME_DIR/$th.theme ]]; then echo "X|${file##*/}: $a -> $b names theme $th, which is not in $THEME_DIR"
+            else
+              rows "$THEME_DIR/$th.theme" | awk -F'|' -v r="$a" -v c="$ch" -v spec="$b" -v f="${file##*/}" '
+                $1 == c { print "S|" r "|" $1 "|" $3 "|" $4 "|" $5; found = 1; exit }
+                END { if (!found) print "X|" f ": " r " -> " spec " names no character " c " in theme" }'
+            fi ;;
+          *) echo "X|${file##*/}: a row is Role|theme:Character or Character.field|value, not \"$a\"" ;;
+        esac ;;
+    esac
+  done
+}
+
+# the resolver: applies the stream, prints the 20 rows or the problems
+APPLY_AWK='
+BEGIN { FS = "|"; n = split(ids, order, " "); for (i = 1; i <= n; i++) known[order[i]] = 1 }
+function bad(m) { print "sabha-theme: " m > "/dev/stderr"; failed = 1 }
+$1 == "X" { bad($2); next }
+$1 == "T" {
+  if (NF != 6) { bad("row \"" $2 "|...\" needs 5 fields, found " (NF - 1)); next }
+  if (!($3 in known)) { bad("row " $2 " names the unknown role " $3); next }
+  have[$3] = 1; nm[$3] = $2; co[$3] = $4; ic[$3] = $5; vo[$3] = $6; og[$3] = $2; next
+}
+$1 == "S" {
+  if (!($2 in known)) { bad("preset assigns the unknown role " $2); next }
+  have[$2] = 1; nm[$2] = $3; co[$2] = $4; ic[$2] = $5; vo[$2] = $6; og[$2] = $3; next
+}
+$1 == "F" {
+  hit = 0
+  for (r in og) if (og[r] == $2) {
+    hit = 1
+    if ($3 == "name") nm[r] = $4; else if ($3 == "colour") co[r] = $4
+    else if ($3 == "icon") ic[r] = $4; else if ($3 == "voice") vo[r] = $4
+    else { bad("unknown field " $3 " in " $2 "." $3 " (name, colour, icon, voice)"); hit = 1; break }
+  }
+  if (!hit) bad("no role is played by " $2 " (" $2 "." $3 ")")
+  next
+}
+END {
+  for (i = 1; i <= n; i++) if (!(order[i] in have)) bad("no row for the role " order[i])
+  if (failed) exit 1
+  for (i = 1; i <= n; i++) {
+    r = order[i]
+    print r "|" nm[r] "|" co[r] "|" (ic[r] == "-" ? "plain/" tolower(r) : ic[r]) "|" vo[r]
+  }
+}'
+
+cmd_resolve() {
+  local name=${1:-${SABHA_THEME:-plain}}
+  locate "$name" || die "no theme or preset named $name (themes: $(names "$THEME_DIR" theme); presets: $(names "$PRESET_DIR" preset))"
+  stream "$FILE" "$KIND" | awk -v ids="$ROLE_IDS" "$APPLY_AWK"
+  [[ ${PIPESTATUS[1]} -eq 0 ]] || { echo "sabha-theme: $name does not resolve; run: sabha-theme validate $name" >&2; return 1; }
+}
+
+# ---- validator -------------------------------------------------------------------------------------------------------
+# say() prints "<level>|<line>|<message>"; lvl is E for a theme and W for the value checks of a preset.
+LIB_AWK='
+function init_lib() {
+  nbad = split("ignore disregard override bypass instruction instructions prompt system pretend reveal secret password token jailbreak http", bad, " ")
+}
+function say(l, m) { printf "%s|%d|%s\n", lvl, l, m }
+function bad_text(s,   t, i, n, c) {
+  t = tolower(s)
+  for (i = 1; i <= nbad; i++) if (index(" " t " ", " " bad[i] " ") || match(" " t " ", "[^a-z0-9]" bad[i] "[^a-z0-9]")) return bad[i]
+  if (t ~ /i am (the )?real/ || t ~ /i.m (the )?real/) return "i am the real ..."
+  for (i = 1; i <= length(s); i++) { c = substr(s, i, 1); if (index("<>`$\"\\|", c)) return c }
+  return ""
+}
+function chk_text(l, what, v,   b) {
+  if (v ~ /[^ -~]/) say(l, what " holds a character that is not printable ASCII")
+  b = bad_text(v)
+  if (b != "") say(l, what " holds a word or sign that reads like an instruction: " b)
+}
+function chk_name(l, v) {
+  if (v !~ /^[A-Za-z][A-Za-z0-9]*$/) say(l, "name \"" v "\" must be one ASCII word of letters and digits, starting with a letter")
+  else if (length(v) > 20) say(l, "name " v " is longer than 20 characters")
+}
+function chk_colour(l, v) {
+  if (length(v) != 7 || v !~ /^#[0-9A-Fa-f]+$/) say(l, "colour \"" v "\" must be #RRGGBB")
+}
+function chk_icon(l, v) {
+  if (v == "-") return
+  if (v !~ /^[a-z0-9][a-z0-9\/_-]*$/ || length(v) > 40) { say(l, "icon \"" v "\" must be - or a stem such as plain/relay"); return }
+  if (iconroot != "" && system("test -f \"" iconroot "/" v ".png\"")) say(l, "icon " v " has no file icons/" v ".png")
+}
+function chk_voice(l, v) {
+  if (length(v) > 200) say(l, "voice is " length(v) " characters; the limit is 200")
+  chk_text(l, "voice", v)
+}'
+
+THEME_AWK='
+BEGIN {
+  FS = "|"; lvl = "E"; init_lib()
+  nid = split(ids, order, " "); for (i = 1; i <= nid; i++) want[order[i]] = 1
+  nk = split("title author category fan description licence", hk, " "); for (i = 1; i <= nk; i++) okkey[hk[i]] = 1
+}
+{ sub(/\r$/, "") }
+/^[ \t]*#/ || /^[ \t]*$/ { next }
+/^[a-z]+: / {
+  k = $0; sub(/: .*/, "", k); v = $0; sub(/^[a-z]+: /, "", v)
+  if (!(k in okkey)) { say(NR, "unknown header key " k); next }
+  if (k in seen) say(NR, "header key " k " is given twice")
+  seen[k] = 1
+  chk_text(NR, k, v)
+  if (k == "fan" && v != "yes" && v != "no") say(NR, "fan must be yes or no")
+  if (k == "title" && length(v) > 60) say(NR, "title is longer than 60 characters")
+  if (k == "description" && length(v) > 200) say(NR, "description is longer than 200 characters")
+  next
+}
+{
+  nrows++
+  if (NF != 5) { say(NR, "a row is Character|DefaultRole|#colour|icon|voice; this one has " NF " fields"); next }
+  if (!($2 in want)) say(NR, "unknown role " $2)
+  else if ($2 in role) say(NR, "role " $2 " is given twice (first at line " role[$2] ")")
+  else role[$2] = NR
+  chk_name(NR, $1)
+  lc = tolower($1)
+  if (lc in name) say(NR, "name " $1 " is used twice (first at line " name[lc] ")"); else name[lc] = NR
+  chk_colour(NR, $3); chk_icon(NR, $4); chk_voice(NR, $5)
+}
+END {
+  for (i = 1; i <= nk; i++) if (!(hk[i] in seen)) say(0, "header key " hk[i] " is missing")
+  if (nrows != nid) say(0, "a theme fills all " nid " roles; found " nrows " rows")
+  else for (i = 1; i <= nid; i++) if (!(order[i] in role)) say(0, "no row gives the role " order[i])
+}'
+
+# preset values: lines "line|field|value"
+FIELD_AWK='
+BEGIN { FS = "|"; lvl = "W"; init_lib() }
+{
+  f = $2; v = $0; sub(/^[^|]*\|[^|]*\|/, "", v)
+  if (f == "name") chk_name($1, v); else if (f == "colour") chk_colour($1, v)
+  else if (f == "icon") chk_icon($1, v); else if (f == "voice") chk_voice($1, v)
+}'
+
+# validate_one <name|file>: prints problems as "<file>:<line>: <level> <message>", returns 1 on any error
+validate_one() {
+  local arg=$1 lv ln msg errs=0 warns=0 out label id
+  locate "$arg" || { echo "sabha-theme: no theme or preset named $arg" >&2; return 1; }
+  label=$FILE
+  out=$(
+    if [[ $KIND == theme ]]; then
+      id=${FILE##*/}; id=${id%.theme}
+      [[ $id =~ ^[a-z][a-z0-9-]*$ ]] || echo "E|0|theme id \"$id\" (the file name) must be lowercase letters, digits and dashes, starting with a letter"
+      [[ -f $PRESET_DIR/$id.preset ]] && echo "W|0|a preset named $id exists too; the theme wins"
+      awk -v ids="$ROLE_IDS" -v iconroot="$ROOT/icons" "$LIB_AWK $THEME_AWK" "$FILE"
+    else
+      preset_problems "$FILE"
+    fi
+  )
+  while IFS='|' read -r lv ln msg; do
+    [[ -n $lv ]] || continue
+    [[ $lv == E ]] && errs=$((errs + 1)) || warns=$((warns + 1))
+    printf '%s:%s: %s %s\n' "$label" "$ln" "$([[ $lv == E ]] && echo ERROR || echo WARN)" "$msg"
+  done <<<"$out"
+  if (( errs )); then echo "$label: refused ($errs error(s), $warns warning(s))"; return 1; fi
+  echo "$label: ok ($warns warning(s))"
+}
+
+# preset_problems <file>: structure errors (E) and value warnings (W); when the structure is sound, also what resolving
+# finds (a field no role plays is an error, a name two roles share is a warning: routing uses the role id)
+preset_problems() {
+  local file=$1 n=0 line a b rest k v th ch probs="" fields="" resolved keys=" theme title author description "
+  while IFS= read -r line || [[ -n $line ]]; do
+    n=$((n + 1))
+    line=${line%$'\r'}
+    [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+    if [[ $line =~ ^([a-z]+):\ (.*)$ ]]; then
+      k=${BASH_REMATCH[1]} v=${BASH_REMATCH[2]}
+      [[ $keys == *" $k "* ]] || probs="${probs}W|$n|unknown header key $k"$'\n'
+      [[ $k == theme && ! -f $THEME_DIR/$v.theme ]] && probs="${probs}E|$n|base theme $v is not in $THEME_DIR"$'\n'
+      continue
+    fi
+    IFS='|' read -r a b rest <<<"$line"
+    case $a in
+      *.*)
+        case ${a#*.} in
+          name|colour|icon|voice) fields="$fields$n|${a#*.}|$b${rest:+|$rest}"$'\n' ;;
+          *) probs="${probs}E|$n|unknown field ${a#*.} in $a (name, colour, icon, voice)"$'\n' ;;
+        esac ;;
+      *)
+        case " $ROLE_IDS " in *" $a "*) ;; *) probs="${probs}E|$n|unknown role $a"$'\n' ;; esac
+        if [[ $b != ?*:?* ]]; then probs="${probs}E|$n|a row is Role|theme:Character or Character.field|value, not \"$a\""$'\n'; continue; fi
+        th=${b%%:*} ch=${b#*:}
+        if [[ ! $th =~ ^[a-z][a-z0-9-]*$ || ! -f $THEME_DIR/$th.theme ]]; then probs="${probs}E|$n|theme $th is not in $THEME_DIR"$'\n'
+        elif [[ -z $(rows "$THEME_DIR/$th.theme" | awk -F'|' -v c="$ch" '$1 == c') ]]; then probs="${probs}E|$n|theme $th has no character $ch"$'\n'; fi ;;
+    esac
+  done <"$file"
+  [[ -n $fields ]] && probs="$probs$(printf '%s' "$fields" | awk "$LIB_AWK $FIELD_AWK")"$'\n'
+  printf '%s' "$probs"
+  grep -q '^E|' <<<"$probs" && return 0
+  if resolved=$(stream "$file" preset | awk -v ids="$ROLE_IDS" "$APPLY_AWK" 2>&1); then
+    printf '%s\n' "$resolved" | awk -F'|' '{ k = tolower($2); if (++c[k] == 2) dup[++nd] = k }
+      END { for (i = 1; i <= nd; i++) print "W|0|the name " dup[i] " is played by more than one role (routing uses the role id, so this still works)" }'
+  else
+    printf '%s\n' "$resolved" | sed -n 's/^sabha-theme: /E|0|/p'
+  fi
+}
+
+cmd_validate() {
+  local rc=0 a
+  [[ $# -ge 1 ]] || usage
+  for a in "$@"; do validate_one "$a" || rc=1; done
+  return $rc
+}
+
+# ---- list, show, use -------------------------------------------------------------------------------------------------
+cmd_list() {
+  local cur=${SABHA_THEME:-plain} f id mark base
+  echo "Themes:"
+  for f in "$THEME_DIR"/*.theme; do
+    [[ -f $f ]] || continue
+    id=${f##*/}; id=${id%.theme}; mark=' '; [[ $id == "$cur" ]] && mark='*'
+    printf ' %s %-14s %-28s %-12s fan: %s\n' "$mark" "$id" "$(header_val "$f" title)" "$(header_val "$f" category)" "$(header_val "$f" fan)"
+  done
+  echo "Presets ($PRESET_DIR):"
+  local any=0
+  for f in "$PRESET_DIR"/*.preset; do
+    [[ -f $f ]] || continue
+    any=1; id=${f##*/}; id=${id%.preset}; mark=' '; [[ $id == "$cur" ]] && mark='*'
+    base=$(header_val "$f" theme)
+    printf ' %s %-14s base: %s\n' "$mark" "$id" "${base:-plain}"
+  done
+  (( any )) || echo "    (none; a preset is a file <name>.preset there)"
+}
+
+cmd_show() {
+  local out id name colour icon voice
+  out=$(cmd_resolve "${1:-}") || return 1
+  printf '%-15s %-12s %-8s %-22s %s\n' Role Name Colour Icon Voice
+  while IFS='|' read -r id name colour icon voice; do
+    printf '%-15s %-12s %-8s %-22s %s\n' "$id" "$name" "$colour" "$icon" "$voice"
+  done <<<"$out"
+}
+
+cmd_use() {
+  local name=${1:-} conf=${SABHA_CONF:-} tmp
+  [[ -n $name ]] || usage
+  # shellcheck source=sabha-lib.sh
+  [[ -z $conf ]] && { . "$BIN/sabha-lib.sh"; conf=$(sabha_find_local) || conf=''; }
+  [[ -n $conf && -f $conf ]] || die "no config: set SABHA_CONF, or run from a project that has .sabha/local/sabha.conf"
+  [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "bad name $name"
+  locate "$name" || die "no theme or preset named $name (themes: $(names "$THEME_DIR" theme); presets: $(names "$PRESET_DIR" preset))"
+  [[ -f $THEME_DIR/$name.theme && -f $PRESET_DIR/$name.preset ]] && die "$name is both a theme and a preset; rename the preset"
+  validate_one "$name" >/dev/null || { validate_one "$name" >&2; die "$name does not validate; not switched"; }
+  cmd_resolve "$name" >/dev/null || return 1
+  tmp=$(mktemp "${TMPDIR:-/tmp}/sabha-theme.XXXXXX") || die "cannot make a temp file"
+  awk -v v="$name" 'BEGIN { done = 0 } /^SABHA_THEME=/ { if (!done) print "SABHA_THEME=" v; done = 1; next } { print } END { if (!done) print "SABHA_THEME=" v }' "$conf" >"$tmp" || { rm -f "$tmp"; die "cannot read $conf"; }
+  cat "$tmp" >"$conf" || { rm -f "$tmp"; die "cannot write $conf"; }
+  rm -f "$tmp"
+  echo "SABHA_THEME=$name set in $conf: names, colours and icons change on the next refresh; voices apply when each role next starts fresh."
+  cmd_validate "$name" 2>/dev/null | grep -F ' WARN ' | sed 's/^[^ ]* //' || true
+}
+
+case ${1:-} in
+  resolve) shift; cmd_resolve "$@" ;;
+  list) cmd_list ;;
+  show) shift; cmd_show "$@" ;;
+  use) shift; cmd_use "$@" ;;
+  validate) shift; cmd_validate "$@" ;;
+  *) usage ;;
+esac
