@@ -182,6 +182,7 @@ fill_tab() {
 }
 if [[ $(sabha_backend) == herdr ]]; then
   sabha_herdr_ready || exit 1
+  sabha_keep_awake || true
   echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
   out=$(sabha_h workspace create --cwd "$SABHA_WS" --label "$PROJECT" --no-focus) || exit 1
   ws=$(sabha_jid "$out" workspace_id)

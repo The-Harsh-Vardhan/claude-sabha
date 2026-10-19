@@ -8,6 +8,7 @@
 #                <ws>/.sabha/local to your folder (kept out of git through .git/info/exclude); asks for what is not
 #                given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
+#   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 # Env: SABHA_CONF (config path; else ./.sabha/local/sabha.conf, else ../sabha.conf beside this script),
@@ -245,7 +246,7 @@ warn() { echo "warn  $*"; WARNS=$((WARNS + 1)); }
 bad()  { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
 
 cmd_doctor() {
-  local c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
+  local ka ka_eff ka_src sd ca c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
   if [[ -f $CONF ]]; then
     # shellcheck disable=SC1090
     impl=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
@@ -286,6 +287,22 @@ cmd_doctor() {
   if command -v herdr >/dev/null 2>&1; then ok "herdr: $(command -v herdr)"
   else warn "herdr not found (default terminal backend; the iTerm path still works on macOS)"; fi
 
+  ka=$( [[ -f $CONF ]] && { set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_KEEP_AWAKE:-auto}|${SABHA_KEEP_AWAKE_AC:-}|${SABHA_KEEP_AWAKE_BATTERY:-}"; } )
+  ka=${ka:-auto||}
+  # shellcheck source=sabha-herdr.sh
+  . "$BIN/sabha-herdr.sh"
+  ka_eff=$( IFS='|'; set -- $ka; SABHA_KEEP_AWAKE=$1 SABHA_KEEP_AWAKE_AC=$2 SABHA_KEEP_AWAKE_BATTERY=$3; sabha_keep_awake_mode )
+  ka_src=$(sabha_power_source)
+  if command -v pmset >/dev/null 2>&1; then
+    sd=$(pmset -g 2>/dev/null | awk '$1 == "SleepDisabled" { print $2 }')
+    ca=$(pmset -g assertions 2>/dev/null | grep -c 'caffeinate')
+    if [[ $ka_eff == lid && ${sd:-0} != 1 ]]; then warn "keep awake: ${ka%%|*} -> lid on $ka_src power, but SleepDisabled is ${sd:-0}: run sudo pmset -a disablesleep 1 (docs/keep-awake.md)"
+    elif [[ $ka_eff != lid && ${sd:-0} == 1 ]]; then warn "keep awake: ${ka%%|*} -> $ka_eff on $ka_src power, but SleepDisabled is 1: a closed lid will not sleep (drains the battery). Undo, run by you: sudo pmset -a disablesleep 0 (auto cannot undo it; docs/keep-awake.md)"
+    else ok "keep awake: ${ka%%|*} -> $ka_eff on $ka_src power (disablesleep ${sd:-0}, caffeinate assertions $ca)"; fi
+  else
+    ok "keep awake: ${ka%%|*} -> $ka_eff (no pmset on this machine)"
+  fi
+
   if command -v jq >/dev/null 2>&1 && [[ -f $settings ]] && jq -e '.statusLine.command // "" | test("statusline-sabha")' "$settings" >/dev/null 2>&1; then
     ok "statusline hook in $settings"
   else
@@ -317,6 +334,21 @@ cmd_doctor() {
   [[ $FAILS -eq 0 ]]
 }
 
+# keep-awake [auto|off|open|lid]: no argument prints the setting; a mode rewrites SABHA_KEEP_AWAKE in the config
+# (a running sabha-loop picks it up on its next poll). lid still needs the user's sudo step (docs/keep-awake.md).
+cmd_keep_awake() {
+  local m=${1:-}
+  [[ -f $CONF ]] || die "keep-awake: no config at $CONF (run: sabha init)"
+  if [[ -z $m ]]; then
+    ( set +u; . "$CONF" >/dev/null 2>&1; echo "SABHA_KEEP_AWAKE=${SABHA_KEEP_AWAKE:-auto}" ); return 0
+  fi
+  case $m in auto|off|open|lid) ;; *) die "keep-awake: use auto, off, open or lid" ;; esac
+  { grep -v '^#\{0,1\}SABHA_KEEP_AWAKE=' "$CONF"; echo "SABHA_KEEP_AWAKE=$m"; } >"$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+  echo "keep-awake: SABHA_KEEP_AWAKE=$m in $CONF"
+  [[ $m == lid || $m == auto ]] && echo "lid (and auto on AC power) also needs, run by you once: sudo pmset -a disablesleep 1 (never in a bag; see docs/keep-awake.md)"
+  return 0
+}
+
 # update only fast-forwards the install dir; it never runs a script, a hook or an install step it pulled
 cmd_update() {
   git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "update: $ROOT is not a git checkout"
@@ -334,7 +366,8 @@ cmd_sheet() {
 case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
+  keep-awake) shift; cmd_keep_awake "$@" ;;
   update) shift; cmd_update ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
 esac
