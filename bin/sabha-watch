@@ -55,7 +55,7 @@ if [[ -f $IMPL/for-me.items ]]; then
     function commit() { if (id != "") { if (!(id in seen)) { seen[id] = 1; order[++n] = id }
                         if (st != "") state[id] = st; if (ti != "" && !(id in title)) title[id] = ti } id = st = ti = "" }
     $0 == "---" { commit(); next }
-    /^id: /    { id = $2; next }
+    /^id: /    { if (id != "") commit(); id = $2; next }
     /^state: / { st = $2; next }
     /^title: / { ti = substr($0, 8); next }
     END { if (!torn) commit()
