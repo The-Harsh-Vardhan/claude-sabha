@@ -1,6 +1,6 @@
 # Security
 
-Sabha has three layers between a worker role and the outside world. None is enforcement on its own; together they
+Sabha has four layers between a worker role and the outside world. None is enforcement on its own; together they
 catch the honest mistake (the push a model emits out of habit) and make a deliberate one harder.
 
 ## 1. The guard (`hooks/sabha-guard.sh`)
@@ -34,6 +34,37 @@ under the guard, so `bash push.sh` or an alias still meets it. It does not see a
 `bin/sabha-up.sh` unsets `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` before it
 starts any role but the relay. A `gh` write that slips past the guard then has no token from the environment. A login
 saved by `gh auth login` (keyring) and SSH keys are still there: for a hard line, run workers as a user without them.
+
+## 4. The permission relay (`hooks/sabha-permission.sh`, `bin/sabha-perm`)
+
+Workers run in a mode that asks (`SABHA_PERMISSION_MODE`, default `default`) with a short allow list, so a risky
+tool call becomes a permission prompt. A `PermissionRequest` hook writes it to
+`<IMPL>/inbox/<relay>/permissions/<Role>-NNN.req` with the tool input byte for byte, nudges the relay, and waits for
+the user's answer as a decision file ([inbox protocol, section 9](docs/inbox-protocol.md)). Fail safe: an error, a
+missing role, or no answer within `SABHA_RELAY_WAIT` gives no decision, and the ordinary prompt shows in the pane;
+the hook never allows on its own. The relay's own prompts are never relayed. No "always allow" is ever passed on.
+
+`bin/sabha-perm snippet` prints the Claude Code settings for it (`defaultMode` and the allow list from
+`SABHA_PERMISSION_MODE` and `SABHA_PERMISSION_ALLOW` in your `sabha.conf`; the shipped list is only the default, so
+each user picks their own). Sabha never edits a settings file: you paste the snippet into yours. The default list
+covers the relay's routine work (reads, writes under `SABHA_IMPL`, `sabha-perm`) and read-only git and shell commands;
+its `deny` part keeps the Edit and Write tools out of the permissions folder, so decision files come from
+`sabha-perm` only. The deny list below and the guard still win over any allow.
+
+What the nonce stops: a stale or copied decision (replay), a decision meant for another request (mis-pairing), and
+two requests of one role racing. Each request gets 128 random bits, and a decision counts only with the same nonce.
+
+What it does not stop (same-account limit): workers and the relay run as the same OS user, so a worker can read the
+nonce in the `.req` and write its own `.allow` (with Bash), or run `sabha-perm allow` with `SABHA_ROLE` unset (the
+check there refuses a worker that runs it by mistake, not one that means to). This is detection, not prevention:
+`sabha-perm audit` lists every honoured decision that has no row in the relay's `relay.tsv` (a file written by hand),
+and `log.tsv` keeps role, id, tool, input hash and the user's words for each outcome. A forge through `sabha-perm`
+itself leaves a `relay.tsv` row too, so only the relay's chat shows it was never asked. For a hard line, run
+workers as a second OS user that cannot write the permissions folder.
+
+Also not covered: a timeout above 600 s and a killed hook giving the pane prompt rather than a denial are documented
+but UNVERIFIED by a live run; prompts the hook never sees (a sandboxed
+command's network request, protected paths) stay in the pane.
 
 ## The deny list (`share/claude-settings.json`)
 
