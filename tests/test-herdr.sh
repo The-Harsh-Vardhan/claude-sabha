@@ -80,7 +80,8 @@ check "missing herdr: install hint, nothing opened" '(( rc == 1 )) && grep -q "h
 
 echo "--- nudge"
 : > "$FAKE_HERDR_LOG"
-out=$("$SH" "$BIN/sabha-nudge" A "read inbox/A/001.md" 2>&1); rc=$?
+# the nudge drops map lines for panes herdr does not list, so the fake lists the recorded one
+out=$(FAKE_HERDR_PANES=$(awk '$1 == "A" { print $2 }' "$dir/impl/status/herdr-panes.txt") "$SH" "$BIN/sabha-nudge" A "read inbox/A/001.md" 2>&1); rc=$?
 check "nudge prompts the recorded pane and waits" '(( rc == 0 )) && grep -q "^agent prompt w1:p[0-9]* read inbox/A/001.md --wait --timeout 120000$" "$FAKE_HERDR_LOG"'
 out=$("$SH" "$BIN/sabha-nudge" Zed "x" 2>&1)
 check "an unrecorded role falls back to its lower-case agent name" 'grep -q "^agent prompt zed x --wait" "$FAKE_HERDR_LOG"'
