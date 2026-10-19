@@ -108,6 +108,8 @@ if [[ $# -eq 1 ]]; then
     exit 0
   fi
   guard "$name"
+  # a role that starts (or restarts) inside a herdr pane says where it is, so the nudge map follows it
+  [[ $(sabha_backend) == herdr && -n ${HERDR_PANE_ID:-} ]] && sabha_pane_note "$name" "$HERDR_PANE_ID"
   # iTerm2 badge: "Fable Medium"; macOS bash 3.2 has no ${v^}, hence awk
   if [[ ${LC_TERMINAL:-${TERM_PROGRAM:-}} == iTerm* ]]; then
     badge=$(awk '{for (i = 1; i <= NF; i++) $i = toupper(substr($i, 1, 1)) substr($i, 2)} 1' <<<"$model $effort")
@@ -182,6 +184,7 @@ fill_tab() {
 }
 if [[ $(sabha_backend) == herdr ]]; then
   sabha_herdr_ready || exit 1
+  sabha_pane_reset
   echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
   out=$(sabha_h workspace create --cwd "$SABHA_WS" --label "$PROJECT" --no-focus) || exit 1
   ws=$(sabha_jid "$out" workspace_id)
