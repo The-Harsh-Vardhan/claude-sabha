@@ -24,6 +24,17 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/sabha-permission.sh\"",
+            "timeout": 1800
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
