@@ -27,7 +27,7 @@ age_min() { echo $(( (now - $(date -r "$1" +%s)) / 60 )); }
 # mid-task = a brief with an .ack and neither .done nor .cancel
 mid_task() {
   local a n
-  for a in "$IMPL/inbox/$1"/[0-9][0-9][0-9].ack; do
+  for a in "$IMPL/inbox/$1"/[0-9][0-9][0-9]*.ack; do
     [[ -e $a ]] || continue
     n=${a%.ack}
     [[ -e $n.done || -e $n.cancel ]] || { echo "inbox/$1/$(basename "$n") acked $(date -r "$a" +%H:%M), no done"; return 0; }
@@ -60,7 +60,7 @@ if [[ -f $IMPL/for-me.items ]]; then
     function commit() { if (id != "") { if (!(id in seen)) { seen[id] = 1; order[++n] = id }
                         if (st != "") state[id] = st; if (ti != "" && !(id in title)) title[id] = ti } id = st = ti = "" }
     $0 == "---" { commit(); next }
-    /^id: /    { id = $2; next }
+    /^id: /    { if (id != "") commit(); id = $2; next }
     /^state: / { st = $2; next }
     /^title: / { ti = substr($0, 8); next }
     END { if (!torn) commit()
@@ -71,9 +71,9 @@ if [[ -f $IMPL/for-me.items ]]; then
 fi
 
 unacked=""
-for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]-*.md; do
+for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]*-*.md; do
   [[ -e $b ]] || continue
-  n=$(basename "$b"); n=${n:0:3}; d=$(dirname "$b")
+  n=$(basename "$b"); n=${n%%-*}; d=$(dirname "$b")
   [[ -e $d/$n.ack || -e $d/$n.cancel ]] && continue
   (( $(age_min "$b") > UNACKED_MIN )) && unacked+="inbox/$(basename "$d")/$n (sent $(date -r "$b" +%H:%M)) "
 done

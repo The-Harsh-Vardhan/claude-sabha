@@ -150,6 +150,9 @@ into a brief with `go:` or into a `.cancel`.
 
 Append-only blocks separated by a line `---`. Any role appends one block per item; an item is
 closed by appending a block with the same `id`, a `utc` and `state: DONE` or `state: DROPPED`.
+Prefer `bin/sabha-item add <owner> "<title>"` (extra keys on stdin) and `bin/sabha-item close <id>`: they claim the id like a
+brief number and write the block with its `---` in one append, so parallel writers never share an id. `sabha-for-me`
+still splits a block that lost its leading `---` at its `id:` line, but two hand-written items with one id merge.
 Never edit a block. Every block ends with a newline: a last block without one is torn (still being
 written) and is skipped until it is finished. `cmd:` takes every following line of its block and holds a command the user
 runs verbatim, with no inline `#` comments; steps in a UI are written in `why:`, never in `cmd:`,
