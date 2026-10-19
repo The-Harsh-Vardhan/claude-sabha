@@ -38,6 +38,7 @@ check "opencode starts with agent start --kind" 'grep -q "^agent start o --kind 
 check "codex (UNTESTED kind) goes the same way, in the Gate tab" 'grep -q "^agent start c --kind codex --pane w1:p[0-9]*$" "$FAKE_HERDR_LOG"'
 check "the opening prompt is submitted without --wait" 'grep "^agent prompt o You are O" "$FAKE_HERDR_LOG" | grep -vq -- "--wait"'
 check "pane ids are recorded for nudges" 'grep -q "^A w1:p" "$dir/impl/status/herdr-panes.txt" && grep -q "^O w1:p" "$dir/impl/status/herdr-panes.txt"'
+check "each grid pane gets its display name in the Agent sidebar (002)" 'grep -q "^pane report-metadata w1:p[0-9]* --source sabha:name --display-agent A$" "$FAKE_HERDR_LOG"'
 check "attach hint printed" 'grep -q "herdr attach" <<<"$out"'
 
 check "every call carries --session sabha (the default session is never used)" '[[ -s $dir/calls ]] && ! grep -v -E "^(--session sabha |session )" "$dir/calls" | grep -q .'

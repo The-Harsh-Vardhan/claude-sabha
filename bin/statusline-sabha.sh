@@ -91,6 +91,30 @@ if [ -n "$CTX_DIR" ] && [ -n "$pct" ] && [ "$name" != "unnamed" ]; then
   f=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._\n-' '-')
   mkdir -p "$CTX_DIR" 2>/dev/null && printf '%s\n' "$pct" > "$CTX_DIR/$f.txt" 2>/dev/null
 fi
+# herdr sidebar, for a sabha role in a herdr pane: its display name (kept), the brief it holds (the newest claim
+# without a done) and ctx % (with a ttl, so they clear when this session stops rendering). Sent again after 60 s or on
+# a change. UNTESTED live: that the pane's environment carries HERDR_PANE_ID down to this hook.
+inbox=${SABHA_IMPL:+$SABHA_IMPL/inbox/$name}
+if [ -n "${HERDR_PANE_ID:-}" ] && [ -n "$inbox" ] && [ -d "$inbox" ] && [ -n "$CTX_DIR" ] && command -v herdr >/dev/null 2>&1; then
+  brief=-
+  for c in "$inbox"/[0-9][0-9][0-9].claim; do
+    [ -e "$c" ] && [ ! -e "${c%.claim}.done" ] && brief=$(basename "$c" .claim)
+  done
+  ctxt=${pct:+${pct%.*}%} who=${disp:-$name}
+  meta="$who|$brief|$ctxt"
+  mf=$CTX_DIR/$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._\n-' '-').meta
+  now=$(date +%s); old=$(cat "$mf" 2>/dev/null)
+  if [ -z "$old" ] || [ "${old#* }" != "$meta" ] || [ $(( now - ${old%% *} )) -ge 60 ]; then
+    mkdir -p "$CTX_DIR" 2>/dev/null && echo "$now $meta" >"$mf" 2>/dev/null
+    # shellcheck source=sabha-herdr.sh
+    . "$BIN/sabha-herdr.sh"
+    if sabha_herdr_guard 2>/dev/null; then
+      { sabha_h pane report-metadata "$HERDR_PANE_ID" --source sabha:name --display-agent "$who"
+        sabha_h pane report-metadata "$HERDR_PANE_ID" --source sabha:status --seq "$now" --ttl-ms "${SABHA_META_TTL:-300000}" \
+          --token "brief=$brief" --token "ctx=$ctxt"; } >/dev/null 2>&1 &
+    fi
+  fi
+fi
 if [ -n "${SABHA_IMPL:-}" ] && { [ -n "$h5" ] || [ -n "$d7" ]; }; then
   # shellcheck source=sabha-limits.sh
   . "$BIN/sabha-limits.sh"
