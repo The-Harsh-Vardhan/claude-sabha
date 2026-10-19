@@ -2,8 +2,8 @@
 # sabha-alert [--once] [<Name>...]: tells the user when a pane waits at a permission prompt or a question.
 # For each role (default: every role in status/herdr-panes.txt) it blocks on `herdr agent wait --until blocked`; when
 # one blocks it copies the pane's visible screen verbatim to status/blocked/<name>.txt, appends a line to
-# status/blocked/alerts.log, shows a herdr toast with the request sound, then waits for the pane to leave blocked and
-# removes the screen file. It never answers a prompt: no send-keys, no prompt, no keys of any kind. The relay reads
+# status/blocked/alerts.log, shows a herdr toast (the request sound for the relay only), then waits for the pane to
+# leave blocked and removes the screen file. It never answers a prompt: no send-keys, no prompt, no keys of any kind. The relay reads
 # status/blocked/ and brings the prompt to the user word for word. --once handles one block per role and exits (tests).
 # SABHA_ALERT_TIMEOUT (600000 ms) is each wait; after a failed or timed-out wait it retries after SABHA_ALERT_RETRY (5) s.
 # UNTESTED on a real herdr: the exit status of `agent wait` and `notification show` (help text only, herdr 0.9.5).
@@ -24,23 +24,36 @@ dir=$SABHA_IMPL/status/blocked
 mkdir -p "$dir"
 tmo=${SABHA_ALERT_TIMEOUT:-600000} retry=${SABHA_ALERT_RETRY:-5}
 
-# watch <Name>: one loop per role, run in the background
+# watch <Name>: one loop per role, run in the background. A recorded pane id that herdr no longer knows (a grid
+# rebuilt since herdr-panes.txt was written) falls back to the role's agent name, logged once.
 watch() {
-  local name=$1 t lower f
+  local name=$1 t lower f out scr said="" snd=none
   t=$(sabha_target "$name") lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   f=$dir/$lower.txt
+  # only the relay chimes (idea 5): a worker's block is a silent toast, the relay's needs the user
+  [[ $name == "$RELAY" ]] && snd=request
   while :; do
-    if ! sabha_h agent wait "$t" --until blocked --timeout "$tmo" >/dev/null 2>&1; then
+    # into a file, not $(...): a command substitution would put a subshell between this loop and herdr, out of
+    # reach of the pkill -P in the trap below
+    if ! sabha_h agent wait "$t" --until blocked --timeout "$tmo" >"$dir/.$lower.wait" 2>&1; then
+      out=$(cat "$dir/.$lower.wait" 2>/dev/null)
+      if [[ $out != *timeout* && $t != "$lower" ]]; then
+        echo "$(sabha_utc) $name: herdr cannot wait on $t, using the agent name $lower" >>"$dir/alerts.log"
+        t=$lower; continue
+      fi
+      [[ $out == *timeout* || $said == 1 ]] || { echo "$(sabha_utc) $name: herdr cannot wait on $t: $out" >>"$dir/alerts.log"; said=1; }
       (( once )) && return 1
       sleep "$retry"; continue
     fi
-    { echo "utc: $(sabha_utc)"; echo "role: $name"; echo "pane: $t"; echo "---"
-      sabha_h agent read "$t" --source visible 2>&1; } >"$f.tmp" && mv "$f.tmp" "$f"
+    said=""
+    # herdr's error text is not the prompt: a failed read leaves a note, never the error, in the screen file
+    scr=$(sabha_h agent read "$t" --source visible 2>/dev/null) || scr="(screen not readable; look at the pane)"
+    { echo "utc: $(sabha_utc)"; echo "role: $name"; echo "pane: $t"; echo "---"; echo "$scr"; } >"$f.tmp" && mv "$f.tmp" "$f"
     echo "$(sabha_utc) blocked $name $t" >>"$dir/alerts.log"
     sabha_h notification show "sabha: $(sabha_display "$name") needs you" \
-      --body "waiting at a prompt; see status/blocked/$lower.txt" --sound request >/dev/null 2>&1
+      --body "waiting at a prompt; see status/blocked/$lower.txt" --sound "$snd" >/dev/null 2>&1
     # re-arm only after the prompt is gone, so one prompt gives one toast
-    until sabha_h agent wait "$t" --until idle --until working --until done --timeout "$tmo" >/dev/null 2>&1; do
+    until sabha_h agent wait "$t" --until idle --until working --until "done" --timeout "$tmo" >/dev/null 2>&1; do
       sleep "$retry"
     done
     rm -f "$f"
@@ -54,9 +67,12 @@ if (( ${#names[@]} == 0 )); then
 fi
 (( ${#names[@]} )) || { echo "sabha-alert: no roles to watch (name them, or start the grid first)" >&2; exit 2; }
 pids=()
-trap 'kill "${pids[@]}" 2>/dev/null; exit 0' INT TERM
 for n in "${names[@]}"; do watch "$n" & pids+=($!); done
+# set after the spawn so the watchers do not inherit it; their herdr waits are children of theirs, killed first, or
+# they would outlive a Ctrl-C (pkill -P: macOS and Linux)
+trap 'for p in "${pids[@]}"; do pkill -TERM -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; done; rm -f "$dir"/.*.wait; exit 0' INT TERM
 echo "sabha-alert: watching ${names[*]}"
 rc=0
 for p in "${pids[@]}"; do wait "$p" || rc=1; done
+rm -f "$dir"/.*.wait
 exit $rc

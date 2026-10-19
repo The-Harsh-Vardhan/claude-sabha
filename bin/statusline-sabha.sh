@@ -109,7 +109,22 @@ if [ -n "${HERDR_PANE_ID:-}" ] && [ -n "$inbox" ] && [ -d "$inbox" ] && [ -n "$C
     # shellcheck source=sabha-herdr.sh
     . "$BIN/sabha-herdr.sh"
     if sabha_herdr_guard 2>/dev/null; then
-      { sabha_h pane report-metadata "$HERDR_PANE_ID" --source sabha:name --display-agent "$who"
+      # idea 3: the herdr agent name is the lower-case role id, so scripts can say `agent wait relay`; a name herdr
+      # would refuse ([a-z][a-z0-9_-]{0,31}) is skipped. A fresh session is a new occupant, hence every send
+      an=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+      case $an in [a-z]*) ;; *) an= ;; esac
+      case $an in *[!a-z0-9_-]*) an= ;; esac
+      [ ${#an} -le 32 ] || an=
+      # only the pane herdr-panes.txt records for this role (by role id or display name, newest row wins, as
+      # sabha_target reads it) takes the name: a duplicate or a pane from another herdr session would get the relay's
+      # focus key and nudges. Skipped once per name and pane in status/herdr-rename.log
+      if [ -n "$an" ] && [ "$(awk -v n="$name" -v d="$who" '$1 == n || $1 == d { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null)" != "$HERDR_PANE_ID" ]; then
+        an="" rl=$SABHA_IMPL/status/herdr-rename.log
+        msg="rename skipped: $name in pane $HERDR_PANE_ID is not the pane status/herdr-panes.txt records"
+        grep -qxF "$msg" "$rl" 2>/dev/null || echo "$msg" >>"$rl" 2>/dev/null
+      fi
+      { [ -n "$an" ] && sabha_h agent rename "$HERDR_PANE_ID" "$an"
+        sabha_h pane report-metadata "$HERDR_PANE_ID" --source sabha:name --display-agent "$who"
         sabha_h pane report-metadata "$HERDR_PANE_ID" --source sabha:status --seq "$now" --ttl-ms "${SABHA_META_TTL:-300000}" \
           --token "brief=$brief" --token "ctx=$ctxt"; } >/dev/null 2>&1 &
     fi
