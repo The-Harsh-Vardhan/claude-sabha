@@ -13,6 +13,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$(dirname "$SELF")/sabha-lib.sh"
 sabha_load sabha-run
+sabha_theme sabha-run || exit 1
 PROJECT=${SABHA_PROJECT:-this project}
 MAX=${SABHA_RUN_MAX:-2}
 TIMEOUT=${SABHA_RUN_TIMEOUT:-3600}
@@ -25,7 +26,7 @@ role_cmd() {
   local r name model effort lower to n who
   sabha_role "$1" || { echo "sabha-run: unknown role $1" >&2; return 1; }
   r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
-  who=$name; [[ -n $R_LABEL && $R_LABEL != "$name" ]] && who="$name ($R_LABEL)"
+  who=$(sabha_who "$name")
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   n=$(basename "$2"); n=${n:0:3}
   to=$DISPATCHER; [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY

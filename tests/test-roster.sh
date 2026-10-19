@@ -133,11 +133,13 @@ r1=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.conf.example")
 r2=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.max20.conf")
 check "sabha.conf.example and sabha.max20.conf carry the same roster" '[[ -n $r1 && $r1 == "$r2" ]]'
 
-# a theme is a display skin over the role ids: avengers renames Relay and SecurityCritic; every skin lists the same 20 ids
-th=$("$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Relay a b c -" "SecurityCritic a b c -"); SABHA_THEME=avengers sabha_theme t; echo "${ROLES[*]} $SABHA_ID_Jarvis"' _ "$BIN")
-check "the avengers skin renames Relay to Jarvis and SecurityCritic to Widow" '[[ $th == "Jarvis a b c - Widow a b c - Relay" ]]'
-check "every theme file lists the same 20 role ids as plain.theme, in order" '! for f in "$ROOT"/themes/*.theme; do
-  [[ $(grep -v "^#" "$f" | cut -d"|" -f1) == "$(grep -v "^#" "$ROOT/themes/plain.theme" | cut -d"|" -f1)" ]] || echo "$f"; done | grep -q .'
+# a theme is a display skin over the role ids: ROLES keep the ids, the display name comes from sabha_display; every theme
+# fills the same 20 role ids as plain.theme (the second field of a row)
+th=$("$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Relay a b c -" "SecurityCritic a b c -"); SABHA_THEME=avengers sabha_theme t; echo "${ROLES[*]} $SABHA_NAME_Relay $SABHA_NAME_SecurityCritic"' _ "$BIN")
+check "the avengers skin shows Jarvis and Widow but leaves ROLES as role ids" '[[ $th == "Relay a b c - SecurityCritic a b c - Jarvis Widow" ]]'
+ids() { grep -v "^#" "$1" | grep -v "^[a-z]*: " | cut -d"|" -f2 | sort; }
+check "every theme file fills the same 20 role ids as plain.theme" '! for f in "$ROOT"/themes/*.theme; do
+  [[ $(ids "$f") == "$(ids "$ROOT/themes/plain.theme")" && $(ids "$f" | wc -l) -eq 20 ]] || echo "$f"; done | grep -q .'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"

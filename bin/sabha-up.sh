@@ -27,6 +27,7 @@ if [[ ${1:-} == --plan ]]; then
   export SABHA_PLAN=$2; shift 2
 fi
 sabha_load sabha-up
+sabha_theme sabha-up || exit 1
 [[ $(sabha_backend) == herdr ]] && { sabha_session_valid || exit 2; }
 PROJECT=${SABHA_PROJECT:-this project}
 OWNER=${SABHA_USER:-the user}
@@ -56,7 +57,7 @@ role() {
   to=$DISPATCHER
   [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   [[ $R_BASE == "$RELAY" ]] && to=$OWNER
-  who=$name; [[ -n $R_LABEL && $R_LABEL != "$name" ]] && who="$name ($R_LABEL)"
+  who=$(sabha_who "$name")
   # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
   tail_var=SABHA_PROMPT_$R_BASE
   tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
@@ -115,7 +116,7 @@ if [[ $# -eq 1 ]]; then
     printf '\033]1337;SetColors=bg=000000\a\033]1337;SetColors=fg=00ff00\a\033]1337;SetColors=curbg=23ff18\a'
     # the toolbelt's session list shows the title; claude would replace the role name with its own
     export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
-    printf '\033]0;%s\a' "$name"
+    printf '\033]0;%s\a' "$(sabha_display "$name")"
   fi
   cd "$SABHA_WS"
   # the hooks and the pre-push hook (sabha-worktree push-guard) read the role from here; a worker gets no GitHub
@@ -169,7 +170,7 @@ fill_tab() {
     p=${ids[$k]}
     [[ -n $p ]] || { echo "sabha-up: herdr gave no pane id for $name" >&2; exit 1; }
     role "$name"
-    sabha_h pane rename "$p" "$name" >/dev/null
+    sabha_h pane rename "$p" "$(sabha_display "$name")" >/dev/null
     if [[ $R_AGENT == claude ]]; then
       sabha_pane_note "$name" "$p"
       sabha_h pane run "$p" "$pane_args'$LOOP' $name" >/dev/null
@@ -212,7 +213,7 @@ tab_script() {
   done
   k=1
   for name in "$@"; do
-    printf '    tell %s%d\n      set name to "%s"\n      write text "%s"\n    end tell\n' "$p" "$k" "$name" "cd '$SABHA_WS' && ${pane_args}'$LOOP' $name"
+    printf '    tell %s%d\n      set name to "%s"\n      write text "%s"\n    end tell\n' "$p" "$k" "$(sabha_display "$name")" "cd '$SABHA_WS' && ${pane_args}'$LOOP' $name"
     k=$(( k + 1 ))
   done
 }

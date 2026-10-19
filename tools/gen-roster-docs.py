@@ -30,14 +30,15 @@ def read(p):
 def theme_rows(theme):
     rows = []
     for line in read("themes/%s.theme" % theme).splitlines():
-        if line.strip() and not line.startswith("#"):
-            rid, name, colour, persona = line.split("|", 3)
-            rows.append({"id": rid, "name": name, "colour": colour, "persona": persona})
-    return rows
+        if line.strip() and not line.startswith("#") and not re.match(r"^[a-z]+: ", line):
+            name, rid, colour, _icon, voice = line.split("|", 4)
+            rows.append({"id": rid, "name": name, "colour": colour, "voice": voice})
+    order = [r["id"] for r in rows] if theme == "plain" else [r["id"] for r in theme_rows("plain")]
+    return sorted(rows, key=lambda r: order.index(r["id"]))
 
 
 def theme_title(theme):
-    m = re.search(r"^# Theme: (.+)$", read("themes/%s.theme" % theme), re.M)
+    m = re.search(r"^title: (.+)$", read("themes/%s.theme" % theme), re.M)
     return m.group(1) if m else theme
 
 
@@ -83,7 +84,7 @@ def write_roster():
         "# The 20 roles",
         "",
         "Every role is a Claude Code session with its own name, model, effort, inbox and status file. The id (left) is",
-        "what the scripts and plan files use; a [theme](themes.md) only changes the name, colour and persona you see.",
+        "what the scripts and plan files use; a [theme](themes.md) only changes the character name, colour and voice you see.",
         "A plan starts a role in a pane, starts it lazily when a brief lands, or only on demand; a dash means the",
         "plan does not include it.",
         "",
@@ -110,10 +111,10 @@ def write_roster():
         if t in FAN:
             out += ["Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or",
                     "endorsed by them. The icons are generic symbols, not likenesses or logos.", ""]
-        out += ["| | Name | Stands in for | Persona |", "| --- | --- | --- | --- |"]
+        out += ["| | Name | Stands in for | Voice |", "| --- | --- | --- | --- |"]
         for tr in rows[t]:
             out.append('| %s | <span style="color:%s">**%s**</span> | %s | %s |' % (
-                icon(t, tr["id"], 40), tr["colour"], tr["name"], lab.get(tr["id"], tr["id"]), tr["persona"]))
+                icon(t, tr["id"], 40), tr["colour"], tr["name"], lab.get(tr["id"], tr["id"]), tr["voice"]))
     with open(path("docs/roster.md"), "w", encoding="ascii", newline="\n") as f:
         f.write("\n".join(out) + "\n")
 

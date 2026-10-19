@@ -85,29 +85,21 @@ def load_conf():
 
 
 def apply_theme(conf, bindir):
-    """The same renaming as sabha_theme in sabha-lib.sh: themes/<SABHA_THEME>.theme, "Role|Name|#hex|persona" lines."""
-    theme = os.environ.get("SABHA_THEME") or conf.get("SABHA_THEME")
-    path = os.path.join(os.environ.get("SABHA_THEME_DIR") or os.path.join(bindir, "..", "themes"), "%s.theme" % (theme or "plain"))
-    if not os.path.exists(path):
-        if theme:
-            sys.exit("sabha-for-me: no theme file at %s" % path)
+    """Display data per role id from bin/sabha-theme resolve (the one parser): SABHA_NAME_, SABHA_COLOR_ and SABHA_ICON_
+    <RoleId>. Roles keep their ids; the theme only says what is shown. read_conf has put SABHA_THEME in os.environ."""
+    p = subprocess.run([os.environ.get("BASH") or "bash", os.path.join(bindir, "sabha-theme"), "resolve"], stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, universal_newlines=True)
+    if p.returncode != 0:
+        if os.environ.get("SABHA_THEME"):
+            sys.exit("sabha-for-me: %s" % p.stderr.strip())
         return
-    for raw in open(path, encoding="ascii", errors="replace"):
-        f = raw.strip().split("|")
-        if len(f) < 4 or f[0].startswith("#"):
-            continue
-        rid, name, color, persona = f[0], f[1], f[2], f[3]
-        if "SABHA_ROSTER" in conf:
-            conf["SABHA_ROSTER"] = " ".join(name + e[len(rid):] if e.split(":")[0] == rid else e for e in conf["SABHA_ROSTER"].split())
-        if "SABHA_PANES" in conf:
-            conf["SABHA_PANES"] = " ".join(name if p == rid else p for p in conf["SABHA_PANES"].split())
-        if "SABHA_LABEL_" + rid in conf:
-            conf["SABHA_LABEL_" + name] = conf["SABHA_LABEL_" + rid]
-        conf["SABHA_COLOR_" + name], conf["SABHA_PERSONA_" + name] = color, persona
-        # icons/<theme>/<role>.png beside themes/, keyed by the role id; a theme without icons shows the colour dot
-        icon = os.path.join(os.path.dirname(path), "..", "icons", theme or "plain", rid.lower() + ".png")
-        if os.path.exists(icon):
-            conf["SABHA_ICON_" + name] = pathlib.Path(os.path.abspath(icon)).as_uri()
+    for line in p.stdout.splitlines():
+        rid, name, color, icon = (line.split("|") + ["", "", "", ""])[:4]
+        conf["SABHA_NAME_" + rid], conf["SABHA_COLOR_" + rid] = name, color
+        # icons/<stem>.png beside bin/; a theme without the file shows the colour dot
+        path = os.path.join(bindir, "..", "icons", icon + ".png")
+        if os.path.exists(path):
+            conf["SABHA_ICON_" + rid] = pathlib.Path(os.path.abspath(path)).as_uri()
 
 
 def read_conf(path, conf):
@@ -400,13 +392,18 @@ def build(conf):
         if not s["current"] and not s["idle"] and name in fallback:
             s["task"] = fallback[name]
         stale = s["age"] is not None and s["age"] > STALE_MIN and not s["idle"]
-        agents.append(dict(name=name, model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "",
+        agents.append(dict(name=name, display=conf.get("SABHA_NAME_" + name, name), model=model, effort=effort, flags=entry[3] if len(entry) > 3 else "",
                            agent=entry[4] if len(entry) > 4 else "claude", label=conf.get("SABHA_LABEL_" + name, ""),
                            icon=conf.get("SABHA_ICON_" + name, ""),
                            color=conf.get("SABHA_COLOR_" + name, "") if re.match(r"^#[0-9A-Fa-f]{6}$", conf.get("SABHA_COLOR_" + name, "")) else "",
                            state=state_of(s), stale=stale, **s))
     return dict(inbox=parse_inboxes(impl), now=now.strftime("%Y-%m-%d %H:%M:%SZ"), items=items, open=open_items, waiting=waiting, waiting_people=waiting_people,
                 done=done, agents=agents, epoch=int(time.time()), project=conf.get("SABHA_PROJECT", ""), goals=parse_goals(os.path.join(impl, "GOALS.md")))
+
+
+def shown(a):
+    """The name to display: the theme's character, with the role id in brackets when they differ."""
+    return a["display"] if a["display"] == a["name"] else "%s (%s)" % (a["display"], a["name"])
 
 
 def role_mark(a):
@@ -488,7 +485,7 @@ def render_md(b):
     out += ["## Agents", "", "| Agent | Model | State | Goal | Task | Next | Ctx % | Updated |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for a in b["agents"]:
         out.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
-            a["name"] + (" (%s)" % a["label"] if a.get("label") and a["label"] != a["name"] else ""), (a["model"] + " " + a["effort"]).strip(), state_label(a),
+            shown(a) + (" (%s)" % a["label"] if a.get("label") and a["label"] != a["name"] else ""), (a["model"] + " " + a["effort"]).strip(), state_label(a),
             short("; ".join(agent_goals(b, a["name"])), 60).replace("|", "/") or "-", short(a["task"], 90).replace("|", "/"),
             short(a["next"], 70).replace("|", "/") or "-", ctx_text(a), age_text(a["age"])))
     out.append("")
@@ -509,7 +506,7 @@ def render_md(b):
     out += ["", "## In flight", ""]
     for a in b["agents"]:
         if a["state"] in ("busy", "blocked") and a["next"]:
-            out.append("- %s (%s): %s" % (a["name"], a["state"], short(a["next"])))
+            out.append("- %s (%s): %s" % (shown(a), a["state"], short(a["next"])))
     out += ["", "## Waiting for others (%s)" % ", ".join(b["waiting_people"]), ""]
     for i in b["waiting"]:
         out.append("- %s. [%s] %s" % (i["id"], i["waiting"], i.get("title", "")))
@@ -703,7 +700,7 @@ def render_html(b):
             return float(a["ctx"] or a.get("old") or "x")
         except (TypeError, ValueError):
             return None
-    data = dict(agents=[dict(name=a["name"], ctx=cnum(a), old=bool(a.get("old")), seen=a.get("seen", ""), st="stale" if a["stale"] and a["state"] != "blocked" else a["state"]) for a in agents],
+    data = dict(agents=[dict(name=a["display"], ctx=cnum(a), old=bool(a.get("old")), seen=a.get("seen", ""), st="stale" if a["stale"] and a["state"] != "blocked" else a["state"]) for a in agents],
                 goals=[dict(t=g["title"], n=len(g["steps"]), d=sum(x for x, _ in g["steps"])) for g in b["goals"]])
     p.append("<script type=application/json id=sabha-data>%s</script>" % json.dumps(data).replace("</", "<\\/"))
     p.append("<section id=agents><h2>Agents <span class=c>%d</span></h2><div class=atw><table class=at><thead><tr><th>Agent</th><th>Model / effort</th>"
@@ -718,7 +715,7 @@ def render_html(b):
             cx = "<span class=k>-</span>"
         p.append("<tr><td class=nm>%s</td><td><span class='chip %s'>%s</span> <span class=k>%s</span></td><td><span class='st %s'>%s</span></td>"
                  "<td>%s</td><td>%s</td><td>%s</td><td class=mono>%s</td><td class=mono>%s</td></tr>" % (
-                     role_mark(a) + e(a["name"]) + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") and a["label"] != a["name"] else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
+                     role_mark(a) + e(a["display"]) + (" <span class=k title=\"role id\">(%s)</span>" % e(a["name"]) if a["display"] != a["name"] else "") + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") and a["label"] != a["name"] else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
                      e("; ".join(agent_goals(b, a["name"]))) or "<span class=k>-</span>", e(short(a["task"], 160)) or "<span class=k>-</span>", e(short(a["next"], 160)) or "<span class=k>-</span>", cx, age_text(a["age"])))
     p.append("</tbody></table></div></section>")
     p.append("<div class=charts><div class=card><h3>Context per agent</h3><div class=cv><canvas id=ch-ctx aria-label='Context percent per agent'></canvas></div><div class=k>grey = no reading in 30 min</div></div>"
@@ -755,7 +752,7 @@ def render_html(b):
                 st, label, len(gs), "".join(gcard(i, g) for i, g in gs)))
     p.append("<span id=flight></span><h2>In flight <span class=c>%d</span></h2><div class=flight>" % len(flight))
     p.append("".join("<div class=card><b>%s</b><span class='st %s' style='margin:0 6px 0 0'>%s</span>%s</div>" % (
-        e(a["name"]), a["state"], a["state"], e(short(a["next"] or a["task"], 400))) for a in flight) or "<div class=empty>Nobody busy.</div>")
+        e(a["display"]), a["state"], a["state"], e(short(a["next"] or a["task"], 400))) for a in flight) or "<div class=empty>Nobody busy.</div>")
     p.append("</div><h2>Waiting for others <span class=c>%d</span><span style='text-transform:none;letter-spacing:0'>%s</span></h2>" % (
         len(b["waiting"]), e(", ".join(b["waiting_people"]))))
     p.append("".join("<div class=card style='margin-bottom:8px'><b>%s. %s</b> <span class=k>waiting on %s</span>%s</div>" % (
