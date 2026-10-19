@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# sabha-perm: the relay's side of the permission relay (docs/inbox-protocol.md section 9). Bash 3.2 safe.
+#   sabha-perm list                          open requests (no decision, not expired): id, tool, utc, expires
+#   sabha-perm show <id>                     the request file, verbatim (paste it to the user as it is)
+#   sabha-perm allow|deny <id> "<words>"     the user's answer, words verbatim (required); written once
+#   sabha-perm pane <id> ["<words>"]         hand the request back to the pane's own prompt
+#   sabha-perm audit                         allow/deny rows the hook logged that the relay never wrote; exit 1 if any
+#   sabha-perm snippet                       the Claude Code settings snippet: SABHA_PERMISSION_MODE and the allow list
+#                                            (SABHA_PERMISSION_ALLOW; "default" in it stands for the shipped list)
+# Requests live in $SABHA_IMPL/inbox/<relay>/permissions. Nothing here edits a settings file.
+set -u
+usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+die() { echo "sabha-perm: $*" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$(dirname "$0")/sabha-lib.sh"
+sabha_load sabha-perm
+dir=$SABHA_IMPL/inbox/$RELAY/permissions
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+one_line() { printf '%s' "$1" | tr '\t\r\n' '   ' | tr -d '\000-\037'; }
+answered() { local e; for e in allow deny pane expired; do [[ -e $dir/$1.$e ]] && { echo "$e"; return 0; }; done; return 1; }
+# ISO times in one format compare as strings
+expired() { local x; x=$(sed -n 's/^expires: //p' "$dir/$1.req" | head -n 1); [[ -n $x && ! $x > $(now) ]]; }
+check_id() { [[ $1 =~ ^[A-Za-z0-9_-]+-[0-9]{3,}$ ]] || die "bad id '$1'"; [[ -f $dir/$1.req ]] || die "no request $1"; }
+
+json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
+default_allow() {
+  local impl=$SABHA_IMPL ws=$SABHA_WS repo
+  repo=$(cd "$SABHA_BIN/.." && pwd)
+  printf '%s\n' "Read" \
+    "Edit(/$impl/**)" "Write(/$impl/**)" \
+    "Edit(/$ws/*--*/**)" "Write(/$ws/*--*/**)" \
+    "Edit(/$repo--*/**)" "Write(/$repo--*/**)" \
+    "Bash(git status:*)" "Bash(git log:*)" "Bash(git diff:*)" "Bash(git show:*)" \
+    "Bash(git branch --show-current)" "Bash(git worktree list:*)" \
+    "Bash(bash tests/test-*.sh)" "Bash(tests/test-*.sh)" "Bash(tests/hermetic.sh)" \
+    "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(wc:*)" "Bash(head:*)" "Bash(tail:*)" \
+    "Bash(date:*)" "Bash(mkdir -p $impl/*)" \
+    "Bash($SABHA_BIN/sabha-perm:*)" "Bash(sabha-perm:*)"
+}
+
+case ${1:-} in
+  list)
+    [[ -d $dir ]] || exit 0
+    for f in "$dir"/*.req; do
+      [[ -f $f ]] || continue
+      id=${f##*/}; id=${id%.req}
+      answered "$id" >/dev/null && continue
+      expired "$id" && continue
+      printf '%s\t%s\t%s\t%s\n' "$id" "$(sed -n 's/^tool: //p' "$f" | head -n 1)" \
+        "$(sed -n 's/^utc: //p' "$f" | head -n 1)" "$(sed -n 's/^expires: //p' "$f" | head -n 1)"
+    done
+    ;;
+  show)
+    [[ $# -eq 2 ]] || usage
+    check_id "$2"
+    cat "$dir/$2.req"
+    ;;
+  allow|deny|pane)
+    [[ $# -ge 2 && $# -le 3 ]] || usage
+    d=$1 id=$2 words=$(one_line "${3:-}")
+    # a worker that runs this by mistake is refused; one that unsets SABHA_ROLE on purpose is not (SECURITY.md layer 4)
+    if [[ -n ${SABHA_ROLE:-} ]]; then
+      base=$SABHA_ROLE
+      [[ " ${NAMES[*]} " == *" $base "* ]] || base=${SABHA_ROLE%-*}
+      [[ $base == "$RELAY" ]] || die "only the relay ($RELAY) answers a permission request; $SABHA_ROLE is not it"
+    fi
+    check_id "$id"
+    [[ $d == pane || -n ${words// /} ]] || die "$d needs the user's words: sabha-perm $d $id \"<their answer>\""
+    if a=$(answered "$id"); then die "$id is already answered ($a)"; fi
+    expired "$id" && die "$id has expired; the pane shows its own prompt now"
+    nonce=$(sed -n 's/^nonce: //p' "$dir/$id.req" | head -n 1)
+    [[ -n $nonce ]] || die "$id.req has no nonce"
+    tmp=$dir/.$id.$d.$$
+    if [[ $d == pane ]]; then
+      printf 'id: %s\nutc: %s\nby: %s\n' "$id" "$(now)" "$RELAY" >"$tmp" || die "cannot write $tmp"
+      [[ -n $words ]] && printf 'words: %s\n' "$words" >>"$tmp"
+    else
+      printf 'id: %s\nutc: %s\nby: %s\nnonce: %s\nwords: %s\n' "$id" "$(now)" "$RELAY" "$nonce" "$words" >"$tmp" ||
+        die "cannot write $tmp"
+    fi
+    # ln is atomic and refuses an existing name: the hook never reads half a file, and a decision is written once
+    if ! ln "$tmp" "$dir/$id.$d" 2>/dev/null; then rm -f "$tmp"; die "$id.$d exists already"; fi
+    rm -f "$tmp"
+    printf '%s\t%s\t%s\t%s\n' "$(now)" "$id" "$d" "$words" >>"$dir/relay.tsv"
+    echo "$id.$d"
+    ;;
+  audit)
+    [[ -f $dir/log.tsv ]] || { echo "audit: no decisions logged"; exit 0; }
+    touch "$dir/relay.tsv" 2>/dev/null
+    orphans=$(awk -F'\t' 'NR == FNR { seen[$2 "\t" $3] = 1; next }
+      ($6 == "allow" || $6 == "deny") && !(($3 "\t" $6) in seen) { print }' "$dir/relay.tsv" "$dir/log.tsv")
+    if [[ -n $orphans ]]; then
+      echo "audit: decisions the hook honoured that the relay never wrote (forged or hand-written):"
+      printf '%s\n' "$orphans"
+      exit 1
+    fi
+    echo "audit: ok, every honoured decision has a relay row"
+    ;;
+  snippet)
+    rules=()
+    allow=${SABHA_PERMISSION_ALLOW:-default}
+    IFS=';' read -r -a entries <<<"$allow"
+    for e in "${entries[@]}"; do
+      e=$(printf '%s' "$e" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+      [[ -n $e ]] || continue
+      if [[ $e == default ]]; then
+        while IFS= read -r r; do rules+=("$r"); done < <(default_allow)
+      else
+        rules+=("$e")
+      fi
+    done
+    [[ ${#rules[@]} -gt 0 ]] || die "SABHA_PERMISSION_ALLOW holds no rule"
+    mode=${SABHA_PERMISSION_MODE:-default}
+    perm=$dir
+    printf '{\n  "permissions": {\n    "defaultMode": %s,\n    "allow": [\n' "$(json_str "$mode")"
+    i=0
+    for r in "${rules[@]}"; do
+      i=$((i + 1)); sep=,; [[ $i -eq ${#rules[@]} ]] && sep=
+      printf '      %s%s\n' "$(json_str "$r")" "$sep"
+    done
+    # the decision files are written by sabha-perm only; no session writes them with the Edit or Write tool
+    printf '    ],\n    "deny": [\n      %s,\n      %s\n    ]\n  }\n}\n' \
+      "$(json_str "Edit(/$perm/**)")" "$(json_str "Write(/$perm/**)")"
+    ;;
+  *) usage ;;
+esac
