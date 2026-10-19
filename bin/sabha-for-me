@@ -50,6 +50,65 @@ import time
 STALE_MIN = 30
 BUSY_MIN = 10
 HEAD_LINES = 10
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
+def load_tips(root=ROOT):
+    """tips/tips.txt as dicts; a missing file means no tips, and a tip whose needs string is not in bin/ or hooks/
+    (a feature on another branch) is left out."""
+    try:
+        lines = open(os.path.join(root, "tips", "tips.txt"), encoding="ascii", errors="replace").read().splitlines()
+    except OSError:
+        return []
+    code = ""
+    for d in ("bin", "hooks"):
+        for dp, _, fs in os.walk(os.path.join(root, d)):
+            for f in fs:
+                try:
+                    code += open(os.path.join(dp, f), encoding="utf-8", errors="replace").read()
+                except OSError:
+                    pass
+    out = []
+    for l in lines:
+        f = l.split("|")
+        if not l.strip() or l.startswith("#") or len(f) < 3:
+            continue
+        f += [""] * (5 - len(f))
+        if f[4] and f[4] not in code:
+            continue
+        out.append(dict(key=f[0], surfaces=f[1].split(","), text=f[2], doc=f[3]))
+    return out
+
+
+def tips_cli(argv):
+    tips = load_tips()
+    cli = [t for t in tips if "cli" in t["surfaces"]]
+    if argv[0] == "--tips":
+        for t in cli:
+            print("%-17s %s" % (t["key"], t["text"]))
+    elif argv[0] == "--tip-help":
+        t = next((t for t in cli if t["key"] == (argv[1] if len(argv) > 1 else "")), None)
+        if not t:
+            print("sabha help: unknown tip. Keys: %s" % " ".join(x["key"] for x in cli), file=sys.stderr)
+            sys.exit(1)
+        print(t["text"])
+        if t["doc"]:
+            print("Read more: %s" % t["doc"])
+    elif cli:
+        # day of year modulo the tips: rotates without state; SABHA_TIP_DAY pins it for tests
+        t = cli[int(os.environ.get("SABHA_TIP_DAY") or time.localtime().tm_yday) % len(cli)]
+        print("Tip: %s - %s" % (t["key"], t["text"]))
+
+
+_TIPS = {}
+
+
+def tip(el, focus=True):
+    """Attributes for a board element that has a tip: title is the one channel (hover, focus text, and the accessible description)."""
+    t = _TIPS.get(el)
+    if not t:
+        return ""
+    return " data-tip=%s title=\"%s\"%s" % (el, html.escape(t, quote=True), " tabindex=0" if focus else "")
 
 
 def load_conf():
@@ -440,7 +499,7 @@ def qcard(i):
     qid = "q" + re.sub(r"[^A-Za-z0-9]", "_", i["id"])
     p = ["<form class=qa data-id='%s' onsubmit='return false'>" % e(i["id"], quote=True)]
     if who:
-        p.append("<div class=need><b>Needs: %s</b></div>" % e(who))
+        p.append("<div class=need%s><b>Needs: %s</b></div>" % (tip("card-question", False), e(who)))
     if " ".join(q.lower().split()) != " ".join(i.get("title", "").lower().split()):
         p.append("<div class=qq>%s</div>" % e(q))
     if ex:
@@ -452,7 +511,7 @@ def qcard(i):
     if other:
         p.append("<input type=text class=by placeholder='Answered by (e.g. %s), optional' aria-label='Answered by'>" % e(who, quote=True))
     p.append("<textarea rows=2 placeholder='Or type your own answer' aria-label='Or type your own answer'></textarea>"
-             "<button type=button class='ans primary' disabled>Copy answer</button> <span class=k></span></form>")
+             "<button type=button%s class='ans primary' disabled>Copy answer</button> <span class=k></span></form>" % tip("copy-answer", False))
     return "".join(p)
 
 
@@ -557,6 +616,7 @@ h2 .c{background:var(--panel2);color:var(--fg);border-radius:999px;padding:0 8px
 .goal .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.goal b{font-size:14px}
 .pct{font-variant-numeric:tabular-nums;font-weight:650}
 .bar{height:8px;background:var(--panel2);border-radius:99px;margin:8px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);border-radius:99px}
+[data-tip]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}[data-tip]:focus-visible::after{content:" - " attr(title);font-weight:400;text-transform:none;letter-spacing:0}
 .next{font-size:13px}.next .k,.k{color:var(--mut);font-size:12px}
 details summary{cursor:pointer;color:var(--mut);font-size:12px;margin-top:6px;list-style:none}details summary::before{content:"\\25B8  "}details[open] summary::before{content:"\\25BE  "}
 .step{display:flex;gap:8px;font-size:13px;padding:2px 0}.step .m{flex:none;width:16px;text-align:center}.ib{display:flex;gap:8px;font-size:13px;padding:4px 0;border-top:1px solid var(--line)}.ib .m{flex:none;width:30px;color:var(--mut)}.ib .st{flex:none;align-self:flex-start;margin:0}.st.ok{background:var(--okbg);color:var(--ok)}.ibx{margin-bottom:8px}.ibx>summary{margin-top:0;font-size:13px;color:var(--fg)}.step.d{color:var(--mut)}.step.d .m{color:var(--ok)}
@@ -661,6 +721,8 @@ def model_class(m):
 
 def render_html(b):
     e = html.escape
+    _TIPS.clear()
+    _TIPS.update({el[6:]: t["text"] for t in load_tips() for el in t["surfaces"] if el.startswith("board:")})
     agents = b["agents"]
     # one bucket per agent, by the label the table shows, so tiles, In flight and the table cannot disagree
     cnt = lambda st: sum(1 for a in agents if state_label(a) == st)
@@ -680,7 +742,7 @@ def render_html(b):
           ("Idle", len(agents) - cnt("busy") - cnt("blocked") - stale, "", "agents"), ("Goal steps", "%d/%d" % (sum(steps), len(steps)), "", "goals")]
     p.append("<div class=kpis>" + "".join("<a class='kpi %s' href=#%s><div class=n>%s</div><div class=l>%s</div></a>" % (c, h, e(str(n)), l)
                                            for l, n, c, h in kp) + "</div>")
-    move = ["<section id=your-move><h2>Your move <span class=c>%d</span></h2>" % len(b["open"])]
+    move = ["<section id=your-move><h2%s>Your move <span class=c>%d</span></h2>" % (tip("your-move"), len(b["open"]))]
     if not b["open"]:
         move.append("<div class='card empty'>Nothing needs you.</div>")
     for n, i in enumerate(b["open"]):
@@ -703,8 +765,8 @@ def render_html(b):
     data = dict(agents=[dict(name=a["display"], ctx=cnum(a), old=bool(a.get("old")), seen=a.get("seen", ""), st="stale" if a["stale"] and a["state"] != "blocked" else a["state"]) for a in agents],
                 goals=[dict(t=g["title"], n=len(g["steps"]), d=sum(x for x, _ in g["steps"])) for g in b["goals"]])
     p.append("<script type=application/json id=sabha-data>%s</script>" % json.dumps(data).replace("</", "<\\/"))
-    p.append("<section id=agents><h2>Agents <span class=c>%d</span></h2><div class=atw><table class=at><thead><tr><th>Agent</th><th>Model / effort</th>"
-             "<th>State</th><th>Goal</th><th>Task</th><th>Next</th><th>Context %%</th><th>Last update</th></tr></thead><tbody>" % len(agents))
+    p.append("<section id=agents><h2%s>Agents <span class=c>%d</span></h2><div class=atw><table class=at><thead><tr><th%s>Agent</th><th%s>Model / effort</th><th%s>State</th><th%s>Goal</th><th%s>Task</th><th%s>Next</th><th%s>Context %%</th><th%s>Last update</th></tr></thead><tbody>" % (
+        (tip("agents"), len(agents)) + tuple(tip("col-" + k, False) for k in ("agent", "model", "state", "goal", "task", "next", "ctx", "updated"))))
     for a in sorted(agents, key=lambda a: (STATE_ORDER.get(a["state"], 9), a["stale"])):
         sl = state_label(a)
         if a["ctx"]:
@@ -713,9 +775,9 @@ def render_html(b):
             cx = "<span class='cx old' title='last seen %s, not running'>%s%% <span class=k>last seen %s</span></span>" % (e(a["seen"]), e(a["old"]), e(a["seen"]))
         else:
             cx = "<span class=k>-</span>"
-        p.append("<tr><td class=nm>%s</td><td><span class='chip %s'>%s</span> <span class=k>%s</span></td><td><span class='st %s'>%s</span></td>"
+        p.append("<tr><td class=nm>%s</td><td><span class='chip %s'>%s</span> <span class=k>%s</span></td><td><span class='st %s'%s>%s</span></td>"
                  "<td>%s</td><td>%s</td><td>%s</td><td class=mono>%s</td><td class=mono>%s</td></tr>" % (
-                     role_mark(a) + e(a["display"]) + (" <span class=k title=\"role id\">(%s)</span>" % e(a["name"]) if a["display"] != a["name"] else "") + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") and a["label"] != a["name"] else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), e(sl),
+                     role_mark(a) + e(a["display"]) + (" <span class=k title=\"role id\">(%s)</span>" % e(a["name"]) if a["display"] != a["name"] else "") + (" <span class=k>(%s)</span>" % e(a["label"]) if a.get("label") and a["label"] != a["name"] else ""), model_class(a["model"]), e(a["model"]), e(a["effort"]), sl.replace(" ", ""), tip("state-" + sl.replace(" ", "-")), e(sl),
                      e("; ".join(agent_goals(b, a["name"]))) or "<span class=k>-</span>", e(short(a["task"], 160)) or "<span class=k>-</span>", e(short(a["next"], 160)) or "<span class=k>-</span>", cx, age_text(a["age"])))
     p.append("</tbody></table></div></section>")
     p.append("<div class=charts><div class=card><h3>Context per agent</h3><div class=cv><canvas id=ch-ctx aria-label='Context percent per agent'></canvas></div><div class=k>grey = no reading in 30 min</div></div>"
@@ -736,8 +798,8 @@ def render_html(b):
         return "".join(r)
     gl = list(enumerate(b["goals"]))
     lanes = [(key, label, [gcard(i, g) for i, g in gl if g["state"] == "active" and g["pri"] == key]) for key, label in LANES]
-    p.append("<span id=goals></span><h2>Goals %s</h2><div class=lanes>" % "".join(
-        "<span class=chip>%s %s: none</span>" % (k, l) for k, l, cs in lanes if not cs))
+    p.append("<span id=goals></span><h2%s>Goals %s</h2><div class=lanes>" % (tip("goals"), "".join(
+        "<span class=chip>%s %s: none</span>" % (k, l) for k, l, cs in lanes if not cs)))
     for key, label, cs in lanes:
         if cs:
             p.append("<div class='lane lane-%s'><h3>%s <span class=k>%s</span> <span class=c>%d</span></h3>%s</div>" % (
@@ -750,18 +812,19 @@ def render_html(b):
         if gs:
             p.append("<details class=strip id=s-%s><summary>%s <span class=c>%d</span></summary><div class=lanes>%s</div></details>" % (
                 st, label, len(gs), "".join(gcard(i, g) for i, g in gs)))
-    p.append("<span id=flight></span><h2>In flight <span class=c>%d</span></h2><div class=flight>" % len(flight))
+    p.append("<span id=flight></span><h2%s>In flight <span class=c>%d</span></h2><div class=flight>" % (tip("in-flight"), len(flight)))
     p.append("".join("<div class=card><b>%s</b><span class='st %s' style='margin:0 6px 0 0'>%s</span>%s</div>" % (
         e(a["display"]), a["state"], a["state"], e(short(a["next"] or a["task"], 400))) for a in flight) or "<div class=empty>Nobody busy.</div>")
-    p.append("</div><h2>Waiting for others <span class=c>%d</span><span style='text-transform:none;letter-spacing:0'>%s</span></h2>" % (
-        len(b["waiting"]), e(", ".join(b["waiting_people"]))))
+    p.append("</div><h2%s>Waiting for others <span class=c>%d</span><span style='text-transform:none;letter-spacing:0'>%s</span></h2>" % (
+        tip("waiting"), len(b["waiting"]), e(", ".join(b["waiting_people"]))))
     p.append("".join("<div class=card style='margin-bottom:8px'><b>%s. %s</b> <span class=k>waiting on %s</span>%s</div>" % (
         e(i["id"]), e(i.get("title", "")), e(i["waiting"]), qcard(i)) for i in b["waiting"]) or "<div class=empty>Nothing recorded.</div>")
-    p.append("<h2>Done today <span class=c>%d</span></h2><details id=done><summary>Show</summary>" % len(b["done"]))
+    p.append("<h2%s>Done today <span class=c>%d</span></h2><details id=done><summary>Show</summary>" % (tip("done-today"), len(b["done"])))
     p.append("".join("<div class='step d'><span class=m>&#10003;</span><span>%s. %s</span></div>" % (e(i["id"]), e(i.get("title", ""))) for i in b["done"]))
     p.append("</details>")
     p.append(inbox_html(b.get("inbox", {})))
-    p.append("</div></body></html>")
+    p.append("</div>")
+    p.append("</body></html>")
     return ascii("\n".join(p) + "\n")
 
 
@@ -831,7 +894,7 @@ def inbox_html(inb):
         return ("<div class=ib><span class='st %s'>%s</span><span class=m>%s</span><span><b>%s</b> <span class=k>from %s, %s</span>%s</span></div>" % (
             chips[r["state"]], r["state"], e(r["brief"]), e(r["title"]), e(r["frm"]), e(r["created"][:16].replace("T", " ")),
             "<div class=k>%s</div>" % e(r["outcome"]) if r["outcome"] else ""))
-    p = ["<section id=inboxes><h2>Inboxes <span class=c>%d open</span></h2>" % sum(1 for rs in inb.values() for r in rs if r["state"] == "open")]
+    p = ["<section id=inboxes><h2%s>Inboxes <span class=c>%d open</span></h2>" % (tip("inboxes"), sum(1 for rs in inb.values() for r in rs if r["state"] == "open"))]
     for name, rs in inb.items():
         live = [r for r in rs if r["state"] not in ("done", "cancelled")]
         gone = [r for r in rs if r["state"] in ("done", "cancelled")]
@@ -964,6 +1027,9 @@ def selftest():
 
 
 def main():
+    if sys.argv[1:2] and sys.argv[1] in ("--tips", "--tip-help", "--tip-of-day"):
+        tips_cli(sys.argv[1:])
+        return
     if "--selftest" in sys.argv[1:]:
         selftest()
         return

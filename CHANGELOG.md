@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Tooltips: `tips/tips.txt` (key|surfaces|text|doc|needs) feeds the board (hover and keyboard focus on headings, columns,
+  states and the question card) and the CLI (`sabha tips`, `sabha help <key>`, a rotating `Tip:` line after
+  `sabha doctor` and `sabha init`). A tip whose `needs` string is absent from bin/ and hooks/ stays hidden.
 - Themes v2: a theme is a skin over the role ids and never renames a role. `claude -n`, `status/<roleid>.md`,
   `inbox/<RoleId>` and the hooks key on the role id; the character name, colour and icon are display only (statusline,
   board, pane titles), and a voice reaches the opening prompt of Relay, Tutor and Coach only. The old per-theme
