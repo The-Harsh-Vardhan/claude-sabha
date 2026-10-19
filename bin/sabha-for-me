@@ -6,7 +6,7 @@
   sabha-for-me --csv [dir]  also write agents.csv, for-me.csv and inbox.csv (dir, else SABHA_CSV_DIR); a plain
                           render and --watch write them too when SABHA_CSV_DIR is set
 
-Paths come from sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf beside this script), the
+Paths come from sabha.conf (SABHA_CONF, else the nearest .sabha/local/sabha.conf upward, else ../sabha.conf beside this script), the
 plan file and the team's .sabha/config (SABHA_SHARED).
 
 Status files, first 10 lines (HEAD_LINES): "Current: <task>" is the Task column and makes the role
@@ -52,10 +52,23 @@ BUSY_MIN = 10
 HEAD_LINES = 10
 
 
+def find_local():
+    """The nearest .sabha/local/sabha.conf from the cwd upward (the project the cwd is in), else None. Only the exact cwd
+    used to count, so a role in a subdirectory fell through to a sabha.conf beside the scripts."""
+    d = os.getcwd()
+    while True:
+        p = os.path.join(d, ".sabha", "local", "sabha.conf")
+        if os.path.exists(p):
+            return p
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
 def load_conf():
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    local = os.path.join(os.getcwd(), ".sabha", "local", "sabha.conf")
-    path = os.environ.get("SABHA_CONF") or (local if os.path.exists(local) else os.path.join(here, "sabha.conf"))
+    path = os.environ.get("SABHA_CONF") or find_local() or os.path.join(here, "sabha.conf")
     if not os.path.exists(path):
         sys.exit("sabha-for-me: no config at %s (run bin/sabha init)" % path)
     conf = {}

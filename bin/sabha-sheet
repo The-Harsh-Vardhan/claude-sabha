@@ -44,13 +44,26 @@ def die(msg):
     sys.exit("sabha-sheet: " + msg)
 
 
+def find_local():
+    """The nearest .sabha/local/sabha.conf from the cwd upward (the project the cwd is in), else None. Only the exact cwd
+    used to count, so a role in a subdirectory fell through to a sabha.conf beside the scripts."""
+    d = os.getcwd()
+    while True:
+        p = os.path.join(d, ".sabha", "local", "sabha.conf")
+        if os.path.exists(p):
+            return p
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
 def conf_value(key):
-    """Environment first, then sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf), then for a
+    """Environment first, then sabha.conf (SABHA_CONF, else the nearest .sabha/local/sabha.conf upward, else ../sabha.conf), then for a
     shared key the team's .sabha/config (SABHA_SHARED; read as text, never expanded: a pull request can change it)."""
     if os.environ.get(key):
         return os.path.expanduser(os.path.expandvars(os.environ[key]))
-    local = os.path.join(os.getcwd(), ".sabha", "local", "sabha.conf")
-    path = os.environ.get("SABHA_CONF") or (local if os.path.exists(local) else os.path.join(HERE, "..", "sabha.conf"))
+    path = os.environ.get("SABHA_CONF") or find_local() or os.path.join(HERE, "..", "sabha.conf")
     v = file_value(path, key)
     if v is not None:
         return os.path.expanduser(os.path.expandvars(v))

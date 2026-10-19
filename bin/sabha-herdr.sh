@@ -3,7 +3,9 @@
 # SABHA_BACKEND=iterm keeps the old iTerm2/osascript path (macOS only, frozen). Panes are made with
 # `herdr workspace|tab create` and `herdr pane split`; a Claude role runs `sabha-up.sh <Name>` in its pane, any other
 # agent (opencode tested; codex, agy, muse UNTESTED) is started with `herdr agent start --kind`. The files under
-# SABHA_IMPL stay the source of truth: herdr only nudges and waits. status/herdr-panes.txt maps "Name pane_id".
+# SABHA_IMPL stay the source of truth: herdr only nudges and waits. status/herdr-panes.txt maps "RoleId pane_id": emptied
+# at grid start, filled as each pane is made, added to by a role that starts inside a pane, pruned against `pane list`
+# before each nudge.
 # Windows: herdr is native beta there and bash scripts run in Git Bash (Claude Code on Windows needs Git for Windows
 # as far as we know; UNTESTED, no Windows machine here). `herdr attach` (VS Code integrated terminal) is Mac/Linux only.
 # The JSON keys read below (workspace_id, tab_id, pane_id, root_pane) follow `herdr --skill`; checked against a fake
@@ -78,11 +80,38 @@ sabha_pane_note() {
   { grep -v "^$1 " "$f" 2>/dev/null; echo "$1 $2"; } >"$f.tmp" && mv "$f.tmp" "$f"
 }
 
-# sabha_nudge <Name> <text>: submits text to that role's agent and waits until it settles (idle, done or blocked)
+# sabha_pane_reset: an empty map, for a grid start: the roles of an older grid and their pane ids are gone
+sabha_pane_reset() {
+  mkdir -p "$SABHA_IMPL/status"
+  : >"$SABHA_IMPL/status/herdr-panes.txt"
+}
+
+# sabha_pane_prune: drops the map lines whose pane herdr no longer lists (a closed pane id is never reused, so a line
+# for a missing id is dead for good), and says so on stderr. A failed `pane list`, or one with no pane id we can read,
+# proves nothing and leaves the map alone.
+sabha_pane_prune() {
+  local f=$SABHA_IMPL/status/herdr-panes.txt out live name pane
+  [[ -s $f ]] || return 0
+  out=$(sabha_h pane list 2>/dev/null) || return 0
+  live=$(grep -o '"pane_id" *: *"[^"]*"' <<<"$out" | sed 's/.*: *"\(.*\)"/\1/') || true
+  [[ -n $live ]] || return 0
+  : >"$f.tmp"
+  while read -r name pane; do
+    [[ -n $name ]] || continue
+    if grep -qxF "$pane" <<<"$live"; then echo "$name $pane" >>"$f.tmp"
+    else echo "sabha: pane $pane of $name is gone; dropped from the pane map" >&2; fi
+  done <"$f"
+  mv "$f.tmp" "$f"
+}
+
+# sabha_nudge <Name> <text>: submits text to that role's agent and waits until it settles (idle, done or blocked).
+# The target is the role's live pane from the map, else the lower-case agent name (a role started with `agent start`).
 sabha_nudge() {
   local t
   sabha_herdr_guard || return 1
-  t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null)
+  sabha_pane_prune
+  # awk exits 2 on a missing map, which under set -e would end the caller before the fallback below
+  t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null) || t=
   [[ -n $t ]] || t=$(tr '[:upper:]' '[:lower:]' <<<"$1")
   sabha_h agent prompt "$t" "$2" --wait --timeout "${SABHA_NUDGE_TIMEOUT:-120000}"
 }

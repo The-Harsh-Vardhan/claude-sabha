@@ -51,14 +51,26 @@ sabha_shared_read() {
   done <"$1"
 }
 
-# sabha_conf_read <caller>: finds sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf beside the
-# scripts) and exports SABHA_CONF, so every pane, hook and worktree session finds the same file whatever its cwd. Then
+# sabha_find_local: the nearest <dir>/.sabha/local/sabha.conf from the cwd upward, i.e. the project the cwd is in; false
+# when there is none. Only the exact cwd used to count, so a role in a subdirectory fell through to a sabha.conf beside
+# the scripts, which can belong to another project.
+sabha_find_local() {
+  local d=$PWD
+  while [[ -n $d ]]; do
+    [[ -f $d/.sabha/local/sabha.conf ]] && { echo "$d/.sabha/local/sabha.conf"; return 0; }
+    d=${d%/*}
+  done
+  return 1
+}
+
+# sabha_conf_read <caller>: finds sabha.conf (SABHA_CONF, else the nearest .sabha/local/sabha.conf upward from the cwd,
+# else ../sabha.conf beside the scripts) and exports SABHA_CONF, so every pane, hook and worktree session finds the same file whatever its cwd. Then
 # layers: sabha.conf, the plan file sabha.<SABHA_PLAN>.conf, the team's .sabha/config (SABHA_SHARED), and sabha.conf
 # again, so a key you set yourself wins over the team's. Docs (PROTOCOL-core.md, protocol/) come from SABHA_SHARED when
 # it holds them, else SABHA_IMPL (SABHA_DOCS). Returns 1 (message on stderr) when a file is missing.
 sabha_conf_read() {
   CONF=${SABHA_CONF:-}
-  [[ -z $CONF && -f $PWD/.sabha/local/sabha.conf ]] && CONF=$PWD/.sabha/local/sabha.conf
+  [[ -z $CONF ]] && { CONF=$(sabha_find_local) || CONF=; }
   CONF=${CONF:-$SABHA_BIN/../sabha.conf}
   [[ -f $CONF ]] || { echo "$1: no config at $CONF (run bin/sabha init, or cd to a project that has .sabha/local)" >&2; return 1; }
   export SABHA_CONF=$CONF
