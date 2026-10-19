@@ -183,3 +183,70 @@ status files. Nobody edits them.
 A role with neither shows the text `SABHA_TASK_FALLBACK` in `sabha.conf` gives it
 (`Name=text;Name=text`). Before a full rewrite of the file, copy it to
 `status/.bak/<role>-<utc>.md`; mid-day edits are in place.
+
+## 9. Permission requests: `inbox/<relay>/permissions/`
+
+A worker runs in a mode that asks (`default`), so a risky tool call becomes a permission prompt. The
+`PermissionRequest` hook (`hooks/sabha-permission.sh`, every tool, hook timeout 1800 s) catches the prompt before
+it is drawn and hands it to the user through `<relay>`. The relay's own prompts are never relayed; a session that is
+not a sabha role, or runs in `bypassPermissions` or `dontAsk`, is left alone.
+
+| File | Writes | Reads | When |
+| --- | --- | --- | --- |
+| `<Role>-NNN.claim` | the hook | the next hook of that role | before the request; the section 2 claim, numbered per role |
+| `<Role>-NNN.req` | the hook (temp file, then `mv`) | `<relay>` through `sabha-perm show` | every prompt |
+| `<Role>-NNN.allow`, `<Role>-NNN.deny` | `<relay>`, only through `sabha-perm` | the waiting hook | on the user's answer to that request |
+| `<Role>-NNN.pane` | `<relay>` through `sabha-perm pane` | the waiting hook | the user answers in the pane instead |
+| `<Role>-NNN.expired` | the hook | `sabha-perm` (refuses a late answer) | no answer within `SABHA_RELAY_WAIT` |
+| `<Role>-NNN.bad-<utc>-...` | the hook (renamed decision file) | the user, `sabha-perm audit` readers | a decision whose nonce is not the request's |
+| `log.tsv` | the hooks, append-only | `sabha-perm audit` | every outcome |
+| `relay.tsv` | `sabha-perm`, append-only | `sabha-perm audit` | every decision the relay writes |
+| `nudge.log` | the hook's background nudge | whoever debugs a missed nudge | every nudge |
+
+Request (`<Role>-NNN.req`): header lines, then `input:` and the `tool_input` object of the hook JSON byte for byte,
+on the following line(s). Nothing is re-rendered: what the user approves is what runs. The `description` inside it
+is the model's own text, not a check.
+
+```
+id: BuilderHeavy-007
+utc: 2026-10-19T13:02:11Z
+role: BuilderHeavy
+tool: Bash
+cwd: /path/to/repo--feature
+mode: default
+nonce: 3f9c0d...e1            (32 hex, 16 bytes of /dev/urandom, new for every request)
+hash: <sha256 of the input bytes>
+expires: 2026-10-19T13:27:11Z
+input:
+{"command":"go test ./...","description":"Run the Go tests"}
+```
+
+Decision (`.allow` / `.deny`), written once by `sabha-perm allow|deny <id> "<words>"`, which copies the nonce from
+the request; `words` is the user's answer verbatim, one line, and required. A `.pane` file has no nonce (its worst
+case is the ordinary prompt).
+
+```
+id: BuilderHeavy-007
+utc: 2026-10-19T13:04:40Z
+by: Relay
+nonce: 3f9c0d...e1
+words: yes, run the go tests
+```
+
+Rules:
+
+- The hook honours a decision only when its `nonce:` equals the request's. Any other file is renamed `.bad-*`, logged
+  `nonce-mismatch`, and the request stays answerable. With both present, `.deny` wins.
+- No answer within `SABHA_RELAY_WAIT` seconds (default 1500, capped at 1780 so the hook ends before its 1800 s
+  timeout): the hook writes `.expired`, logs `timeout` and exits with no decision, and the ordinary prompt shows in
+  the pane. In a headless run (`claude -p`) no decision means the call is denied. Never an auto-allow.
+- `<relay>` shows the request verbatim (`sabha-perm show <id>`), asks "allow, deny or pane?" for that one id, and
+  writes the decision only on the user's explicit answer to it. No "always allow" in v1: every prompt is one decision.
+- The hook wakes `<relay>` with `sabha-nudge` (`see inbox/<relay>/permissions/<id>.req`); with `SABHA_PUSH=ntfy` it
+  also pushes `sabha: <Role> asks permission (<tool>), see <relay>`: role and tool only, never the input.
+- `log.tsv` row: `utc  role  id  tool  hash  decision  words` (tab separated; decision is allow, deny, pane, timeout or
+  nonce-mismatch; tabs and newlines in words become spaces). `relay.tsv` row: `utc  id  decision  words`.
+  `sabha-perm audit` lists every allow or deny in `log.tsv` with no matching `relay.tsv` row: a decision file that
+  was not written through `sabha-perm`.
+- A restarted `<relay>` runs `sabha-perm list` first: open requests are files.
+- Prompts the hook never sees stay in the pane: a sandboxed command's network request, and the protected-path checks.
