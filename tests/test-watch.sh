@@ -46,4 +46,14 @@ run; sleep 1; : >"$dir/inbox/Worker/004.done"
 run; wait_lines 1 || fail "after the config is fixed the next .done must be announced"
 grep -q 'inbox/Worker/004.done' "$dir/nudges" || fail "fixed config did not announce 004: $(cat "$dir/nudges")"
 
-echo "ok: a failed sabha_load claims no .done and announces nothing; after the fix the next .done is announced"
+# F1: with a theme on (mahabharat renames Dispatcher and Relay) the nudges still go to the role ids, the names the
+# inbox folders and sabha-nudge use: a .done in inbox/Dispatcher goes to Relay, every other one to Dispatcher
+rm -rf "$dir/status/done-seen" "$dir/nudges"
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_THEME=mahabharat\nSABHA_ROSTER="Relay:opus Dispatcher:opus Worker:sonnet"\n' "$dir" "$dir" >"$dir/sabha.conf"
+run; sleep 1
+: >"$dir/inbox/Worker/005.done"; : >"$dir/inbox/Dispatcher/002.done"
+run; wait_lines 2 || fail "themed: expected 2 nudges: $(cat "$dir/nudges" 2>/dev/null)"
+grep -qx 'Dispatcher|see inbox/Worker/005.done' "$dir/nudges" && grep -qx 'Relay|see inbox/Dispatcher/002.done' "$dir/nudges" || fail "themed nudges must target the role ids Dispatcher and Relay: $(cat "$dir/nudges")"
+cp "$dir/good.conf" "$dir/sabha.conf"
+
+echo "ok: a failed sabha_load claims no .done; after the fix it announces; with a theme on, nudges go to the role ids Dispatcher and Relay"
