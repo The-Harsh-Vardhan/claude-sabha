@@ -109,7 +109,9 @@ scaffold_shared() {
     printf 'DECISIONS.md merge=union\nLESSONS.md merge=union\n' >"$d/.gitattributes" || die "init: cannot write $d/.gitattributes"
     made="$made .gitattributes"
   fi
-  echo "team folder: $d (${made# }${made:+ added; }commit it with the repo)"
+  local tail="not a git repo, so nothing to commit"
+  git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 && tail="commit it with the repo"
+  echo "team folder: $d (${made# }${made:+ added; }$tail)"
 }
 
 # link_ws <impl> <ws>: <ws>/.sabha/local -> the sabha folder. Inside a git work tree the link goes into
