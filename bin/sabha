@@ -164,8 +164,9 @@ cmd_init() {
   local themes
   themes=$(ls "$ROOT/themes" 2>/dev/null | sed -n 's/\.theme$//p' | tr '
 ' ' ')
-  ask theme "Theme (role names, colours and personas)" plain "${themes% }"
+  ask theme "Theme (character names, colours and voices; roles keep their ids)" plain "${themes% }"
   [[ -f $ROOT/themes/$theme.theme ]] || die "init: no theme file themes/$theme.theme in $ROOT"
+  "${BASH:-bash}" "$ROOT/bin/sabha-theme" validate "$ROOT/themes/$theme.theme" >/dev/null || die "init: themes/$theme.theme does not validate (run: bin/sabha-theme validate $theme)"
   ask tracker "Tracker (html = local page, no login; sheet = Google Sheet, better: phone, sharing, Inbox/Decisions round trip; xlsx = offline file)" html "html xlsx sheet"
   ask push "Phone push via ntfy (ntfy|off)" off "ntfy off"
   ask ws "Workspace directory (the roles start here: the folder that holds your repos)" '~/Work' ""

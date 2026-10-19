@@ -42,13 +42,20 @@ fi
 [ -n "$effort" ] && model="$model $(echo "${effort:0:1}" | tr '[:lower:]' '[:upper:]')${effort:1}"
 
 [ -z "$name" ] && name="unnamed"
-# the role's theme colour as a 24-bit escape (a copy Thor-1 takes Thor's); a name in no theme stays plain
+# the role's character and colour from the theme (a copy Arjun-1 shows as the character's copy); the session name is the
+# role id, so it stays visible in brackets. A name that is no role id (or no theme) stays as it is.
 shown=$name
-hex=$(awk -F'|' -v n="${name%-[0-9]*}" '$2 == n { print $3; exit }' "$(dirname "$0")/../themes/"*.theme 2>/dev/null)
-case $hex in
-  \#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])
-    shown=$(printf '\033[38;2;%d;%d;%dm%s\033[0m' "0x${hex:1:2}" "0x${hex:3:2}" "0x${hex:5:2}" "$name") ;;
-esac
+row=$(SABHA_THEME="${SABHA_THEME:-}" SABHA_THEME_DIR="${SABHA_THEME_DIR:-}" SABHA_PRESET_DIR="${SABHA_PRESET_DIR:-}" "${BASH:-bash}" "$BIN/sabha-theme" resolve 2>/dev/null | awk -F'|' -v n="${name%-[0-9]*}" '$1 == n { print $2 "|" $3; exit }')
+if [ -n "$row" ]; then
+  disp=${row%%|*} hex=${row#*|}
+  case $name in *-[0-9]*) disp="$disp-${name##*-}" ;; esac
+  shown=$disp
+  case $hex in
+    \#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])
+      shown=$(printf '\033[38;2;%d;%d;%dm%s\033[0m' "0x${hex:1:2}" "0x${hex:3:2}" "0x${hex:5:2}" "$disp") ;;
+  esac
+  [ "$disp" != "$name" ] && shown="$shown ($name)"
+fi
 
 # Trailing " | 5h 23% 7d 41% | dir @ branch* | $cost"; each part drops out on its own when missing.
 extra=""
