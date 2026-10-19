@@ -184,18 +184,19 @@ A role with neither shows the text `SABHA_TASK_FALLBACK` in `sabha.conf` gives i
 (`Name=text;Name=text`). Before a full rewrite of the file, copy it to
 `status/.bak/<role>-<utc>.md`; mid-day edits are in place.
 
-## 9. Permission requests: `inbox/<relay>/permissions/`
+## 9. Permission requests: `permissions/`
 
 A worker runs in a mode that asks (`default`), so a risky tool call becomes a permission prompt. The
 `PermissionRequest` hook (`hooks/sabha-permission.sh`, every tool, hook timeout 1800 s) catches the prompt before
-it is drawn and hands it to the user through `<relay>`. The relay's own prompts are never relayed; a session that is
+it is drawn and hands it to the user through `<relay>`. The folder is `<IMPL>/permissions`, outside `inbox/`,
+`status/` and `questions/`, which the shipped allow list lets roles write (SECURITY.md layer 4). The relay's own prompts are never relayed; a session that is
 not a sabha role, or runs in `bypassPermissions` or `dontAsk`, is left alone.
 
 | File | Writes | Reads | When |
 | --- | --- | --- | --- |
 | `<Role>-NNN.claim` | the hook | the next hook of that role | before the request; the section 2 claim, numbered per role |
 | `<Role>-NNN.req` | the hook (temp file, then `mv`) | `<relay>` through `sabha-perm show` | every prompt |
-| `<Role>-NNN.allow`, `<Role>-NNN.deny` | `<relay>`, only through `sabha-perm` | the waiting hook | on the user's answer to that request |
+| `<Role>-NNN.allow`, `<Role>-NNN.deny` | `<relay>`, only through `sabha-perm` (`SABHA_ROLE=<relay>`) | the waiting hook | on the user's answer to that request |
 | `<Role>-NNN.pane` | `<relay>` through `sabha-perm pane` | the waiting hook | the user answers in the pane instead |
 | `<Role>-NNN.expired` | the hook | `sabha-perm` (refuses a late answer) | no answer within `SABHA_RELAY_WAIT` |
 | `<Role>-NNN.bad-<utc>-...` | the hook (renamed decision file) | the user, `sabha-perm audit` readers | a decision whose nonce is not the request's |
@@ -235,14 +236,15 @@ words: yes, run the go tests
 
 Rules:
 
-- The hook honours a decision only when its `nonce:` equals the request's. Any other file is renamed `.bad-*`, logged
-  `nonce-mismatch`, and the request stays answerable. With both present, `.deny` wins.
+- The hook honours a decision only when it is a plain file (not a symlink, not a folder, no `input:` line) whose
+  `nonce:` equals the request's. Any other file is renamed `.bad-*`, logged `nonce-mismatch`, and the request stays
+  answerable. The hook never writes through a symlinked folder, `log.tsv` or temp file: it stays silent instead. With both present, `.deny` wins.
 - No answer within `SABHA_RELAY_WAIT` seconds (default 1500, capped at 1780 so the hook ends before its 1800 s
   timeout): the hook writes `.expired`, logs `timeout` and exits with no decision, and the ordinary prompt shows in
   the pane. In a headless run (`claude -p`) no decision means the call is denied. Never an auto-allow.
 - `<relay>` shows the request verbatim (`sabha-perm show <id>`), asks "allow, deny or pane?" for that one id, and
   writes the decision only on the user's explicit answer to it. No "always allow" in v1: every prompt is one decision.
-- The hook wakes `<relay>` with `sabha-nudge` (`see inbox/<relay>/permissions/<id>.req`); with `SABHA_PUSH=ntfy` it
+- The hook wakes `<relay>` with `sabha-nudge` (`see permissions/<id>.req`); with `SABHA_PUSH=ntfy` it
   also pushes `sabha: <Role> asks permission (<tool>), see <relay>`: role and tool only, never the input.
 - `log.tsv` row: `utc  role  id  tool  hash  decision  words` (tab separated; decision is allow, deny, pane, timeout or
   nonce-mismatch; tabs and newlines in words become spaces). `relay.tsv` row: `utc  id  decision  words`.
