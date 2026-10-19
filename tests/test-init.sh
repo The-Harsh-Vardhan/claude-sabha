@@ -5,7 +5,9 @@
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-init.XXXXXX") || exit 1
+# macOS TMPDIR ends in a slash; ${t%/} keeps a // out of $dir, which init's own paths never carry
+t=${TMPDIR:-/tmp}
+dir=$(mktemp -d "${t%/}/sabha-init.XXXXXX") || exit 1
 trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 mkdir -p "$dir/fakebin" "$dir/sysbin"

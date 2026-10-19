@@ -31,7 +31,7 @@ mkdir -p "$dir" || exit 1
 cd "$dir" || exit 1
 from=$(printf '%s' "$from" | tr 'A-Z' 'a-z')
 # shellcheck disable=SC2010  # names are NNN.claim and NNN-<from>-<slug>.md, plain ASCII by the protocol
-n=$(ls | grep -E '^[0-9]{3}[.-]' | cut -c1-3 | sort | tail -1)
+n=$(ls | sed -n 's/^\([0-9]\{3,\}\)[.-].*/\1/p' | sort -n | tail -1)
 n=$(printf '%03d' $(( 10#${n:-0} + 1 )))
 until (set -C; : > "$n.claim") 2>/dev/null; do n=$(printf '%03d' $(( 10#$n + 1 ))); done
 file=$n-$from-$slug.md

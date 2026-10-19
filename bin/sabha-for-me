@@ -162,15 +162,24 @@ def roster_row(entry):
 
 def split_blocks(text):
     """Blocks are the runs of lines between lines that are exactly '---' (the file has one '---'
-    before each block). A last block that does not end in a newline is still being written: it is
-    left out until the write finishes."""
+    before each block). A block written without its '---' is still split: an 'id:' line outside a
+    cmd: body, in a block that already has one, starts a new block. A last block that does not end in
+    a newline is still being written: it is left out until the write finishes."""
     blocks, cur = [], []
+    has_id = in_cmd = False
     for line in text.split("\n"):
         if line == "---":
             blocks.append(cur)
-            cur = []
-        else:
-            cur.append(line)
+            cur, has_id, in_cmd = [], False, False
+            continue
+        if not in_cmd and line.startswith("id:"):
+            if has_id:
+                blocks.append(cur)
+                cur, in_cmd = [], False
+            has_id = True
+        elif line.startswith("cmd:"):
+            in_cmd = True
+        cur.append(line)
     if text.endswith("\n"):
         blocks.append(cur)
     return blocks
