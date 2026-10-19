@@ -178,7 +178,8 @@ sabha_session_stop() {
 sabha_pane_note() {
   local f=$SABHA_IMPL/status/herdr-panes.txt
   mkdir -p "$SABHA_IMPL/status"
-  { grep -v "^$1 " "$f" 2>/dev/null; echo "$1 $2"; } >"$f.tmp" && mv "$f.tmp" "$f"
+  # per-process tmp: every pane of a grid start writes this map at the same moment
+  { grep -v "^$1 " "$f" 2>/dev/null; echo "$1 $2"; } >"$f.tmp.$$" && mv "$f.tmp.$$" "$f"
 }
 
 # sabha_pane_reset: an empty map, for a grid start: the roles of an older grid and their pane ids are gone
