@@ -171,6 +171,9 @@ fill_tab() {
     [[ -n $p ]] || { echo "sabha-up: herdr gave no pane id for $name" >&2; exit 1; }
     role "$name"
     sabha_h pane rename "$p" "$(sabha_display "$name")" >/dev/null
+    # the Agent sidebar row shows the agent's name, not the pane label (herdr cli-reference: "Use --display-agent to
+    # change the visible name"); the statusline re-sends it, so a restarted agent gets it back (UNTESTED live)
+    sabha_h pane report-metadata "$p" --source sabha:name --display-agent "$(sabha_display "$name")" >/dev/null 2>&1
     if [[ $R_AGENT == claude ]]; then
       sabha_pane_note "$name" "$p"
       sabha_h pane run "$p" "$pane_args'$LOOP' $name" >/dev/null

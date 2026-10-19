@@ -27,4 +27,22 @@ json 32 | bash "$BIN/statusline-sabha.sh" >/dev/null
 out=$(printf '{"session_name":"Writer","model":{"display_name":"Sonnet"},"context_window":{"used_percentage":null}}' | bash "$BIN/statusline-sabha.sh")
 [[ $out == *'ctx n/a'* ]] || fail "null percent should print ctx n/a: $out"
 [[ ! -e $dir/status/context/writer.txt ]] || fail "a null percent must not be written"
+# herdr sidebar (win C, 002): a role in a herdr pane reports its display name, held brief and ctx to the fake herdr
+mkdir -p "$dir/inbox/BuilderPrecise"; : >"$dir/inbox/BuilderPrecise/003.claim"; : >"$dir/inbox/BuilderPrecise/003.done"; : >"$dir/inbox/BuilderPrecise/004.claim"
+: >"$FAKE_HERDR_LOG"
+json 22.4 | HERDR_PANE_ID=w1:p3 SABHA_THEME=mahabharat bash "$BIN/statusline-sabha.sh" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ $(grep -c "report-metadata" "$FAKE_HERDR_LOG") -ge 2 ]] && break; sleep 0.3; done
+grep -q "^pane report-metadata w1:p3 --source sabha:name --display-agent Arjun$" "$FAKE_HERDR_LOG" || fail "sidebar should get the display name Arjun: $(cat "$FAKE_HERDR_LOG")"
+grep -q "^pane report-metadata w1:p3 --source sabha:status --seq [0-9]* --ttl-ms 300000 --token brief=004 --token ctx=22%$" "$FAKE_HERDR_LOG" || fail "sidebar should get brief 004 and ctx 22% with a ttl: $(cat "$FAKE_HERDR_LOG")"
+! grep -v "^--session sabha " "$FAKE_HERDR_CALLS" | grep -q . || fail "every sidebar call carries --session sabha"
+: >"$FAKE_HERDR_LOG"
+json 22.4 | HERDR_PANE_ID=w1:p3 SABHA_THEME=mahabharat bash "$BIN/statusline-sabha.sh" >/dev/null; sleep 1
+[[ ! -s $FAKE_HERDR_LOG ]] || fail "an unchanged line within 60 s must not report again"
+json 22.4 | HERDR_PANE_ID=w1:p3 bash "$BIN/statusline-sabha.sh" >/dev/null; sleep 1
+grep -q -- "--display-agent BuilderPrecise$" "$FAKE_HERDR_LOG" || fail "a changed display name reports again"
+: >"$FAKE_HERDR_LOG"
+printf '{"session_name":"Stranger","model":{"display_name":"Opus"},"context_window":{"used_percentage":5}}' | HERDR_PANE_ID=w1:p9 bash "$BIN/statusline-sabha.sh" >/dev/null
+json 22.4 | bash "$BIN/statusline-sabha.sh" >/dev/null; sleep 1
+[[ ! -s $FAKE_HERDR_LOG ]] || fail "no report for a non-sabha session or outside a herdr pane"
+echo "ok: herdr sidebar gets name, brief and ctx with a ttl, throttled, sabha roles in herdr panes only"
 echo "ok: line shows ctx and both windows, context file and limits.txt written, alerts fired once"
