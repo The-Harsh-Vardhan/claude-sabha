@@ -12,6 +12,9 @@
 # seconds of starting stop the loop. While SABHA_STOP holds (bin/sabha-limits.sh) no session starts; a running one
 # is left alone. Log: status/loop/<name>.log. SABHA_LOOP_CMD replaces the agent command (tests); SABHA_LOOP_INTERVAL
 # (20) is the poll in seconds, SABHA_LOOP_GRACE (15) the seconds an agent gets after the two Ctrl-C before TERM.
+# A session that ends within SABHA_LOOP_RETRY_WINDOW (5) seconds is a launch failure (the Bun kqueue EINVAL race when an
+# agent is backgrounded with stdin reopened from /dev/tty): it is started again after 1 s, up to SABHA_LOOP_RETRIES (3)
+# times in a row, before it counts toward the two-failure stop.
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=sabha-lib.sh
@@ -105,7 +108,7 @@ tty_in=/dev/tty; (: </dev/tty) 2>/dev/null || tty_in=/dev/null
 # Ctrl-C belongs to the agent on the screen; the loop itself ends with --stop or after two failed starts. A handler,
 # not SIG_IGN: an ignored signal is inherited and the agent could never be interrupted
 trap ':' INT
-last=0 fails=0 cpid=""
+last=0 fails=0 retries=0 cpid=""
 trap '[[ -n $cpid ]] && kill -TERM "$cpid" 2>/dev/null; exit 0' TERM HUP
 while :; do
   [[ -e $stop ]] && { log "stop requested, loop ends"; rm -f "$stop"; exit 0; }
@@ -139,6 +142,11 @@ while :; do
   up=$(( $(date +%s) - start ))
   log "session ended after ${up}s"
   sabha_cost_log "$name" "$model" "session-end ${up}s"
+  if (( up < ${SABHA_LOOP_RETRY_WINDOW:-5} )); then
+    if (( retries < ${SABHA_LOOP_RETRIES:-3} )); then
+      retries=$(( retries + 1 )); log "launch failed within ${up}s, retry $retries"; sleep 1; continue
+    fi
+  else retries=0; fi
   if (( up < min_up )); then
     fails=$(( fails + 1 ))
     (( fails >= 2 )) && { log "stopped: 2 sessions in a row ended within ${min_up}s"; exit 1; }
