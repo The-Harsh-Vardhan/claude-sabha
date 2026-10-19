@@ -1,23 +1,23 @@
 ---
 id: 1
 utc: 2026-01-05T09:00:00Z
-owner: Vidur
+owner: Relay
 state: OPEN
 title: Tell the sabha what to build first
 why: the roster is up and every inbox is empty; the first brief starts the work
 ---
 id: 2
 utc: 2026-01-05T09:05:00Z
-owner: Yudhishthira
+owner: Dispatcher
 state: OPEN
 title: Run the check the reviewer could not run
-why: the reviewer's sandbox blocks the test runner; run it yourself and tell Vidur the result
+why: the reviewer's sandbox blocks the test runner; run it yourself and tell Relay the result
 cmd:
 python3 -m unittest discover
 ---
 id: 3
 utc: 2026-01-05T09:10:00Z
-owner: Nakul
+owner: Writer
 state: OPEN
 title: Which branch gets the demo
 ask: the user

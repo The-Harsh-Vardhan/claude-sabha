@@ -5,7 +5,7 @@ nav_order: 9
 
 # Themes
 
-A theme renames the 20 roles and gives each one a colour and a one-line persona.
+A theme is a display skin: it renames the 20 roles on screen and gives each one a colour and a one-line persona.
 Scripts, roles and models stay the same; only names, colours and personality change.
 
 ![The 20 roles in five themes](assets/banner.png)
@@ -14,8 +14,8 @@ Every theme, role by role, with its icons and personas: [Roster](roster.md).
 
 ## Icons
 
-`icons/<theme>/<id>.png` holds one 256px icon per role, keyed by the internal id from `themes/roles.map` (so
-`icons/avengers/vidur.png` is the Relay, Jarvis). They are generic symbols in one style: a single object on a navy tile, never a face, costume, logo or
+`icons/<theme>/<id>.png` holds one 256px icon per role, keyed by the lowercase plain role name (so
+`icons/avengers/relay.png` is the Relay, Jarvis). They are generic symbols in one style: a single object on a navy tile, never a face, costume, logo or
 likeness. A theme without icons still works. After changing a theme or an icon,
 run `python3 tools/gen-roster-docs.py` to rebuild the roster page and the docs copies.
 
@@ -29,9 +29,8 @@ Keeper, Observer, Housekeeper, Tutor, Watcher, Coach):
 
     Role|ThemedName|#RRGGBB|persona
 
-`themes/roles.map` maps each role to the internal id the plan files, inbox and
-status folders and role cards use (Relay is Vidur). A theme keyed by those ids
-still loads.
+The plain role names are the ids the plan files, inboxes, status folders and role cards use; the theme only
+changes what is shown. With no `SABHA_THEME` set the roles show their plain names.
 
 - ThemedName: one word matching `^[A-Za-z][A-Za-z0-9]*$`, unique in the file,
   with no dash (copies are named `Name-1`).
@@ -41,7 +40,7 @@ still loads.
 ## Choosing a theme
 
 Set `SABHA_THEME=<name>` in `sabha.conf`, or run `bin/sabha init --theme <name>`.
-Available: mahabharat, avengers, hogwarts, middle-earth, plain.
+Available: mahabharat, avengers, hogwarts, middle-earth, plain. `plain` is the default.
 
 ## Adding your own
 

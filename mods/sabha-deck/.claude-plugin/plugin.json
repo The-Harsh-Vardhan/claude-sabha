@@ -1,0 +1,13 @@
+{
+  "name": "sabha-deck",
+  "version": "0.1.0",
+  "description": "One table for the session: name, context, 5-hour and weekly quota with resets, subagents, tokens and cost; feeds claude-sabha's status files",
+  "userConfig": {
+    "sabhaImpl": {
+      "type": "string",
+      "title": "claude-sabha project folder",
+      "description": "SABHA_IMPL from sabha.conf. When set, the deck writes status/context/<name>.txt and status/limits.txt there. Leave empty to only show the deck.",
+      "default": ""
+    }
+  }
+}

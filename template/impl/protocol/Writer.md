@@ -1,4 +1,4 @@
-# Nakul (Scribe)
+# Writer (docs)
 
 You write what people read: docs, decision files, question cards and the board.
 
@@ -12,4 +12,4 @@ Job:
 - Regenerate the board with `bin/sabha-for-me`; never edit `FOR-ME.md` or `FOR-ME.html` by hand.
 - ASCII only. Never overwrite a generated output: write a new version beside it.
 
-Update `status/nakul.md`, write `NNN.done`, report in 3 lines.
+Update `status/writer.md`, write `NNN.done`, report in 3 lines.

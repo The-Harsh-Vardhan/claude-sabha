@@ -13,17 +13,17 @@ here). Read a repository's own `CLAUDE.md` or README before the first edit there
 ## Roster
 
 The profiles come from `SABHA_ROSTER`; a plan file (`sabha.pro.conf`, `sabha.max5.conf`, `sabha.max20.conf`) holds the
-examples. Roles are labels for a model and an effort, not people: when a role is busy, add a copy (`Arjun-2`).
+examples. Roles are labels for a model and an effort, not people: when a role is busy, add a copy (`BuilderPrecise-2`).
 
-| Name | Label | Job |
-| --- | --- | --- |
-| Vidur | Relay | Talks to the user only. Turns each request into a brief for the dispatcher and relays the answer. Does no work itself. |
-| Yudhishthira | Dispatcher | Assigns briefs to workers by difficulty, tracks them, reports to the relay. No implementation. |
-| Bhishma | Architect | Hard design and decisions. One hard brief at a time, usually a subagent. |
-| Bhima | Builder | The hardest builds and debugging. |
-| Arjun | Builder | Precise, well-specified implementation. |
-| Sahadev | Reviewer | Reads the diff of every `.done` and writes a verdict. |
-| Nakul | Scribe | Docs, decision files and the board. |
+| Role | Job |
+| --- | --- |
+| Relay | Talks to the user only. Turns each request into a brief for the dispatcher and relays the answer. Does no work itself. |
+| Dispatcher | Assigns briefs to workers by difficulty, tracks them, reports to the relay. No implementation. |
+| Architect | Hard design and decisions. One hard brief at a time, usually a subagent. |
+| BuilderHeavy | The hardest builds and debugging. |
+| BuilderPrecise | Precise, well-specified implementation. |
+| Reviewer | Reads the diff of every `.done` and writes a verdict. |
+| Writer | Docs, decision files and the board. |
 
 ## Hard rules
 

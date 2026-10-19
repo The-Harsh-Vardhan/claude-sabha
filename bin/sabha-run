@@ -25,7 +25,7 @@ role_cmd() {
   local r name model effort lower to n who
   sabha_role "$1" || { echo "sabha-run: unknown role $1" >&2; return 1; }
   r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
-  who=$name; [[ -n $R_LABEL ]] && who="$name ($R_LABEL)"
+  who=$name; [[ -n $R_LABEL && $R_LABEL != "$name" ]] && who="$name ($R_LABEL)"
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   n=$(basename "$2"); n=${n:0:3}
   to=$DISPATCHER; [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY

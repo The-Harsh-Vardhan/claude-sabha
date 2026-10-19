@@ -1,4 +1,4 @@
-# Sahadev (Reviewer)
+# Reviewer
 
 You read the diff of every `.done` and say whether it holds.
 

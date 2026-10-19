@@ -43,7 +43,7 @@ check "without SABHA_PANES: every role but the relay" 'grep -q "^PANES Y B O N$"
 out=$(load 'SABHA_ROSTER="V:opus Y:claude"')
 check "a row with no model is refused" 'grep -q "names no model" <<<"$out"'
 out=$(load)
-check "no SABHA_ROSTER: the default 20-role list, agent claude" '(( $(grep -c "^ROLE [A-Za-z]* claude " <<<"$out") == 20 )) && grep -q "^ROLE Bhishma claude fable medium -$" <<<"$out"'
+check "no SABHA_ROSTER: the default 20-role list, agent claude" '(( $(grep -c "^ROLE [A-Za-z]* claude " <<<"$out") == 20 )) && grep -q "^ROLE Architect claude fable medium -$" <<<"$out"'
 
 echo "--- panes"
 R='SABHA_ROSTER="V:opus:medium Y:opus:medium A:sonnet:high:lazy G:haiku:low:gate T:opus:medium:ondemand"'
@@ -94,29 +94,29 @@ echo "--- plans"
 for plan in pro max5 max20; do
   check "sabha.$plan.conf exists and carries no path" '[[ -f $ROOT/sabha.$plan.conf ]] && ! grep -qE "^SABHA_(WS|IMPL|CONF|PROJECT|USER)=" "$ROOT/sabha.$plan.conf"'
   out=$(SABHA_PLAN=$plan SABHA_PLAN_DIR=$ROOT load)
-  check "plan $plan loads: SABHA_PANES set, relay is pane 1" 'grep -q "^PANES Vidur " <<<"$out"'
+  check "plan $plan loads: SABHA_PANES set, relay is pane 1" 'grep -q "^PANES Relay " <<<"$out"'
 done
 export SABHA_PLAN_DIR=$ROOT
 conf
 out=$(up --plan pro); rc=$?
-check "--plan pro: one Build tab, Vidur first, five panes" '(( rc == 0 )) && grep -q "^sabha-up: tab Build 3x2: Vidur Yudhishthira Bhima Arjun Nakul$" <<<"$out" && ! grep -q "create tab" <<<"$out"'
-check "--plan pro: panes start with the plan" 'grep -q "SABHA_PLAN=pro .*/bin/sabha-loop. Bhima" <<<"$out"'
+check "--plan pro: one Build tab, Relay first, five panes" '(( rc == 0 )) && grep -q "^sabha-up: tab Build 3x2: Relay Dispatcher BuilderHeavy BuilderPrecise Writer$" <<<"$out" && ! grep -q "create tab" <<<"$out"'
+check "--plan pro: panes start with the plan" 'grep -q "SABHA_PLAN=pro .*/bin/sabha-loop. BuilderHeavy" <<<"$out"'
 check "--plan pro: no fable row" '! grep -qE "^SABHA_ROSTER=.*:fable" "$ROOT/sabha.pro.conf"'
-out=$(up --plan pro --print Bhishma)
-check "--plan pro: the architect is sonnet-free opus with its label" 'grep -q "claude -n Bhishma --model opus --effort medium --strict-mcp-config \"You are Bhishma (Architect) in " <<<"$out"'
-out=$(up --plan pro --print Arjun-3); rc=$?
+out=$(up --plan pro --print Architect)
+check "--plan pro: the architect is sonnet-free opus, no label repeated" 'grep -q "claude -n Architect --model opus --effort medium --strict-mcp-config \"You are Architect in " <<<"$out"'
+out=$(up --plan pro --print BuilderPrecise-3); rc=$?
 check "--plan pro: two copies at most" '(( rc == 1 )) && grep -q "past SABHA_MAX_COPIES (2)" <<<"$out"'
 out=$(up --plan max5); rc=$?
-check "--plan max5: seven Build panes" '(( rc == 0 )) && grep -q "^sabha-up: tab Build 4x2: Vidur Yudhishthira Bhima Arjun Nakul Sahadev Karna$" <<<"$out"'
-out=$(up --plan max5 --print Arjun-4); rc=$?
-check "--plan max5: four copies" '(( rc == 0 )) && grep -q "claude -n Arjun-4 " <<<"$out"'
+check "--plan max5: seven Build panes" '(( rc == 0 )) && grep -q "^sabha-up: tab Build 4x2: Relay Dispatcher BuilderHeavy BuilderPrecise Writer Reviewer Runner$" <<<"$out"'
+out=$(up --plan max5 --print BuilderPrecise-4); rc=$?
+check "--plan max5: four copies" '(( rc == 0 )) && grep -q "claude -n BuilderPrecise-4 " <<<"$out"'
 out=$(up --plan max20); rc=$?
-check "--plan max20: Build 4x2 with Vidur first and a Gate tab" '(( rc == 0 )) && grep -q "^sabha-up: tab Build 4x2: Vidur Yudhishthira Bhishma Bhima Arjun Sahadev Nakul Karna$" <<<"$out" && grep -q "^sabha-up: tab Gate 1x2: Barbarika Abhimanyu$" <<<"$out"'
+check "--plan max20: Build 4x2 with Relay first and a Gate tab" '(( rc == 0 )) && grep -q "^sabha-up: tab Build 4x2: Relay Dispatcher Architect BuilderHeavy BuilderPrecise Reviewer Writer Runner$" <<<"$out" && grep -q "^sabha-up: tab Gate 1x2: Observer Housekeeper$" <<<"$out"'
 out=$(up --plan nope); rc=$?
 check "an unknown plan is refused" '(( rc == 1 )) && grep -q "no plan file at $ROOT/sabha.nope.conf" <<<"$out"'
 conf 'SABHA_PLAN=pro'
-out=$(up --print Nakul)
-check "SABHA_PLAN in sabha.conf works like --plan" 'grep -q "claude -n Nakul --model sonnet --effort low " <<<"$out"'
+out=$(up --print Writer)
+check "SABHA_PLAN in sabha.conf works like --plan" 'grep -q "claude -n Writer --model sonnet --effort low " <<<"$out"'
 unset SABHA_PLAN_DIR
 
 echo "--- board"
@@ -126,21 +126,18 @@ out=$(python3 "$BIN/sabha-for-me" 2>&1); rc=$?
 check "sabha-for-me renders a v2 roster" '(( rc == 0 )) && grep -q "^| B (Builder) | gpt-5 low |" "$dir/board/FOR-ME.md" && grep -q "^| Y | opus high |" "$dir/board/FOR-ME.md" && grep -q "^| V | opus medium |" "$dir/board/FOR-ME.md"'
 conf 'SABHA_PLAN=pro' 'SABHA_FORME_DIR='"$dir/board"
 out=$(SABHA_PLAN_DIR=$ROOT python3 "$BIN/sabha-for-me" 2>&1); rc=$?
-check "sabha-for-me reads the plan file" '(( rc == 0 )) && grep -q "^| Bhishma (Architect) | opus medium |" "$dir/board/FOR-ME.md"'
+check "sabha-for-me reads the plan file" '(( rc == 0 )) && grep -q "^| Architect | opus medium |" "$dir/board/FOR-ME.md"'
 
 # S6: the default roster in sabha.conf.example and the one in sabha.max20.conf are the same string
 r1=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.conf.example")
 r2=$(sed -n 's/^SABHA_ROSTER="\(.*\)"$/\1/p' "$ROOT/sabha.max20.conf")
 check "sabha.conf.example and sabha.max20.conf carry the same roster" '[[ -n $r1 && $r1 == "$r2" ]]'
 
-# themes are keyed by the plain role (Relay|Jarvis); roles.map turns that into the plan id; an id key still loads
-th=$("$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Vidur a b c -" "Shakuni a b c -"); SABHA_THEME=avengers sabha_theme t; echo "${ROLES[*]} $SABHA_ID_Jarvis"' _ "$BIN")
-check "a role-keyed theme renames the plan ids (avengers: Relay->Jarvis)" '[[ $th == "Jarvis a b c - Widow a b c - Vidur" ]]'
-printf 'Vidur|Thor|#112233|old key\n' >"$dir/old.theme"
-th=$(SABHA_THEME_DIR=$dir "$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Vidur a b c -"); SABHA_THEME=old sabha_theme t; echo "${ROLES[*]}"' _ "$BIN")
-check "a theme keyed by the internal id still loads" '[[ $th == "Thor a b c -" ]]'
-check "every theme file has the 20 roles of roles.map, in order" '! for f in "$ROOT"/themes/*.theme; do
-  [[ $(grep -v "^#" "$f" | cut -d"|" -f1) == "$(grep -v "^#" "$ROOT/themes/roles.map" | cut -d"|" -f1)" ]] || echo "$f"; done | grep -q .'
+# a theme is a display skin over the role ids: avengers renames Relay and SecurityCritic; every skin lists the same 20 ids
+th=$("$SH" -c '. "$1/sabha-lib.sh"; ROLES=("Relay a b c -" "SecurityCritic a b c -"); SABHA_THEME=avengers sabha_theme t; echo "${ROLES[*]} $SABHA_ID_Jarvis"' _ "$BIN")
+check "the avengers skin renames Relay to Jarvis and SecurityCritic to Widow" '[[ $th == "Jarvis a b c - Widow a b c - Relay" ]]'
+check "every theme file lists the same 20 role ids as plain.theme, in order" '! for f in "$ROOT"/themes/*.theme; do
+  [[ $(grep -v "^#" "$f" | cut -d"|" -f1) == "$(grep -v "^#" "$ROOT/themes/plain.theme" | cut -d"|" -f1)" ]] || echo "$f"; done | grep -q .'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"

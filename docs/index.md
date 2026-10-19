@@ -39,8 +39,8 @@ beside `sabha.conf` that `bin/sabha-up.sh --plan <name>` loads.
 
 | Plan | File | Panes | Copies per role | Models |
 | --- | --- | --- | --- | --- |
-| Pro ($20) | `sabha.pro.conf` | 5: Vidur, Yudhishthira, Bhima, Arjun, Nakul | 2 | No top tier; models pinned. Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
-| Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Sahadev and Karna | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
+| Pro ($20) | `sabha.pro.conf` | 5: Relay, Dispatcher, BuilderHeavy, BuilderPrecise, Writer | 2 | No top tier; models pinned. Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
+| Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Reviewer and Runner | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
 | Max 20x ($200) | `sabha.max20.conf` | 10 panes in two tabs (Build, Gate) | 4 | Opus relay and dispatcher, the top tier for the architect; the critics start per brief |
 
 ## Feedback for v2
