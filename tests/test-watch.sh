@@ -33,3 +33,17 @@ run; wait_lines 2 || fail "a .done in the dispatcher inbox did not nudge the rel
 [[ $(sed -n 2p "$dir/nudges") == "Relay|see inbox/Dispatcher/001.done" ]] || fail "wrong relay nudge: $(cat "$dir/nudges")"
 
 echo "ok: first pass records, a new .done nudges the dispatcher once, a dispatcher-inbox .done nudges the relay"
+
+# F2: a config sabha_load rejects (no model for Relay) must claim nothing, so the dones are announced once it is fixed
+rm -rf "$dir/status/done-seen" "$dir/nudges"; : >"$dir/inbox/Worker/003.done"
+cp "$dir/sabha.conf" "$dir/good.conf"
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_ROSTER="Relay Dispatcher:opus Worker:sonnet"\n' "$dir" "$dir" >"$dir/sabha.conf"
+run; sleep 1
+[[ ! -d $dir/status/done-seen ]] || [[ -z $(ls "$dir/status/done-seen") ]] || fail "a failed sabha_load claimed dones: $(ls "$dir/status/done-seen")"
+[[ ! -s $dir/nudges ]] || fail "a failed sabha_load must not nudge: $(cat "$dir/nudges")"
+cp "$dir/good.conf" "$dir/sabha.conf"
+run; sleep 1; : >"$dir/inbox/Worker/004.done"
+run; wait_lines 1 || fail "after the config is fixed the next .done must be announced"
+grep -q 'inbox/Worker/004.done' "$dir/nudges" || fail "fixed config did not announce 004: $(cat "$dir/nudges")"
+
+echo "ok: a failed sabha_load claims no .done and announces nothing; after the fix the next .done is announced"

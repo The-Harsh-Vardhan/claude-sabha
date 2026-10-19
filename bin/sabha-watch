@@ -81,15 +81,15 @@ echo "unacked briefs: ${unacked:-none}"
 # wake the receiver of each .done once: status/done-seen/<Role>-<NNN> is claimed with noclobber, so two watchers
 # nudge only once; the nudge runs in the background (it waits for the agent to settle) and logs to status/done-nudge.log
 SEEN=$IMPL/status/done-seen
+# no DISPATCHER (sabha_load failed) means no claim at all: a claimed .done is never announced later
 first=0; [[ -d $SEEN ]] || first=1
-if mkdir -p "$SEEN" 2>/dev/null; then
+if [[ -n $DISPATCHER ]] && mkdir -p "$SEEN" 2>/dev/null; then
   nudge=${SABHA_NUDGE_BIN:-$BIN/sabha-nudge}
   for d in "$IMPL"/inbox/*/[0-9][0-9][0-9].done; do
     [[ -e $d ]] || continue
     role=$(basename "$(dirname "$d")"); n=$(basename "$d" .done)
     (set -C; : >"$SEEN/$role-$n") 2>/dev/null || continue
     (( first )) && continue
-    [[ -n $DISPATCHER ]] || continue
     to=$DISPATCHER; [[ $role == "$DISPATCHER" ]] && to=$RELAY
     ( "$nudge" "$to" "see inbox/$role/$n.done" </dev/null >>"$IMPL/status/done-nudge.log" 2>&1 || echo "nudge $to failed for inbox/$role/$n.done" >>"$IMPL/status/done-nudge.log" ) &
   done
