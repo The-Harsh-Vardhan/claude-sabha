@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PermissionRequest: a worker's permission prompt goes to the human through the relay (docs/inbox-protocol.md
-# section 9). Writes <IMPL>/inbox/<relay>/permissions/<Role>-NNN.req with the tool input verbatim, nudges the relay,
+# section 9). Writes <IMPL>/permissions/<Role>-NNN.req with the tool input verbatim, nudges the relay,
 # and waits for a decision file that carries the request's nonce. Every other path (not a role, the relay itself,
 # an error, no answer in SABHA_RELAY_WAIT seconds) exits 0 with no stdout: the ordinary prompt shows in the pane.
 # Never an auto-allow. Bash 3.2 safe; no jq needed (the JSON is cut by the awk below, byte for byte).
@@ -63,9 +63,15 @@ case $limit in ''|*[!0-9]*) limit=1500 ;; esac
 # the hook must end before Claude Code kills it (hooks.json timeout 1800): a killed hook is a hook failure
 [ "$limit" -gt 1780 ] && limit=1780
 
-dir=$HK_IMPL/inbox/$HK_RELAY/permissions
+# outside inbox/, status/ and questions/, which the shipped allow list lets every role write: no case variant of an
+# allowed path reaches it (APFS folds case; the rule matcher may not)
+dir=$HK_IMPL/permissions
 mkdir -p "$dir" 2>/dev/null || exit 0
+# the hook runs outside any sandbox: it never writes through a planted symlink
+[ -L "$dir" ] && exit 0
 cd "$dir" 2>/dev/null || exit 0
+for f in log.tsv nudge.log; do [ -L "$f" ] && exit 0; done
+set -C
 # the brief-number claim (docs/inbox-protocol.md section 2), per role: two roles or two subagents never share an id
 # shellcheck disable=SC2010  # names are <Role>-NNN.<ext>, plain ASCII
 n=$(ls | grep -E "^$HK_ROLE-[0-9]{3,}\." | sed "s/^$HK_ROLE-\([0-9]*\)\..*/\1/" | sort -n | tail -1)
@@ -86,9 +92,13 @@ expires=$(date -u -r $(( $(date +%s) + limit )) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null 
 {
   printf 'id: %s\nutc: %s\nrole: %s\ntool: %s\ncwd: %s\nmode: %s\nnonce: %s\nhash: %s\nexpires: %s\ninput:\n%s\n' \
     "$id" "$now" "$HK_ROLE" "$tool" "$(hp_str cwd)" "$mode" "$nonce" "$hash" "$expires" "$input"
-} > "$id.req.tmp" 2>/dev/null && mv "$id.req.tmp" "$id.req" 2>/dev/null || exit 0
+} > "$id.req.tmp" 2>/dev/null || exit 0
+# a planted .req (a folder would take the mv inside it) or decision for a fresh id: fail safe, the pane prompt shows
+for e in req allow deny pane; do [ -e "$id.$e" ] || [ -L "$id.$e" ] && { rm -f "$id.req.tmp"; exit 0; }; done
+mv "$id.req.tmp" "$id.req" 2>/dev/null || exit 0
 
 log() { # log <decision> [words]: one line per printf, under PIPE_BUF, so concurrent hooks append whole lines
+  [ -L log.tsv ] && return 0
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$HK_ROLE" "$id" "$tool" "$hash" "$1" "${2:-}" \
     >> log.tsv 2>/dev/null
 }
@@ -96,7 +106,7 @@ words_of() { local w; w=$(sed -n 's/^words: //p' "$1" 2>/dev/null | head -n 1); 
 
 # wake the relay; detached (no fd of ours) so Claude Code never waits on it, and its failure is only logged
 c=$(conf_line 5); [ -n "$c" ] && export SABHA_CONF="$c"
-( SABHA_NUDGE_TIMEOUT=10000 "$HK_DIR/../bin/sabha-nudge" "$HK_RELAY" "see inbox/$HK_RELAY/permissions/$id.req" ) \
+( SABHA_NUDGE_TIMEOUT=10000 "$HK_DIR/../bin/sabha-nudge" "$HK_RELAY" "see permissions/$id.req" ) \
   </dev/null >>nudge.log 2>&1 &
 push=$(conf_line 2) topic=$(conf_line 3) url=$(conf_line 4)
 if [ "$push" = ntfy ] && [ -n "$topic" ]; then
@@ -109,9 +119,12 @@ end=$((SECONDS + limit))
 while :; do
   for d in deny allow; do
     f=$id.$d
-    [ -f "$f" ] || continue
-    if [ "$(sed -n 's/^nonce: //p' "$f" | head -n 1)" != "$nonce" ]; then
-      mv "$f" "$id.bad-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM" 2>/dev/null || rm -f "$f"
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    # a decision is a plain file that sabha-perm wrote: never a symlink (to the .req, which holds the nonce) and never
+    # a copy of the request
+    if [ -L "$f" ] || [ ! -f "$f" ] || grep -q '^input:$' "$f" 2>/dev/null ||
+       [ "$(sed -n 's/^nonce: //p' "$f" | head -n 1)" != "$nonce" ]; then
+      mv "$f" "$id.bad-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM" 2>/dev/null || rm -rf "$f"
       log nonce-mismatch "$d"
       continue
     fi
@@ -125,7 +138,7 @@ while :; do
     fi
     exit 0
   done
-  if [ -f "$id.pane" ]; then log pane; exit 0; fi
+  if [ -e "$id.pane" ] || [ -L "$id.pane" ]; then log pane; exit 0; fi
   if [ "$SECONDS" -ge "$end" ]; then
     printf 'utc: %s\nby: hook\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$id.expired" 2>/dev/null
     log timeout

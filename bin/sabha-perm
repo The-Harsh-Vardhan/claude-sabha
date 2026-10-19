@@ -7,14 +7,15 @@
 #   sabha-perm audit                         allow/deny rows the hook logged that the relay never wrote; exit 1 if any
 #   sabha-perm snippet                       the Claude Code settings snippet: SABHA_PERMISSION_MODE and the allow list
 #                                            (SABHA_PERMISSION_ALLOW; "default" in it stands for the shipped list)
-# Requests live in $SABHA_IMPL/inbox/<relay>/permissions. Nothing here edits a settings file.
+# Requests live in $SABHA_IMPL/permissions. Nothing here edits a settings file. allow, deny and pane run only with
+# SABHA_ROLE set to the relay (sabha-up.sh exports it in the relay's pane; by hand: SABHA_ROLE=<relay> sabha-perm ...).
 set -u
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 die() { echo "sabha-perm: $*" >&2; exit 1; }
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$(dirname "$0")/sabha-lib.sh"
 sabha_load sabha-perm
-dir=$SABHA_IMPL/inbox/$RELAY/permissions
+dir=$SABHA_IMPL/permissions
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 one_line() { printf '%s' "$1" | tr '\t\r\n' '   ' | tr -d '\000-\037'; }
 answered() { local e; for e in allow deny pane expired; do [[ -e $dir/$1.$e ]] && { echo "$e"; return 0; }; done; return 1; }
@@ -23,19 +24,47 @@ expired() { local x; x=$(sed -n 's/^expires: //p' "$dir/$1.req" | head -n 1); [[
 check_id() { [[ $1 =~ ^[A-Za-z0-9_-]+-[0-9]{3,}$ ]] || die "bad id '$1'"; [[ -f $dir/$1.req ]] || die "no request $1"; }
 
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
+repo=$(cd "$SABHA_BIN/.." && pwd)
+# worktrees sit beside the main clone as <clone>--<slug>, also when this copy is itself a worktree
+wts=$(dirname "$repo")/$(basename "$repo" | sed 's/--.*//')--*
+both() { local p; for p in "$@"; do printf 'Edit(/%s)\nWrite(/%s)\n' "$p" "$p"; done; }
+# The shipped allow list: the relay's routine work and read-only commands, nothing that runs new code or writes a
+# file a hook sources. No test or build rule (a worker writes the test it runs), no find (-exec, -delete), no git
+# log/diff/show (--output writes any path), no mkdir; writes under SABHA_IMPL only in the folders roles hand work
+# through (the permissions folder and the config are outside them).
 default_allow() {
-  local impl=$SABHA_IMPL ws=$SABHA_WS repo
-  repo=$(cd "$SABHA_BIN/.." && pwd)
-  printf '%s\n' "Read" \
-    "Edit(/$impl/**)" "Write(/$impl/**)" \
-    "Edit(/$ws/*--*/**)" "Write(/$ws/*--*/**)" \
-    "Edit(/$repo--*/**)" "Write(/$repo--*/**)" \
-    "Bash(git status:*)" "Bash(git log:*)" "Bash(git diff:*)" "Bash(git show:*)" \
-    "Bash(git branch --show-current)" "Bash(git worktree list:*)" \
-    "Bash(bash tests/test-*.sh)" "Bash(tests/test-*.sh)" "Bash(tests/hermetic.sh)" \
-    "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(wc:*)" "Bash(head:*)" "Bash(tail:*)" \
-    "Bash(date:*)" "Bash(mkdir -p $impl/*)" \
+  local d
+  printf '%s\n' "Read(/$SABHA_IMPL/**)" "Read(/$SABHA_WS/**)" "Read(/$repo/**)" "Read(/$wts/**)"
+  for d in inbox status questions; do both "$SABHA_IMPL/$d/**"; done
+  both "$SABHA_IMPL/for-me.items" "$SABHA_WS/*--*/**" "$wts/**"
+  printf '%s\n' "Bash(git status:*)" "Bash(git branch --show-current)" "Bash(git worktree list:*)" \
+    "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(wc:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(date:*)" \
     "Bash($SABHA_BIN/sabha-perm:*)" "Bash(sabha-perm:*)"
+}
+# The deny part is always printed, whatever SABHA_PERMISSION_ALLOW says: deny wins over every allow.
+default_deny() {
+  local c=${SABHA_CONF:-} rc
+  # the files sabha_conf_read sources (a write there is code in every hook), the decision files (sabha-perm only),
+  # and git metadata (a rewritten .git file or config runs code through git status, core.fsmonitor)
+  if [[ -n $c ]]; then
+    both "$c"
+    if rc=$(cd -P "$(dirname "$c")" 2>/dev/null && pwd -P); then
+      rc=$rc/${c##*/}
+      [[ $rc == "$c" ]] || both "$rc"
+    fi
+  fi
+  # the copy of sabha these hooks run from (its hooks, its lib, its plan files) is never a write target
+  both "$repo/**" "${SABHA_PLAN_DIR:-$repo}/sabha.*.conf" "$SABHA_IMPL/**/*.conf" "$SABHA_IMPL/*.conf" "$dir/**"
+  [[ -n ${SABHA_SHARED:-} ]] && both "$SABHA_SHARED/config"
+  # "//**/" is any absolute path ("**/" alone is relative to the session's folder)
+  both "/**/.sabha/config" "/**/.sabha/local/**" "/**/.git" "/**/.git/**"
+  printf '%s\n' "Read(~/.ssh/**)"
+  # and the shared deny list (pushes, gh writes, recursive deletes, .env, .npmrc and key files), each Read(**/x) also
+  # as Read(//**/x) so it holds outside the session's folder too
+  sed -n 's/^ *"\([A-Z][A-Za-z]*(.*)\)",\{0,1\}$/\1/p' "$repo/share/claude-settings.json" |
+    sed 's#^Read(\*\*/\(.*\))$#&\
+Read(//**/\1)#'
+
 }
 
 case ${1:-} in
@@ -58,19 +87,21 @@ case ${1:-} in
   allow|deny|pane)
     [[ $# -ge 2 && $# -le 3 ]] || usage
     d=$1 id=$2 words=$(one_line "${3:-}")
-    # a worker that runs this by mistake is refused; one that unsets SABHA_ROLE on purpose is not (SECURITY.md layer 4)
-    if [[ -n ${SABHA_ROLE:-} ]]; then
-      base=$SABHA_ROLE
-      [[ " ${NAMES[*]} " == *" $base "* ]] || base=${SABHA_ROLE%-*}
-      [[ $base == "$RELAY" ]] || die "only the relay ($RELAY) answers a permission request; $SABHA_ROLE is not it"
-    fi
+    # the relay names itself; a worker, or a session with no role, is refused. Same account, so this stops a mistake,
+    # not a role that sets SABHA_ROLE on purpose (SECURITY.md layer 4)
+    [[ ${SABHA_ROLE:-} == "$RELAY" ]] ||
+      die "only the relay answers a permission request: run it with SABHA_ROLE=$RELAY (now: ${SABHA_ROLE:-unset})"
     check_id "$id"
     [[ $d == pane || -n ${words// /} ]] || die "$d needs the user's words: sabha-perm $d $id \"<their answer>\""
     if a=$(answered "$id"); then die "$id is already answered ($a)"; fi
     expired "$id" && die "$id has expired; the pane shows its own prompt now"
     nonce=$(sed -n 's/^nonce: //p' "$dir/$id.req" | head -n 1)
     [[ -n $nonce ]] || die "$id.req has no nonce"
+    [[ -d $dir && ! -L $dir ]] || die "$dir is not a plain folder"
+    [[ ! -L $dir/relay.tsv ]] || die "$dir/relay.tsv is a symlink; refusing"
     tmp=$dir/.$id.$d.$$
+    # noclobber: a planted file or symlink at the temp name is never followed
+    set -C
     if [[ $d == pane ]]; then
       printf 'id: %s\nutc: %s\nby: %s\n' "$id" "$(now)" "$RELAY" >"$tmp" || die "cannot write $tmp"
       [[ -n $words ]] && printf 'words: %s\n' "$words" >>"$tmp"
@@ -79,6 +110,7 @@ case ${1:-} in
         die "cannot write $tmp"
     fi
     # ln is atomic and refuses an existing name: the hook never reads half a file, and a decision is written once
+    set +C
     if ! ln "$tmp" "$dir/$id.$d" 2>/dev/null; then rm -f "$tmp"; die "$id.$d exists already"; fi
     rm -f "$tmp"
     printf '%s\t%s\t%s\t%s\n' "$(now)" "$id" "$d" "$words" >>"$dir/relay.tsv"
@@ -111,16 +143,21 @@ case ${1:-} in
     done
     [[ ${#rules[@]} -gt 0 ]] || die "SABHA_PERMISSION_ALLOW holds no rule"
     mode=${SABHA_PERMISSION_MODE:-default}
-    perm=$dir
+    deny=()
+    while IFS= read -r r; do deny+=("$r"); done < <(default_deny)
     printf '{\n  "permissions": {\n    "defaultMode": %s,\n    "allow": [\n' "$(json_str "$mode")"
     i=0
     for r in "${rules[@]}"; do
       i=$((i + 1)); sep=,; [[ $i -eq ${#rules[@]} ]] && sep=
       printf '      %s%s\n' "$(json_str "$r")" "$sep"
     done
-    # the decision files are written by sabha-perm only; no session writes them with the Edit or Write tool
-    printf '    ],\n    "deny": [\n      %s,\n      %s\n    ]\n  }\n}\n' \
-      "$(json_str "Edit(/$perm/**)")" "$(json_str "Write(/$perm/**)")"
+    printf '    ],\n    "deny": [\n'
+    i=0
+    for r in "${deny[@]}"; do
+      i=$((i + 1)); sep=,; [[ $i -eq ${#deny[@]} ]] && sep=
+      printf '      %s%s\n' "$(json_str "$r")" "$sep"
+    done
+    printf '    ]\n  }\n}\n'
     ;;
   *) usage ;;
 esac
