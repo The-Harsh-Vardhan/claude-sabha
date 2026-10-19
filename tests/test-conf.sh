@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Config resolution: SABHA_CONF, else the nearest <dir>/.sabha/local/sabha.conf from the cwd upward, else the sabha.conf
 # beside the scripts. A second copy of the scripts whose own sabha.conf names another project must never win over the
-# project the cwd is in (the product-name-dev context files landing in the PDF Report project). Read-only on real projects:
+# project the cwd is in (one team's context files landing in another project's folder). Read-only on real projects:
 # everything lives under a temp dir. Run: tests/test-conf.sh
 # shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
 set -u
