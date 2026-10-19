@@ -56,4 +56,9 @@ run; wait_lines 2 || fail "themed: expected 2 nudges: $(cat "$dir/nudges" 2>/dev
 grep -qx 'Dispatcher|see inbox/Worker/005.done' "$dir/nudges" && grep -qx 'Relay|see inbox/Dispatcher/002.done' "$dir/nudges" || fail "themed nudges must target the role ids Dispatcher and Relay: $(cat "$dir/nudges")"
 cp "$dir/good.conf" "$dir/sabha.conf"
 
+# a .done numbered 1000 or more is announced too
+: >"$dir/inbox/Worker/1000.done"; rm -f "$dir/nudges"
+run; wait_lines 1 || fail "a four-digit .done must be announced"
+grep -qx 'Dispatcher|see inbox/Worker/1000.done' "$dir/nudges" || fail "wrong nudge for 1000: $(cat "$dir/nudges")"
+
 echo "ok: a failed sabha_load claims no .done; after the fix it announces; with a theme on, nudges go to the role ids Dispatcher and Relay"
