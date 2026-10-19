@@ -20,7 +20,7 @@ impl=$dir/impl
 P=$impl/permissions
 mkdir -p "$impl/status" "$dir/ws" "$dir/stubs" "$dir/nojq"
 # the grid writes this map; sabha_nudge stops (set -e) when it is missing
-echo "Relay w1:p9" >"$impl/status/herdr-panes.txt"
+echo "Relay w1:p1" >"$impl/status/herdr-panes.txt"
 cat >"$dir/sabha.conf" <<EOF
 SABHA_WS=$dir/ws
 SABHA_IMPL=$impl
@@ -79,7 +79,7 @@ check "nonce is 32 hex" '[[ $(nonce_of BuilderHeavy-001) =~ ^[0-9a-f]{32}$ ]]'
 h=$(printf '%s' "$TI" | shasum -a 256 | cut -d" " -f1)
 check "hash is sha256 of the input" 'grep -q "^hash: $h$" $r'
 waitfor "grep -q 'permissions/BuilderHeavy-001.req' $FAKE_HERDR_LOG 2>/dev/null"
-check "nudge to the relay names the request" 'grep -q "agent prompt w1:p9 see permissions/BuilderHeavy-001.req" $FAKE_HERDR_LOG'
+check "nudge to the relay names the request" 'grep -q "agent prompt w1:p1 see permissions/BuilderHeavy-001.req" $FAKE_HERDR_LOG'
 check "every herdr call carries --session" '! grep -v -- "--session" $FAKE_HERDR_CALLS'
 waitfor "[[ -s $dir/curl.calls ]]"
 check "ntfy body: role and tool, never the command" 'grep -q "^sabha: BuilderHeavy asks permission (Bash), see Relay$" $dir/curl.calls && ! grep -q "go test" $dir/curl.calls && grep -q "^http://ntfy.invalid/t-test$" $dir/curl.calls'
