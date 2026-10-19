@@ -23,14 +23,18 @@ made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
        git clone https://github.com/The-Harsh-Vardhan/claude-sabha ~/claude-sabha
        cd ~/claude-sabha
-       bin/sabha init --plan pro --theme mahabharat    # plans: pro, max5, max20; themes: see themes/
+       bin/sabha init --plan pro --ws ~/Work/my-app    # plans: pro, max5, max20; --theme: see themes/
        bin/sabha doctor
 
-3. Copy the starter project folder and start the team from a plain terminal (needs herdr; see [Setup](#setup)):
+   `init` makes the project's sabha folder, `~/my-claude-sabha/my-app/` (the team's goals, inboxes and status; one
+   folder per project, outside your repos), writes `sabha.conf` inside it and links it into the project as
+   `~/Work/my-app/my-claude-sabha` (kept out of git through `.git/info/exclude`).
 
-       bin/sabha-up.sh --plan pro
+3. Start the team from the project folder, in a plain terminal (needs herdr; see [Setup](#setup)):
 
-4. Talk only to the relay (Vidur in the Mahabharat theme). It briefs the dispatcher, the workers build, a reviewer
+       cd ~/Work/my-app && ~/claude-sabha/bin/sabha-up.sh
+
+4. Talk only to the Relay (Vidur, Jarvis or Hedwig if you pick a theme). It briefs the dispatcher, the workers build, a reviewer
    gates the change, and you say GO and push.
 
 ![claude-sabha architecture](docs/diagrams/architecture.png)
@@ -58,17 +62,17 @@ beside `sabha.conf` that `bin/sabha-up.sh --plan <name>` (or `SABHA_PLAN=<name>`
 
 | Plan | File | Panes | Copies per role | Models |
 | --- | --- | --- | --- | --- |
-| Pro ($20) | `sabha.pro.conf` | 5: Vidur, Yudhishthira, Bhima, Arjun, Nakul | 2 | No top tier; models pinned. Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
-| Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Sahadev and Karna | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
+| Pro ($20) | `sabha.pro.conf` | 5: Relay, Dispatcher, BuilderHeavy, BuilderPrecise, Writer | 2 | No top tier; models pinned. Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
+| Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Reviewer and Runner | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
 | Max 20x ($200) | `sabha.max20.conf` | 10 panes in two tabs (Build, Gate) | 4 | Opus relay and dispatcher, the top tier for the architect; the critics start per brief |
 
 A profile is `Name (Role) = agent:model:effort`; a roster row is `Name:agent:model[:effort[:flags]]`. Every profile
 without a pane is an on-demand subagent of the dispatcher with its own model and effort. `SABHA_PANES` picks the panes;
-`SABHA_MAX_COPIES` allows `Arjun-1`, `Arjun-2` ... each with its own inbox, status file and worktree.
+`SABHA_MAX_COPIES` allows `BuilderPrecise-1`, `BuilderPrecise-2` ... each with its own inbox, status file and worktree.
 
 ## Themes
 
-Pick who your team is: `SABHA_THEME` in `sabha.conf`, or `bin/sabha init --theme <name>`. A theme renames the roles,
+Pick who your team is: `SABHA_THEME` in `sabha.conf`, or `bin/sabha init --theme <name>`. A theme is a display skin: it renames the roles on screen,
 gives each a colour (statusline and board) and a one-line persona (in its opening prompt); scripts, roles and models
 stay the same.
 
@@ -76,11 +80,11 @@ stay the same.
 
 | Theme | Relay | Dispatcher | Architect | Builders |
 | --- | --- | --- | --- | --- |
-| `mahabharat` (default) | Vidur | Yudhishthira | Bhishma | Bhima, Arjun |
+| `mahabharat` | Vidur | Yudhishthira | Bhishma | Bhima, Arjun |
 | `avengers` | Jarvis | Fury | Stark | Hulk, Hawkeye |
 | `hogwarts` | Hedwig | McGonagall | Dumbledore | Hagrid, Harry |
 | `middle-earth` | Gwaihir | Aragorn | Elrond | Gimli, Legolas |
-| `plain` | Relay | Dispatcher | Architect | BuilderHeavy, BuilderPrecise |
+| `plain` (default) | Relay | Dispatcher | Architect | BuilderHeavy, BuilderPrecise |
 
 Each role has an icon per theme in `icons/<theme>/<id>.png` (generic symbols, no likenesses or logos). All 20 roles
 side by side: [Roster](docs/roster.md). The file format and how to add your own: [themes/README.md](themes/README.md). The Avengers,
@@ -140,6 +144,19 @@ desktop notification, the `sabha-watch` banner and a line in `status/alerts.log`
 at that percent of either window until it resets; running briefs finish and nothing is killed. The Windows toast is
 UNTESTED. A per-role cost log is written to `status/cost-log.tsv`.
 
+## Session deck
+
+`mods/sabha-deck` is a Claude Code mod that shows every session's figures as one table, in the band above the prompt
+(terminal and VS Code), on the status line and in a `/deck` pane: the session name, context used (percent and tokens
+of the window), the 5-hour and weekly quota with when each resets, subagents running of total, tokens used (main and
+subagents, cache reads apart) and cost. `/deck band` hides or shows the band. Install it inside Claude Code:
+
+    /plugin install sabha-deck@claude-sabha
+
+Set its `sabhaImpl` option (`/plugin` > sabha-deck > configure) to your `SABHA_IMPL` and it also writes
+`status/context/<name>.txt` and `status/limits.txt`, so the restart loop and the board work without the bash status
+line. The `SABHA_NOTIFY` alerts still come from `statusline-sabha.sh`.
+
 ## Restart loop
 
 `bin/sabha-loop <Name>` supervises one pane. A Claude pane restarts when its context file reads `SABHA_LOOP_LIMIT` (30)
@@ -190,7 +207,7 @@ from the scripts):
 
 | Command | What |
 | --- | --- |
-| `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off]` | Writes `sabha.conf` (gitignored): plan, OS, the agent CLIs found, tracker, ntfy topic. Asks for what it is not given on a terminal |
+| `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off] [--ws DIR] [--home DIR] [--name NAME]` | Sets up the project's sabha folder (`~/my-claude-sabha/<name>`) and its `sabha.conf` (plan, OS, the agent CLIs found, tracker, ntfy topic), and links it into the project. Asks for what it is not given on a terminal |
 | `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions and the Remote Control policy; exits 1 only on a FAIL |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the restart line first, then a `pane:` line |
 | `bin/sabha-check` | Read-only list of each role's processes; DUPLICATE when more than one holds a name |
@@ -209,18 +226,24 @@ from the scripts):
 
 1. Requirements: Claude Code (`claude` on PATH, logged in), bash (3.2 or later), python3, `jq`, herdr. On Windows use
    Git Bash (beta).
-2. Run `bin/sabha init`, then `bin/sabha doctor`. `sabha.conf` is gitignored; `SABHA_CONF` points the scripts at another file.
-3. Copy `template/impl` to wherever `SABHA_IMPL` points and create `inbox/<Name>/` for each role, `status/context/`,
-   `status/.bak/` and `questions/`. Add `SABHA_PROTOCOL_CORE=PROTOCOL-core.md` and `SABHA_ROLE_DIR=protocol` to `sabha.conf`.
-4. From a plain terminal (not from inside a Claude session; its sandbox blocks terminal automation):
-   `bin/sabha-up.sh --plan pro`.
+2. Run `bin/sabha init --ws <project folder>`, then `bin/sabha doctor`. One sabha folder per project:
+   `<home>/<name>` (home `~/my-claude-sabha`, asked on a terminal or `--home`; name from the project folder, or
+   `--name`). `init` copies `template/impl` into it, makes one inbox per role of the plan, writes `sabha.conf` there
+   and links the folder into the project as `my-claude-sabha` (a symlink; on Windows without Developer Mode, a
+   junction). In a git repo the link goes into `.git/info/exclude`, so git never sees the team's files. Running it
+   again keeps every existing file.
+3. The scripts find the config as `SABHA_CONF`, else `./my-claude-sabha/sabha.conf`, else `sabha.conf` beside them,
+   and pass it to every pane. Run one sabha at a time: role names and the herdr session are shared by the machine.
+4. From the project folder in a plain terminal (not from inside a Claude session; its sandbox blocks terminal
+   automation): `bin/sabha-up.sh`.
 5. Install the deny list if you want it: merge `share/claude-settings.json` into your Claude settings (no remote
    pushes, `gh pr`, recursive deletes, `.env` or `.npmrc` reads).
 6. In each repository the roles work on, run `bin/sabha-worktree hook <repo>` (no commits in the main checkout) and
    `bin/sabha-worktree push-hook <repo>` (only you and the relay push). See [SECURITY.md](SECURITY.md).
 
-The roster names come from the theme (default Mahabharat, see [Themes](#themes)); the plan files keep the Mahabharat
-ids and the theme renames them for the launchers, `sabha-watch`, the hooks, the statusline and the board.
+Role ids are plain names (Relay, Dispatcher, BuilderHeavy, ...) in the plan files, inboxes and status folders. With no
+`SABHA_THEME` set the roles show their plain names; a theme renames them on screen for the launchers, `sabha-watch`,
+the hooks, the statusline and the board (see [Themes](#themes)).
 
 ## What is in it
 
@@ -228,7 +251,7 @@ ids and the theme renames them for the launchers, `sabha-watch`, the hooks, the 
 | --- | --- |
 | `bin/` | The scripts above, including `sabha-check` and `sabha-down.sh` |
 | `sabha.conf.example`, `sabha.<plan>.conf` | The config every script reads and the three plan rosters |
-| `template/impl/` | A starter `SABHA_IMPL`: `PROTOCOL-core.md`, `protocol/<Name>.md` cards, `status/vidur.md`, `GOALS.md`, `for-me.items` |
+| `template/impl/` | A starter `SABHA_IMPL`: `PROTOCOL-core.md`, `protocol/<Name>.md` cards, `status/relay.md`, `GOALS.md`, `for-me.items` |
 | `tracker/` | CSV templates, the HTML and xlsx builders, `cron-prompts.md`, `repos-export.py` |
 | `docs/inbox-protocol.md` | The file formats: briefs, acks, dones, cancels, the GO token, `for-me.items`, status files |
 | `docs/quickstart.md`, `docs/windows.md`, `docs/headless-runner.md` | The demo, the Windows notes and the runner design |

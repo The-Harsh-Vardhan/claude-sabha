@@ -3,6 +3,14 @@
 ## 1.0.0 - 2026-10-18
 
 - First public release.
+- One sabha folder per project, outside your repos: `sabha init --ws <project>` makes `~/my-claude-sabha/<name>`
+  (`--home`, asked on a terminal; `--name`, default the project folder's name), copies the starter files, makes one
+  inbox per role, writes `sabha.conf` inside it with the protocol keys, and links it into the project as
+  `my-claude-sabha` (symlink; junction on Windows without Developer Mode), listed in `.git/info/exclude`. Re-running
+  keeps existing files. Paths are quoted, so a space no longer breaks the config.
+- Config lookup: `SABHA_CONF`, else `./my-claude-sabha/sabha.conf`, else `sabha.conf` beside the scripts; the scripts
+  export it to every pane. A config in its sabha folder finds the plan file beside the scripts.
+- Role ids are now plain names (Relay, Dispatcher, BuilderHeavy, ...); themes, including mahabharat, are display skins over them, and `plain` is the default.
 - Themes: `SABHA_THEME` / `sabha init --theme` picks role names, colours and personas: mahabharat (default),
   avengers, hogwarts, middle-earth, plain.
 - Fix: the statusline's `tr` set broke on GNU tr (Linux, Git Bash).

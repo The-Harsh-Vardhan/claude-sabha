@@ -1,6 +1,8 @@
 # Copy to sabha.conf (gitignored) and fill in. $VAR and ~ expand; earlier keys can be used later.
-SABHA_WS=~/Work/my-workspace
-SABHA_IMPL=$SABHA_WS/path/to/impl
+# Quote a path that holds a space. SABHA_WS: where the roles start (the folder that holds your repos).
+# SABHA_IMPL: the sabha folder, the team's shared files (status/, inbox/, protocol/); keep it apart from your repos.
+SABHA_WS="$HOME/Work"
+SABHA_IMPL="$HOME/my-claude-sabha"
 # Optional: where FOR-ME.md and FOR-ME.html are written (default: SABHA_IMPL). Keep it outside this repo.
 #SABHA_FORME_DIR=$SABHA_WS/path/to/board
 #SABHA_CSV_DIR=$SABHA_WS/path/to/tracker   # agents.csv and for-me.csv, written on every render
@@ -36,22 +38,22 @@ SABHA_USER="the user"
 # (opencode tested; codex, agy and muse UNTESTED) and sabha-run never serves them. The one roster source
 # for the launchers, sabha-watch and the board. Order matters: the relay first, the dispatcher second, then the panes
 # in tab order (each tab: top row left to right, then the bottom row, up to 8).
-SABHA_ROSTER="Vidur:claude:opus:medium Yudhishthira:claude:opus:medium Bhishma:claude:fable:medium Bhima:claude:opus:high Arjun:claude:opus:medium Sahadev:claude:sonnet:high Nakul:claude:sonnet:medium Karna:claude:sonnet:medium Sanjaya:claude:haiku:high Duryodhan:claude:opus:high:gate,lazy Dushasan:claude:sonnet:high:gate,lazy Shakuni:claude:opus:high:gate,lazy Draupadi:claude:sonnet:high:gate,lazy Gandhari:claude:sonnet:medium:gate,lazy VedVyasa:claude:sonnet:medium:gate,lazy Barbarika:claude:haiku:medium:gate Abhimanyu:claude:haiku:medium:gate Krishna:claude:opus:medium:ondemand Ashwatthama:claude:haiku:high:ondemand Dronacharya:claude:sonnet:medium:ondemand"
+SABHA_ROSTER="Relay:claude:opus:medium Dispatcher:claude:opus:medium Architect:claude:fable:medium BuilderHeavy:claude:opus:high BuilderPrecise:claude:opus:medium Reviewer:claude:sonnet:high Writer:claude:sonnet:medium Runner:claude:sonnet:medium Scribe:claude:haiku:high BackendCritic:claude:opus:high:gate,lazy FrontendCritic:claude:sonnet:high:gate,lazy SecurityCritic:claude:opus:high:gate,lazy ScopeCritic:claude:sonnet:high:gate,lazy BlindReviewer:claude:sonnet:medium:gate,lazy Keeper:claude:sonnet:medium:gate,lazy Observer:claude:haiku:medium:gate Housekeeper:claude:haiku:medium:gate Tutor:claude:opus:medium:ondemand Watcher:claude:haiku:high:ondemand Coach:claude:sonnet:medium:ondemand"
 # Flags (comma list): ondemand = no pane, start it with sabha-up.sh <Name>; gate = a pane in the second tab (Gate);
 # lazy = no pane; bin/sabha-run starts it headless when a brief lands; mcp = keeps the user's MCP servers. No flag = a
 # Build-tab pane.
 # Panes: when set, exactly these roles get a pane, in this order (the relay first, so it restarts like the rest);
 # every other profile is on demand: a subagent of the dispatcher with its own model and effort, or sabha-up.sh <Name>.
 # When unset, the flags above decide.
-#SABHA_PANES="Vidur Yudhishthira Bhima Arjun Nakul"
-# Copies: Arjun-1, Arjun-2 ... take Arjun's profile with their own inbox, status file and worktree; at most this many
+#SABHA_PANES="Relay Dispatcher BuilderHeavy BuilderPrecise Writer"
+# Copies: BuilderPrecise-1, BuilderPrecise-2 ... take BuilderPrecise's profile with their own inbox, status file and worktree; at most this many
 # per role (2 on Pro, 4 on Max).
 #SABHA_MAX_COPIES=2
-# Role labels, shown as "Bhishma (Architect)" in the opening prompt and on the board.
-#SABHA_LABEL_Bhishma="Architect"
-# A role id is one word (Ved Vyasa is VedVyasa). SABHA_PROMPT_<Name> replaces the
+# Role labels, shown as "Architect (Architect)" in the opening prompt and on the board.
+#SABHA_LABEL_Architect="Architect"
+# A role id is one word (Ved Vyasa is Keeper). SABHA_PROMPT_<Name> replaces the
 # opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
-SABHA_PROMPT_Krishna="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
+SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
 # Headless runner (bin/sabha-run, docs/headless-runner.md). Which roles it serves: lazy (default), all, or names.
 #SABHA_RUN_ROLES=lazy
 # At most this many runs at once (default 2); a run is stopped after SABHA_RUN_TIMEOUT seconds (default 3600).
@@ -81,7 +83,7 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #---
 #id: 99
 #utc: 2026-10-14T09:00:00Z
-#owner: Vidur
+#owner: Relay
 #title: Which branch gets the demo
 #ask: Pat
 #q: Which branch should the demo be built from?

@@ -8,7 +8,7 @@ If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use 
 Render the board and work through what needs the user.
 
 1. Run `${CLAUDE_PLUGIN_ROOT}/bin/sabha-for-me` once as a plain command (no pipes, no chaining). Never use
-   `--watch`: it loops until interrupted. Honour `SABHA_CONF` (point to `sabha init --out <file>` if there is no
+   `--watch`: it loops until interrupted. Honour `SABHA_CONF` (point to `/sabha-init` if there is no
    config).
 2. Read the generated `FOR-ME.md` (in the impl folder, `SABHA_IMPL`) and list the user's open items (state OPEN).
 3. Ask them one at a time, in the shape RULES.md rule 5 and PROTOCOL-core "Questions" set: the question, one line on why

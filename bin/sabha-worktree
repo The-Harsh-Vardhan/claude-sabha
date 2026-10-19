@@ -3,7 +3,8 @@
 # Bash 3.2 safe.
 #   sabha-worktree create <repo-dir> <slug> <base> [--branch NAME]   new worktree <repo-dir>--<slug> on a new branch
 #                                                                    (default wt/<slug>) cut from <base>; prints its path
-#   sabha-worktree guard [dir]       exit 1 when dir (default: here) is a main checkout, 0 in a linked worktree
+#   sabha-worktree guard [dir]       exit 1 when dir (default: here) is a main checkout, or the staged files hold
+#                                    .sabha/local or a personal key in .sabha/config; 0 otherwise
 #   sabha-worktree hook <repo-dir>   install a pre-commit hook that runs the guard (refuses to replace an existing hook)
 #   sabha-worktree push-hook <repo-dir>   install a pre-push hook that runs push-guard (refuses to replace one)
 #   sabha-worktree push-guard        exit 1 when SABHA_ROLE names a role other than the relay (or cannot be resolved)
@@ -44,6 +45,21 @@ case ${1:-} in
     is_main "$d"; rc=$?
     [[ $rc -ne 2 ]] || die "$d is not in a git repository"
     if [[ $rc -eq 0 ]]; then echo "sabha-worktree: refusing: $d is a main checkout; commit in a worktree (sabha-worktree create)" >&2; exit 1; fi
+    # nothing personal reaches the repo: no file under .sabha/local (your status, inboxes, sabha.conf) and no personal
+    # key (paths, plan, theme, ntfy topic, SABHA_REMOTE) in a staged .sabha/config
+    lib=$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh
+    # shellcheck source=sabha-lib.sh
+    . "$lib"
+    staged=$(git -C "$d" diff --cached --name-only --diff-filter=ACMR) || die "cannot list staged files in $d"
+    while IFS= read -r f; do
+      case /$f in
+        */.sabha/local|*/.sabha/local/*)
+          echo "sabha-worktree: refusing: $f is under .sabha/local, your personal sabha folder; unstage it (git rm -r --cached .sabha/local)" >&2; exit 1 ;;
+        */.sabha/config)
+          keys=$(git -C "$d" show ":$f" | sed -n 's/^\(SABHA_[A-Za-z0-9_]*\)=.*/\1/p' | while read -r k; do sabha_shared_key "$k" || printf '%s ' "$k"; done)
+          [[ -z $keys ]] || { echo "sabha-worktree: refusing: personal keys in $f: ${keys% } (keep them in your sabha.conf)" >&2; exit 1; } ;;
+      esac
+    done <<<"$staged"
     ;;
   hook)
     [[ $# -ge 2 ]] || usage

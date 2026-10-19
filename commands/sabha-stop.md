@@ -9,7 +9,7 @@ Preview the shutdown of the sabha grid.
 
 Run `${CLAUDE_PLUGIN_ROOT}/bin/sabha-down.sh` exactly as written: no arguments, no pipes, no chaining. With no
 arguments it is a dry run: it prints what it would send, wait for, kill and close, and changes nothing. Honour
-`SABHA_CONF`; if the script reports no config, point the user to `sabha init --out <file>`.
+`SABHA_CONF`; if the script reports no config, point the user to `/sabha-init`.
 
 Never pass `--yes`, `--timeout` or `--kill-unsaved`. The script refuses `--yes` inside a Claude session (a kill needs
 a `go:` line, docs/inbox-protocol.md section 6) and osascript is blocked in the sandbox.

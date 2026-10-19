@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # sabha <command>: setup helpers. Written for bash 3.2 (macOS /bin/bash): no associative arrays, no ${x,,}.
-#   sabha init   [--plan pro|max5|max20] [--theme NAME] [--tracker html|xlsx|sheet] [--push ntfy|off] [--ws DIR] [--impl DIR]
-#                [--out FILE] [--force]    writes sabha.conf (gitignored); asks for what is not given when stdin is a tty
+#   sabha init   [--plan pro|max5|max20] [--theme NAME] [--tracker html|xlsx|sheet] [--push ntfy|off] [--ws DIR]
+#                [--home DIR] [--name NAME] [--impl DIR] [--out FILE] [--share yes|no] [--force]
+#                your sabha folder per project: <home>/<name> (home default ~/my-claude-sabha, name from the workspace
+#                folder; --impl sets the folder outright) with sabha.conf (--out), status and inboxes; with --share yes
+#                (default) the team's committed <ws>/.sabha/ (config, protocol, decisions, lessons); and a link
+#                <ws>/.sabha/local to your folder (kept out of git through .git/info/exclude); asks for what is not
+#                given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
-# Env: SABHA_CONF (config path, default ../sabha.conf beside this script), SABHA_SETTINGS (Claude settings.json to
-# check for the statusline hook, default ~/.claude/settings.json).
+# Env: SABHA_CONF (config path; else ./.sabha/local/sabha.conf, else ../sabha.conf beside this script),
+# SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$BIN/.." && pwd)
-CONF=${SABHA_CONF:-$ROOT/sabha.conf}
+CONF=${SABHA_CONF:-}
+[[ -z $CONF && -f $PWD/.sabha/local/sabha.conf ]] && CONF=$PWD/.sabha/local/sabha.conf
+CONF=${CONF:-$ROOT/sabha.conf}
 
 die() { echo "sabha: $*" >&2; exit 1; }
 
@@ -28,8 +35,106 @@ ask() {
   printf -v "$var" '%s' "$cur"
 }
 
+# conf_quote <path>: a double-quoted value for a sourced conf, so a space survives; a leading ~ becomes $HOME (no tilde
+# expansion inside quotes) and $VAR still expands, as sabha.conf.example promises
+conf_quote() {
+  local v=$1 bs='\' dq='"' bt='`'
+  case $v in "~") v='$HOME' ;; "~/"*) v='$HOME'${v#"~"} ;; esac
+  v=${v//"$bs"/"$bs$bs"}; v=${v//"$dq"/"$bs$dq"}; v=${v//"$bt"/"$bs$bt"}
+  printf '"%s"' "$v"
+}
+
+# scaffold_impl <conf> <plan> <share>: the starter files (template/impl; with share=yes, without the SHARED_DOCS,
+# which live in .sabha/) and one inbox per role of the plan in SABHA_IMPL. A folder that already holds GOALS.md keeps
+# its files; missing folders are still created.
+scaffold_impl() {
+  local conf=$1 plan=$2 share=$3 impl roster e f fresh=0
+  impl=$( set +u; . "$conf" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
+  [[ -n $impl ]] || die "init: SABHA_IMPL is empty in $conf"
+  roster=$( set +u; . "$ROOT/sabha.$plan.conf" >/dev/null 2>&1; echo "${SABHA_ROSTER:-}" )
+  mkdir -p "$impl" || die "init: cannot create $impl"
+  if [[ ! -e $impl/GOALS.md ]]; then
+    cp -R "$ROOT/template/impl/." "$impl/" || die "init: cannot copy template/impl into $impl"
+    if [[ $share == yes ]]; then for f in $SHARED_DOCS; do rm -rf "${impl:?}/$f"; done; fi
+    fresh=1
+  fi
+  mkdir -p "$impl/status/context" "$impl/status/.bak" "$impl/questions" || die "init: cannot create folders in $impl"
+  for e in $roster; do mkdir -p "$impl/inbox/${e%%:*}" || die "init: cannot create $impl/inbox/${e%%:*}"; done
+  if (( fresh )); then echo "sabha folder: $impl (starter files copied, one inbox per $plan role)"
+  else echo "sabha folder: $impl (existing files kept, missing folders created)"; fi
+}
+
+# tilde <path>: a leading ~ expanded, for the files init itself touches
+tilde() { case $1 in "~") printf '%s' "$HOME" ;; "~/"*) printf '%s' "$HOME${1#"~"}" ;; *) printf '%s' "$1" ;; esac; }
+
+# link_dir <target> <link>: a symlink; on Windows a native one (needs Developer Mode or admin), else a junction (no
+# rights needed; git clean -fdx removes only the junction, not what it points at). Git Bash's plain ln -s copies.
+link_dir() {
+  local t=$1 l=$2
+  case $(uname -s) in
+    MINGW*|MSYS*|CYGWIN*)
+      MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict ln -s "$t" "$l" 2>/dev/null && return 0
+      T=$(cygpath -w "$t") L=$(cygpath -w "$l") \
+        "$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -Command \
+        'New-Item -ItemType Junction -Path $env:L -Target $env:T | Out-Null' >/dev/null 2>&1 && [[ -d $l ]] ;;
+    *) ln -s "$t" "$l" ;;
+  esac
+}
+
+# SHARED_DOCS: the template files that live in the team's committed .sabha/ when the docs are shared
+SHARED_DOCS="PROTOCOL-core.md protocol ARCHITECTURE.md DECISIONS.md LESSONS.md"
+
+# scaffold_shared <dir> <project> <tracker>: the team's committed .sabha/ (config with the shared keys only, the
+# protocol, the record, merge=union for the two append-only logs). A file a teammate already committed is kept.
+scaffold_shared() {
+  local d=$1 project=$2 tracker=$3 f made=""
+  mkdir -p "$d" || die "init: cannot create $d"
+  if [[ ! -e $d/config ]]; then
+    {
+      echo "# The team's sabha settings, committed with the repo. Read as text, never run: only these keys count, and"
+      echo "# a key in your own sabha.conf wins. Paths, plan, theme, ntfy topic and SABHA_REMOTE are personal: keep"
+      echo "# them in sabha.conf (sabha doctor FAILs and the pre-commit hook refuses them here)."
+      echo "#   SABHA_PROJECT SABHA_ROSTER SABHA_PANES SABHA_MAX_COPIES SABHA_TRACKER SABHA_SHEET_ID SABHA_LABEL_<Name> SABHA_PROMPT_<Name>"
+      echo "SABHA_PROJECT=\"$project\""
+      echo "SABHA_TRACKER=$tracker"
+    } >"$d/config" || die "init: cannot write $d/config"
+    made="config"
+  fi
+  for f in $SHARED_DOCS; do
+    [[ -e $d/$f ]] && continue
+    cp -R "$ROOT/template/impl/$f" "$d/$f" || die "init: cannot copy $f into $d"
+    made="$made $f"
+  done
+  if [[ ! -e $d/.gitattributes ]]; then
+    printf 'DECISIONS.md merge=union\nLESSONS.md merge=union\n' >"$d/.gitattributes" || die "init: cannot write $d/.gitattributes"
+    made="$made .gitattributes"
+  fi
+  echo "team folder: $d (${made# }${made:+ added; }commit it with the repo)"
+}
+
+# link_ws <impl> <ws>: <ws>/.sabha/local -> the sabha folder. Inside a git work tree the link goes into
+# .git/info/exclude first (local, never committed): git lists a junction's files as untracked, so git add -A would
+# commit your status, inboxes and sabha.conf. An existing path is never replaced.
+link_ws() {
+  local impl=$1 ws=$2 l=$2/.sabha/local prefix ex
+  [[ -d $ws ]] || { echo "link: skipped, workspace $ws does not exist (make it, then run init again)"; return 0; }
+  mkdir -p "$ws/.sabha" || die "init: cannot create $ws/.sabha"
+  if prefix=$(git -C "$ws" rev-parse --show-prefix 2>/dev/null); then
+    ex=$(git -C "$ws" rev-parse --git-path info/exclude) || die "init: cannot find .git/info/exclude for $ws"
+    case $ex in /*|?:*) ;; *) ex=$ws/$ex ;; esac
+    mkdir -p "$(dirname "$ex")" || die "init: cannot create $(dirname "$ex")"
+    grep -qxF "/${prefix}.sabha/local" "$ex" 2>/dev/null || echo "/${prefix}.sabha/local" >>"$ex" || die "init: cannot write $ex"
+  fi
+  if [[ -e $l || -L $l ]]; then
+    [[ $l/sabha.conf -ef $impl/sabha.conf ]] && { echo "link: $l (already there)"; return 0; }
+    echo "link: skipped, $l exists and is not a link to $impl (move it, then run init again)"; return 0
+  fi
+  link_dir "$impl" "$l" || { echo "link: failed for $l; run the scripts with SABHA_CONF=$impl/sabha.conf" >&2; return 0; }
+  echo "link: $l -> $impl"
+}
+
 cmd_init() {
-  local plan="" theme="" tracker="" push="" ws="" impl="" out=$CONF force=0
+  local plan="" theme="" tracker="" push="" ws="" home="" name="" impl="" out="" share="" force=0
   while [[ $# -gt 0 ]]; do
     case $1 in
       --plan) plan=${2:-}; shift 2 ;;
@@ -37,17 +142,15 @@ cmd_init() {
       --tracker) tracker=${2:-}; shift 2 ;;
       --push) push=${2:-}; shift 2 ;;
       --ws) ws=${2:-}; shift 2 ;;
+      --home) home=${2:-}; shift 2 ;;
+      --name) name=${2:-}; shift 2 ;;
       --impl) impl=${2:-}; shift 2 ;;
       --out) out=${2:-}; shift 2 ;;
+      --share) share=${2:-}; shift 2 ;;
       --force) force=1; shift ;;
       *) die "init: unknown option $1" ;;
     esac
   done
-  [[ -e $out && $force == 0 ]] && die "init: $out exists (use --force to replace it)"
-  # a conf can carry a topic and paths: it must never land in a tracked file
-  if git -C "$(dirname "$out")" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$(dirname "$out")" check-ignore -q "$out" || die "init: $out is not gitignored; refusing to write it"
-  fi
 
   local os clis="" c
   case $(uname -s) in Darwin) os=macos ;; Linux) os=linux ;; MINGW*|MSYS*|CYGWIN*) os=windows ;; *) os=other ;; esac
@@ -59,26 +162,64 @@ cmd_init() {
   local themes
   themes=$(ls "$ROOT/themes" 2>/dev/null | sed -n 's/\.theme$//p' | tr '
 ' ' ')
-  ask theme "Theme (role names, colours and personas)" mahabharat "${themes% }"
+  ask theme "Theme (role names, colours and personas)" plain "${themes% }"
   [[ -f $ROOT/themes/$theme.theme ]] || die "init: no theme file themes/$theme.theme in $ROOT"
   ask tracker "Tracker (html = local page, no login; sheet = Google Sheet, better: phone, sharing, Inbox/Decisions round trip; xlsx = offline file)" html "html xlsx sheet"
   ask push "Phone push via ntfy (ntfy|off)" off "ntfy off"
-  ask ws "Workspace directory" '~/Work/my-workspace' ""
-  ask impl "Impl directory (status/, inbox/ live here)" "$ws/impl" ""
+  ask ws "Workspace directory (the roles start here: the folder that holds your repos)" '~/Work' ""
+  if [[ -z $impl ]]; then
+    ask home "Parent folder for the sabha folders (one per project, kept apart from your repos)" '~/my-claude-sabha' ""
+    local base; base=$(basename "$(tilde "$ws")")
+    base=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -cs 'a-z0-9._-' '-'); base=${base#-}; base=${base%-}
+    ask name "Project name (its sabha folder is $home/<name>)" "${base:-project}" ""
+    case $name in ''|*/*|.|..) die "init: project name must be one folder name (got '$name')" ;; esac
+    impl=${home%/}/$name
+  fi
+  [[ -n $name ]] || name=$(basename "$(tilde "$impl")")
+  ask share "Share the team files (settings, protocol, decisions, lessons) in <workspace>/.sabha, committed with the repo (yes|no)" yes "yes no"
+  if [[ $share == yes && ! -d $(tilde "$ws") ]]; then
+    echo "note: workspace $(tilde "$ws") does not exist, so the team files stay in your sabha folder (--share no); make it and run init --force to share"
+    share=no
+  fi
+  # who wrote a decision or lesson: the git user.name teammates see on commits, spaces as dashes
+  local uid
+  uid=$(git config user.name 2>/dev/null | tr ' ' '-' | LC_ALL=C tr -cd 'A-Za-z0-9._-')
+  uid=${uid:-${USER:-${USERNAME:-me}}}
+  [[ -n $out ]] || out=$(tilde "$impl")/sabha.conf
+  [[ -e $out && $force == 0 ]] && die "init: $out exists (use --force to replace it)"
+  mkdir -p "$(dirname "$out")" || die "init: cannot create $(dirname "$out")"
+  # a conf can carry a topic and paths: it must never land in a tracked file
+  if git -C "$(dirname "$out")" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$(dirname "$out")" check-ignore -q "$out" || die "init: $out is not gitignored; refusing to write it"
+  fi
 
   local topic=""
   # SIGPIPE from head ends tr; LC_ALL=C keeps tr from choking on bytes
   [[ $push == ntfy ]] && topic=sabha-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 20)
 
   {
-    # ENVIRON, not sed: a path may hold | & or a backslash
-    WS_VAL=$ws IMPL_VAL=$impl awk '/^SABHA_WS=/ { print "SABHA_WS=" ENVIRON["WS_VAL"]; next }
-      /^SABHA_IMPL=/ { print "SABHA_IMPL=" ENVIRON["IMPL_VAL"]; next } { print }' "$ROOT/sabha.conf.example"
+    # ENVIRON, not sed: a path may hold | & or a backslash. With share=yes the team's keys are commented out here:
+    # sabha.conf is read after .sabha/config, so a template default left in would override the team's value.
+    WS_VAL=$(conf_quote "$ws") IMPL_VAL=$(conf_quote "$impl") SHARE=$share awk '
+      /^SABHA_WS=/ { print "SABHA_WS=" ENVIRON["WS_VAL"]; next }
+      /^SABHA_IMPL=/ { print "SABHA_IMPL=" ENVIRON["IMPL_VAL"]; next }
+      ENVIRON["SHARE"] == "yes" && /^SABHA_(PROJECT|ROSTER|PANES|MAX_COPIES|TRACKER|SHEET_ID|LABEL_[A-Za-z0-9_]+|PROMPT_[A-Za-z0-9_]+)=/ {
+        print "# set in .sabha/config for the team; uncomment to override it for yourself"; print "#" $0; next }
+      { print }' "$ROOT/sabha.conf.example"
     echo
     echo "# Written by sabha init: os $os; agent CLIs found: ${clis:-none}."
+    echo "SABHA_PROTOCOL_CORE=PROTOCOL-core.md"
+    echo "SABHA_ROLE_DIR=protocol"
     echo "SABHA_PLAN=$plan"
     echo "SABHA_THEME=$theme"
-    echo "SABHA_TRACKER=$tracker"
+    if [[ $share == yes ]]; then
+      echo "# the team's committed folder: shared settings, protocol, decisions, lessons"
+      echo "SABHA_SHARED=$(conf_quote "${ws%/}/.sabha")"
+    else
+      echo "SABHA_TRACKER=$tracker"
+    fi
+    echo "# who wrote a decision or lesson entry: <SABHA_USER_ID>_HH:MM:SS_DD_MM_YYYY"
+    echo "SABHA_USER_ID=$uid"
     echo "SABHA_PUSH=$push"
     if [[ -n $topic ]]; then
       echo "# ntfy topics are readable by anyone who knows the name; this one is random. Self-host ntfy for privacy."
@@ -86,6 +227,10 @@ cmd_init() {
     fi
   } >"$out" || die "init: cannot write $out"
   echo "wrote $out (plan $plan, tracker $tracker, push $push, os $os, CLIs: ${clis:-none})"
+  scaffold_impl "$out" "$plan" "$share" || return 1
+  [[ $share == yes ]] && scaffold_shared "$(tilde "$ws")/.sabha" "$name" "$tracker"
+  link_ws "$(tilde "$impl")" "$(tilde "$ws")"
+  case $out in "$(tilde "$impl")/sabha.conf") ;; *) echo "note: run the scripts with SABHA_CONF=$out" ;; esac
   [[ $tracker != sheet ]] && echo "note: the Google Sheet tracker is the better option (phone, sharing, Inbox/Decisions round trip): sabha init --tracker sheet --force"
   [[ -n $topic ]] && echo "ntfy topic: $topic (subscribe to it in the ntfy app)"
   return 0
@@ -104,6 +249,20 @@ cmd_doctor() {
     remote=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_REMOTE:-}" )
     push=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_PUSH:-}" )
     ok "config $CONF"
+    local shared ws keys
+    shared=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_SHARED:-}" )
+    ws=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_WS:-}" )
+    if [[ -n $shared && -f $shared/config ]]; then
+      # shellcheck source=sabha-lib.sh
+      . "$BIN/sabha-lib.sh"
+      keys=$(sed -n 's/^\(SABHA_[A-Za-z0-9_]*\)=.*/\1/p' "$shared/config" | while read -r c; do sabha_shared_key "$c" || printf '%s ' "$c"; done)
+      if [[ -z $keys ]]; then ok "team config $shared/config"
+      else bad "personal keys in the committed $shared/config: ${keys% } (ignored there; move them to $CONF and out of git history)"; fi
+    fi
+    if [[ -e $ws/.sabha/local ]] && git -C "$ws" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      if git -C "$ws" check-ignore -q .sabha/local; then ok "$ws/.sabha/local is ignored by git"
+      else bad "$ws/.sabha/local is not ignored by git: git add -A would commit your status and sabha.conf (run sabha init again, or add /.sabha/local to .git/info/exclude)"; fi
+    fi
   else
     warn "no config at $CONF (run: sabha init)"
   fi
