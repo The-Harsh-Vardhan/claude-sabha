@@ -9,6 +9,7 @@
 #                given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
+#   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
@@ -250,6 +251,7 @@ cmd_init() {
   [[ $tracker != sheet ]] && echo "note: the Google Sheet tracker is the better option (phone, sharing, Inbox/Decisions round trip): sabha init --tracker sheet --force"
   [[ -n $topic ]] && echo "ntfy topic: $topic (subscribe to it in the ntfy app)"
   print_sandbox_hint "$(tilde "$impl")"
+  command -v python3 >/dev/null 2>&1 && python3 "$BIN/sabha-for-me" --tip-of-day 2>/dev/null
   return 0
 }
 
@@ -375,6 +377,7 @@ cmd_doctor() {
   [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
 
   echo "doctor: $FAILS fail, $WARNS warn"
+  command -v python3 >/dev/null 2>&1 && python3 "$BIN/sabha-for-me" --tip-of-day 2>/dev/null
   [[ $FAILS -eq 0 ]]
 }
 
@@ -412,6 +415,8 @@ case ${1:-} in
   doctor) shift; cmd_doctor ;;
   keep-awake) shift; cmd_keep_awake "$@" ;;
   update) shift; cmd_update ;;
+  tips) python3 "$BIN/sabha-for-me" --tips ;;
+  help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
 esac

@@ -1,0 +1,29 @@
+# One tip per line: key|surfaces|text|doc|needs   ('#' lines are comments; the board and `sabha tips` both read this file)
+#   key       [a-z][a-z0-9-]*, unique
+#   surfaces  comma list of cli and board:<element> (elements: see ELEMENTS in tests/test-tips.sh); one tip per element
+#   text      ASCII, at most 110 characters, no '|'
+#   doc       repo doc to read next (optional; shown by `sabha help <key>`)
+#   needs     optional: a string that must appear in bin/ or hooks/ for the tip to show (a feature on another branch)
+roles|cli,board:agents|Each role is one Claude session with its own inbox and status file. Talk only to the Relay.|README.md|
+briefs|cli|A brief is a numbered file in a role's inbox. bin/sabha-brief claims the number and writes it.|docs/inbox-protocol.md|
+ack-done|cli,board:inboxes|The receiver's first act is NNN.ack and its last is NNN.done. An ack without a done means resume.|docs/inbox-protocol.md|
+go-token|cli|An irreversible step needs a go: line naming the exact target in the newest brief. Chat never counts.|docs/inbox-protocol.md|
+review-gate|cli|A go: for a fold, push, PR, tag or release needs the Reviewer's ACCEPT and no unanswered BREAK.|docs/inbox-protocol.md|
+for-me|cli,board:your-move|Your move: what only you can answer or run. Answer a card and the sabha carries on.|README.md|
+waiting|board:waiting|Open items someone else owes. Nothing to do unless one is old.||
+in-flight|board:in-flight|Roles busy or blocked right now, with the next step each wrote.||
+done-today|board:done-today|Items closed today. Open it to check what finished.||
+card-question|board:card-question|A question with options, a recommended one and a free-text box. Unanswered cards use the recommended option.||
+copy-answer|board:copy-answer|Copies your answer as text. Paste it to the Relay; nothing is sent from this page.||
+state-idle|board:state-idle|Idle: waiting for work.||
+state-busy|board:state-busy|Busy: its status file changed in the last 10 minutes.||
+state-blocked|board:state-blocked|Blocked: the role wrote Blocked: with a reason. Read it in its status file.||
+state-stale|board:state-stale|Stale: no update for 30 minutes. It may be stuck or finished.||
+state-not-running|board:state-not-running|Not running: no live session for this role.||
+col-ctx|board:col-ctx|Share of the context window used. A Claude pane restarts fresh at 30 percent.||
+col-next|board:col-next|The first Next: line from the role's status file.||
+loop-restart|cli|At 30 percent context a role saves a handoff and sabha-loop restarts it fresh. SABHA_LOOP_LIMIT changes it.|README.md|
+themes|cli|A theme only renames roles and recolours them on screen. Scripts and inboxes keep the plain names.|docs/themes.md|
+herdr-panes|cli|On the herdr backend all roles live in one herdr session called sabha, in two tabs: Build and Gate.|README.md|
+keep-awake|cli|The sabha can keep the Mac awake while roles run, so sleep does not pause a task (needs feat/keep-awake).||caffeinate
+permission-relay|cli|A worker's permission prompt goes to the Relay, which asks you (needs feat/permission-relay).|SECURITY.md|sabha-perm
