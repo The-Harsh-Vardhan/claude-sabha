@@ -85,7 +85,7 @@ SEEN=$IMPL/status/done-seen
 first=0; [[ -d $SEEN ]] || first=1
 if [[ -n $DISPATCHER ]] && mkdir -p "$SEEN" 2>/dev/null; then
   nudge=${SABHA_NUDGE_BIN:-$BIN/sabha-nudge}
-  for d in "$IMPL"/inbox/*/[0-9][0-9][0-9].done; do
+  for d in "$IMPL"/inbox/*/[0-9][0-9][0-9]*.done; do
     [[ -e $d ]] || continue
     role=$(basename "$(dirname "$d")"); n=$(basename "$d" .done)
     (set -C; : >"$SEEN/$role-$n") 2>/dev/null || continue
