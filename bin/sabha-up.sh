@@ -203,7 +203,9 @@ if [[ $(sabha_backend) == herdr ]]; then
     out=$(sabha_h tab create --workspace "$ws" --cwd "$SABHA_WS" --label Gate --no-focus) || exit 1
     fill_tab "$(sabha_jid "${out#*\"root_pane\"}" pane_id)" "${gate[@]}"
   fi
-  echo "sabha-up: attach with: herdr --session $(sabha_session)   (UNTESTED flag spelling; VS Code integrated terminal on Mac/Linux: herdr attach)"
+  # headful by default: a start from a terminal opens the grid in it; scripts, tests and SABHA_ATTACH=0 stay headless
+  [[ -t 0 && -t 1 && ${SABHA_ATTACH:-1} != 0 ]] && exec herdr session attach "$(sabha_session)"
+  echo "sabha-up: grid is headless; view it with: herdr session attach $(sabha_session)"
   exit 0
 fi
 
