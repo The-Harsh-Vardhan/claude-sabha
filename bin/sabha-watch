@@ -2,6 +2,8 @@
 # Read-only report: each role's context percent, its age and state, the restart line for a tab
 # above 30 percent that is not mid-task, the user's open items, and briefs nobody has acked. With SABHA_RUN_AUTO=1 it
 # then runs one sabha-run pass, so whatever calls sabha-watch on a schedule also starts headless runs.
+# A new inbox/<Role>/NNN.done is announced once with sabha-nudge: to the dispatcher, or to the relay for a .done in the
+# dispatcher's own inbox. The first pass only records the dones that already exist. SABHA_NUDGE_BIN replaces sabha-nudge (tests).
 #   sabha-watch
 # Paths come from sabha.conf and the team's .sabha/config (sabha_conf_read in sabha-lib.sh). Always exits 0.
 set -uo pipefail
@@ -16,6 +18,9 @@ IMPL=${SABHA_IMPL:?missing from sabha.conf}
 . "$BIN/sabha-limits.sh"
 sabha_limits_banner
 LIMIT=30 STALE_MIN=15 UNACKED_MIN=10
+# RELAY and DISPATCHER (themed names) come from sabha_load; it exits on a bad config, so probe it in a subshell first
+RELAY="" DISPATCHER=""
+if (sabha_load sabha-watch) >/dev/null 2>&1; then sabha_load sabha-watch; fi
 now=$(date +%s)
 age_min() { echo $(( (now - $(date -r "$1" +%s)) / 60 )); }
 
@@ -73,6 +78,22 @@ for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]-*.md; do
   (( $(age_min "$b") > UNACKED_MIN )) && unacked+="inbox/$(basename "$d")/$n (sent $(date -r "$b" +%H:%M)) "
 done
 echo "unacked briefs: ${unacked:-none}"
+# wake the receiver of each .done once: status/done-seen/<Role>-<NNN> is claimed with noclobber, so two watchers
+# nudge only once; the nudge runs in the background (it waits for the agent to settle) and logs to status/done-nudge.log
+SEEN=$IMPL/status/done-seen
+# no DISPATCHER (sabha_load failed) means no claim at all: a claimed .done is never announced later
+first=0; [[ -d $SEEN ]] || first=1
+if [[ -n $DISPATCHER ]] && mkdir -p "$SEEN" 2>/dev/null; then
+  nudge=${SABHA_NUDGE_BIN:-$BIN/sabha-nudge}
+  for d in "$IMPL"/inbox/*/[0-9][0-9][0-9]*.done; do
+    [[ -e $d ]] || continue
+    role=$(basename "$(dirname "$d")"); n=$(basename "$d" .done)
+    (set -C; : >"$SEEN/$role-$n") 2>/dev/null || continue
+    (( first )) && continue
+    to=$DISPATCHER; [[ $role == "$DISPATCHER" ]] && to=$RELAY
+    ( "$nudge" "$to" "see inbox/$role/$n.done" </dev/null >>"$IMPL/status/done-nudge.log" 2>&1 || echo "nudge $to failed for inbox/$role/$n.done" >>"$IMPL/status/done-nudge.log" ) &
+  done
+fi
 # the headless runner rides on this report instead of a loop of its own (docs/headless-runner.md)
 [[ ${SABHA_RUN_AUTO:-0} == 1 ]] && "$BIN/sabha-run"
 exit 0

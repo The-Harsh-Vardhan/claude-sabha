@@ -9,7 +9,7 @@ dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-init.XXXXXX") || exit 1
 trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 mkdir -p "$dir/fakebin" "$dir/sysbin"
-for c in grep sed head tr uname dirname git mktemp date awk cat sh env rm mkdir cp; do p=$(command -v $c) && ln -sf "$p" "$dir/sysbin/$c"; done
+for c in grep sed head tr uname dirname git mktemp date awk cat sh env rm mkdir cp ln basename; do p=$(command -v $c) && ln -sf "$p" "$dir/sysbin/$c"; done
 for c in claude opencode; do printf '#!/bin/sh\nexit 0\n' >"$dir/fakebin/$c"; chmod +x "$dir/fakebin/$c"; done
 P="$dir/fakebin:$dir/sysbin"
 # Git Bash: a copied tool cannot load msys-2.0.dll (git its libexec), so use the real dirs; no agent CLI lives there
@@ -22,6 +22,9 @@ V() { ( HOME=$H; set +u; . "$1" >/dev/null 2>&1; eval "printf '%s' \"\${$2:-}\""
 
 out=$dir/a.conf
 res=$(S init --plan max5 --tracker html --push ntfy --ws "$dir/w" --impl "$dir/w/impl" --out "$out" </dev/null) || fail "init failed: $res"
+# the sandbox hint: exact JSON for the sabha folder, valid, and no settings or permission file written anywhere
+case $res in *'"allowWrite": ["'"$dir"'/w/impl"]'*) ;; *) fail "init must print the sandbox allowWrite line for the sabha folder: $res" ;; esac
+[[ ! -e $H/.claude && ! -e $dir/w/.claude ]] || fail "init must not create a Claude Code settings file"
 grep -qx 'SABHA_PLAN=max5' "$out" || fail "plan missing"
 grep -qx 'SABHA_TRACKER=html' "$out" || fail "tracker missing"
 grep -qx 'SABHA_PUSH=ntfy' "$out" || fail "push missing"

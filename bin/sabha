@@ -135,6 +135,16 @@ link_ws() {
   echo "link: $l -> $impl"
 }
 
+# print_sandbox_hint <impl>: Claude Code's sandbox blocks writes outside the workspace, so every role write to the
+# sabha folder prompts or is denied. Prints the setting that allows it; never edits a settings or permission file.
+print_sandbox_hint() {
+  local p=$1 bs='\' dq='"'
+  p=${p//"$bs"/"$bs$bs"}; p=${p//"$dq"/"$bs$dq"}
+  echo "sandbox: roles write $1 from inside Claude Code's sandbox. To allow it without a prompt per write, add this to"
+  echo "your Claude Code settings (~/.claude/settings.json, or .claude/settings.local.json in the workspace); sabha does not edit any settings file:"
+  printf '{\n  "sandbox": {\n    "filesystem": {\n      "allowWrite": ["%s"]\n    }\n  }\n}\n' "$p"
+}
+
 cmd_init() {
   local plan="" theme="" tracker="" push="" ws="" home="" name="" impl="" out="" share="" force=0
   while [[ $# -gt 0 ]]; do
@@ -236,6 +246,7 @@ cmd_init() {
   case $out in "$(tilde "$impl")/sabha.conf") ;; *) echo "note: run the scripts with SABHA_CONF=$out" ;; esac
   [[ $tracker != sheet ]] && echo "note: the Google Sheet tracker is the better option (phone, sharing, Inbox/Decisions round trip): sabha init --tracker sheet --force"
   [[ -n $topic ]] && echo "ntfy topic: $topic (subscribe to it in the ntfy app)"
+  print_sandbox_hint "$(tilde "$impl")"
   return 0
 }
 
