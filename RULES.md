@@ -36,7 +36,7 @@ Why: a week of usage is finite, and several strong sessions at once hit the limi
 ## 4. Never queue behind a busy role
 
 A role is a label for a model and an effort, not a person. When a role is busy, above 30 percent or down, run the
-work as a subagent with that role's model, or start a copy (`Arjun-2`), and run independent briefs side by side.
+work as a subagent with that role's model, or start a copy (`BuilderPrecise-2`), and run independent briefs side by side.
 Stay cost-aware: the cheapest model that fits, no strong model for docs.
 
 Why: waiting for one session to restart costs wall-clock time, and the roles are cheap to copy.

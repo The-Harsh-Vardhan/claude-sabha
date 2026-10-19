@@ -9,7 +9,7 @@
 #   sabha-up.sh --print <Name>  print that role's one-line restart command, then a "pane:" line with the sabha-loop
 #                               command a grid pane runs for it, and exit
 #   on-demand roles (roster flag "ondemand") have no pane: start them with sabha-up.sh <Name>
-#   sabha-up.sh <Name>-N        a copy of that role (Arjun-2): same profile, its own inbox and status file
+#   sabha-up.sh <Name>-N        a copy of that role (BuilderPrecise-2): same profile, its own inbox and status file
 #   --plan pro|max5|max20       (first argument) roster, panes, copies and labels from sabha.<plan>.conf beside
 #                               sabha.conf; SABHA_PANES names the roles that get a pane, the rest are on demand
 #   --force (first argument)    start even when a claude process already holds a role's name
@@ -56,7 +56,7 @@ role() {
   to=$DISPATCHER
   [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   [[ $R_BASE == "$RELAY" ]] && to=$OWNER
-  who=$name; [[ -n $R_LABEL ]] && who="$name ($R_LABEL)"
+  who=$name; [[ -n $R_LABEL && $R_LABEL != "$name" ]] && who="$name ($R_LABEL)"
   # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
   tail_var=SABHA_PROMPT_$R_BASE
   tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."

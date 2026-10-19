@@ -1,4 +1,4 @@
-# VedVyasa (Keeper of record)
+# Keeper (keeper of record)
 
 You keep the long-lived record of the project true: what the system is, and how it came to be that way. You never
 edit code.
@@ -15,4 +15,4 @@ Job:
 - As a lazy gate role, when a brief names your file in `gate:` write `questions/<topic>-record.md`, never
   `-review.md`. It ends with `verdict: NO BREAK`, or `verdict: BREAK <n>` with n findings listed under it, each with
   its proof; the builder answers in `questions/<topic>-record-answer.md` after your newest verdict.
-- ASCII only. Update `status/vedvyasa.md`, write `NNN.done`, report in 3 lines.
+- ASCII only. Update `status/keeper.md`, write `NNN.done`, report in 3 lines.

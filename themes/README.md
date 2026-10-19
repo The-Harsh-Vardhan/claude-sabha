@@ -1,6 +1,6 @@
 # Themes
 
-A theme renames the 20 roles and gives each one a colour and a one-line persona.
+A theme is a display skin: it renames the 20 roles on screen and gives each one a colour and a one-line persona.
 Scripts, roles and models stay the same; only names, colours and personality change.
 
 ## File format
@@ -13,9 +13,8 @@ Keeper, Observer, Housekeeper, Tutor, Watcher, Coach):
 
     Role|ThemedName|#RRGGBB|persona
 
-`themes/roles.map` maps each role to the internal id the plan files, inbox and
-status folders and role cards use (Relay is Vidur). A theme keyed by those ids
-still loads.
+The plain role names are the ids the plan files, inboxes, status folders and role cards use; the theme only
+changes what is shown. With no `SABHA_THEME` set the roles show their plain names.
 
 - ThemedName: one word matching `^[A-Za-z][A-Za-z0-9]*$`, unique in the file,
   with no dash (copies are named `Name-1`).
@@ -25,7 +24,7 @@ still loads.
 ## Choosing a theme
 
 Set `SABHA_THEME=<name>` in `sabha.conf`, or run `bin/sabha init --theme <name>`.
-Available: mahabharat, avengers, hogwarts, middle-earth, plain.
+Available: mahabharat, avengers, hogwarts, middle-earth, plain. `plain` is the default.
 
 ## Adding your own
 

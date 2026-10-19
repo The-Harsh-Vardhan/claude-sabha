@@ -27,7 +27,7 @@ good=$PATH
 out=$(PATH=$dir/real:$dir/stubs:$good "$SH" "$BIN/sabha-up.sh" --plan pro 2>&1); rc=$?
 check "SABHA_TEST=1 + a herdr that is not SABHA_HERDR_BIN: sabha-up --plan pro refuses" '(( rc != 0 )) && grep -q "refusing to touch a real herdr" <<<"$out"'
 check "...and the other herdr was never called" '[[ ! -s $REAL_LOG ]]'
-out=$(PATH=$dir/real:$dir/stubs:$good "$SH" "$BIN/sabha-nudge" Arjun "x" 2>&1); rc=$?
+out=$(PATH=$dir/real:$dir/stubs:$good "$SH" "$BIN/sabha-nudge" BuilderPrecise "x" 2>&1); rc=$?
 check "sabha-nudge refuses the same way and calls nothing" '(( rc != 0 )) && [[ ! -s $REAL_LOG ]]'
 out=$(SABHA_HERDR_BIN= PATH=$dir/stubs:$good "$SH" "$BIN/sabha-up.sh" --plan pro 2>&1); rc=$?
 check "SABHA_HERDR_BIN unset or empty: refuses" '(( rc != 0 )) && grep -q "refusing" <<<"$out"'

@@ -1,11 +1,11 @@
 ---
 name: sabha-dispatch
-description: Use when you are the dispatcher - taking a brief from the relay, splitting it, assigning pieces to workers by difficulty, tracking acks and dones, or starting a copy (Arjun-2) because a role is busy.
+description: Use when you are the dispatcher - taking a brief from the relay, splitting it, assigning pieces to workers by difficulty, tracking acks and dones, or starting a copy (BuilderPrecise-2) because a role is busy.
 ---
 
 # Dispatching
 
-Source: RULES.md rules 2, 3, 4; template/impl/protocol/Yudhishthira.md; docs/inbox-protocol.md sections 2-6;
+Source: RULES.md rules 2, 3, 4; template/impl/protocol/Dispatcher.md; docs/inbox-protocol.md sections 2-6;
 PROTOCOL-core "Roster", "Messages and budget".
 
 ## Loop
@@ -16,7 +16,7 @@ PROTOCOL-core "Roster", "Messages and budget".
 3. Nudge each worker with one line: `see inbox/<Worker>/NNN`.
 4. Track. A brief with an ack and no `.done` is open; one with neither is unacked. `bin/sabha-watch` lists unacked
    briefs, the restart lines and open items. Resume any brief that has an ack and no done.
-5. Every `.done` of code goes to the reviewer; docs and decision files go to the scribe (Yudhishthira.md).
+5. Every `.done` of code goes to the reviewer; docs and decision files go to the scribe (Dispatcher.md).
 6. Report to the relay at milestones only: at most 3 lines, detail in a file.
 
 ## Route by difficulty (cheapest that fits)
@@ -31,9 +31,9 @@ The real roster is the project's `SABHA_ROSTER` and `PROTOCOL-core.md`; roles ar
 
 ## Never queue behind a busy role
 
-If a worker is busy, above 30 percent context or down: brief a copy (`Arjun-2`; same profile, its own inbox, status
+If a worker is busy, above 30 percent context or down: brief a copy (`BuilderPrecise-2`; same profile, its own inbox, status
 file and worktree; needs `SABHA_MAX_COPIES` to allow it, README) or run the piece as a subagent with that role's
-model. Start a copy with `sabha-up.sh Arjun-2`. Run independent briefs side by side (rule 4).
+model. Start a copy with `sabha-up.sh BuilderPrecise-2`. Run independent briefs side by side (rule 4).
 
 ## Questions and irreversible steps
 

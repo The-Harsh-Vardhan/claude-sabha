@@ -127,7 +127,7 @@ while :; do
       restart)
         log "restart: $([[ $kind == claude ]] && echo "context $(tr -d ' \n' <"$ctx")% and a newer handoff" || echo "a brief finished")"
         # Claude Code quits on two Ctrl-C a second apart; a child started with "&" in a script may have SIGINT
-        # ignored (Sahadev 032), so anything still alive after the grace gets TERM (tests/test-loop.sh case 1b)
+        # ignored (Reviewer 032), so anything still alive after the grace gets TERM (tests/test-loop.sh case 1b)
         kill -INT "$cpid" 2>/dev/null; sleep 1; kill -INT "$cpid" 2>/dev/null
         for _ in $(seq 1 "${SABHA_LOOP_GRACE:-15}"); do kill -0 "$cpid" 2>/dev/null || break; sleep 1; done
         kill -0 "$cpid" 2>/dev/null && kill -TERM "$cpid" 2>/dev/null

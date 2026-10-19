@@ -17,13 +17,13 @@ claims it, then a `.done` with the result. A `.cancel` stops it.
 ```mermaid
 sequenceDiagram
     actor You
-    participant R as Relay (Vidur)
-    participant D as Dispatcher (Yudhishthira)
-    participant B as Builder (Bhima)
+    participant R as Relay
+    participant D as Dispatcher
+    participant B as Builder
     participant G as Reviewer and critics
     You->>R: "add CSV export"
-    R->>D: inbox/Yudhishthira/007-vidur-csv-export.md
-    D->>B: inbox/Bhima/012-yudhishthira-csv-export.md
+    R->>D: inbox/Dispatcher/007-relay-csv-export.md
+    D->>B: inbox/BuilderHeavy/012-dispatcher-csv-export.md
     B-->>D: 012.ack, then work in a worktree
     B->>G: 012.done names the diff
     G-->>B: questions/csv-review.md, csv-be.md, ...

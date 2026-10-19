@@ -13,7 +13,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-THEMES = ["mahabharat", "avengers", "hogwarts", "middle-earth", "plain"]
+THEMES = ["plain", "mahabharat", "avengers", "hogwarts", "middle-earth"]
 PLANS = [("Pro", "sabha.pro.conf"), ("Max 5x", "sabha.max5.conf"), ("Max 20x", "sabha.max20.conf")]
 FAN = {"avengers", "hogwarts", "middle-earth"}
 
@@ -28,13 +28,11 @@ def read(p):
 
 
 def theme_rows(theme):
-    # theme files are keyed by the plain role name; themes/roles.map gives the id the cards, plans and icons use
-    ids = dict(l.split("|") for l in read("themes/roles.map").splitlines() if "|" in l and not l.startswith("#"))
     rows = []
     for line in read("themes/%s.theme" % theme).splitlines():
         if line.strip() and not line.startswith("#"):
             rid, name, colour, persona = line.split("|", 3)
-            rows.append({"id": ids.get(rid, rid), "name": name, "colour": colour, "persona": persona})
+            rows.append({"id": rid, "name": name, "colour": colour, "persona": persona})
     return rows
 
 
@@ -72,7 +70,7 @@ def icon(theme, rid, size=48):
 def write_roster():
     lab = labels()
     plans = [(n, plan_roles(c)) for n, c in PLANS]
-    base = theme_rows("mahabharat")
+    base = theme_rows("plain")
     out = [
         "---",
         "title: Roster",
@@ -96,7 +94,7 @@ def write_roster():
         rid = r["id"]
         cells = [roles.get(rid, "-") for _, roles in plans]
         out.append("| %s | **%s** | %s | %s | %s |" % (
-            icon("mahabharat", rid), rid, lab.get(rid, ""), job(rid), " | ".join(cells)))
+            icon("plain", rid), rid, lab.get(rid, ""), job(rid), " | ".join(cells)))
     out += ["", "Each role's full card is in `template/impl/protocol/<Id>.md`.", "", "# Themes side by side", ""]
     out.append("| Role | %s |" % " | ".join(theme_title(t) for t in THEMES))
     out.append("| --- | %s |" % " | ".join("---" for _ in THEMES))

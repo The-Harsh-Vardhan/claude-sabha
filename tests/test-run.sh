@@ -18,7 +18,7 @@ cat > "$dir/sabha.conf" <<EOF
 SABHA_WS=$dir/ws
 SABHA_IMPL=$dir/impl
 SABHA_PROJECT=Test
-SABHA_ROSTER="Vidur:opus:medium Yudhi:opus:medium Arjun:sonnet:high Lazy1:haiku:low:gate,lazy Lazy2:sonnet:medium:lazy,mcp Lazy3:haiku:high:lazy Tutor:opus:medium:ondemand"
+SABHA_ROSTER="Relay:opus:medium Yudhi:opus:medium BuilderPrecise:sonnet:high Lazy1:haiku:low:gate,lazy Lazy2:sonnet:medium:lazy,mcp Lazy3:haiku:high:lazy Tutor:opus:medium:ondemand"
 EOF
 # fake claude: logs its argv; FAKE_SLEEP or FAKE_HOLD holds it running; FAKE_DONE=1 writes the brief's .done as a real run would
 cat > "$dir/stubs/claude" <<'STUB'
@@ -46,7 +46,7 @@ run() { out=$("$SH" "$BIN/sabha-run" "$@" 2>&1); rc=$?; }
 
 # 001 acked, 002 cancelled, 003 due, 004 later
 reset; brief Lazy1 001; : > "$dir/impl/inbox/Lazy1/001.ack"; brief Lazy1 002; : > "$dir/impl/inbox/Lazy1/002.cancel"
-brief Lazy1 003; brief Lazy1 004; brief Arjun 001; brief Lazy2 001
+brief Lazy1 003; brief Lazy1 004; brief BuilderPrecise 001; brief Lazy2 001
 run --print
 echo "--- sabha-run --print (rc $rc)"; echo "$out"
 check "print picks the lowest due brief (Lazy1 003)" 'grep -q "Lazy1/003-yudhi-task.md" <<<"$out" && ! grep -q "Lazy1/004" <<<"$out"'
@@ -54,11 +54,11 @@ check "print: claude -p with the roster model, effort, name" 'grep -q "claude -p
 check "print: an mcp role keeps its MCP servers" 'grep -q "claude -p -n Lazy2 --model sonnet --effort medium --permission-prompts none" <<<"$out"'
 check "print: never skips permissions" '! grep -q dangerously <<<"$out"'
 check "print: prompt reads the protocol and the status file" 'grep -q "PROTOCOL.md, then status/lazy1.md, then the brief .*/Lazy1/003-yudhi-task.md" <<<"$out"'
-check "default serves lazy roles only (Arjun not run)" '! grep -q "Arjun" <<<"$out"'
+check "default serves lazy roles only (BuilderPrecise not run)" '! grep -q "BuilderPrecise" <<<"$out"'
 check "print writes nothing and calls nothing" '[[ ! -e $dir/impl/inbox/Lazy1/003.ack && ! -s $CALLS && ! -e $dir/impl/runs ]]'
-run --print Arjun
-check "a role named on the command line is served" 'grep -q "claude -p -n Arjun --model sonnet --effort high" <<<"$out"'
-run --print Vidur
+run --print BuilderPrecise
+check "a role named on the command line is served" 'grep -q "claude -p -n BuilderPrecise --model sonnet --effort high" <<<"$out"'
+run --print Relay
 check "the relay is never run headless" 'grep -q "relay is never run headless" <<<"$out" && ! grep -q "claude -p" <<<"$out"'
 
 run --wait Lazy1

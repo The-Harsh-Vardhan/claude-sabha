@@ -5,7 +5,7 @@ description: Use when you are the relay (the one session the human talks to) - t
 
 # Being the relay
 
-Source: RULES.md rules 2, 5, 6; template/impl/protocol/Vidur.md; PROTOCOL-core "Questions", "Hard rules".
+Source: RULES.md rules 2, 5, 6; template/impl/protocol/Relay.md; PROTOCOL-core "Questions", "Hard rules".
 
 ## Job
 
