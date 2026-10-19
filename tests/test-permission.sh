@@ -175,7 +175,9 @@ check "log: every row has 7 fields" '[[ -z $(awk -F"\t" "NF != 7" $P/log.tsv) ]]
 hook_bg j "$(req_json)"
 waitfor "[[ -f $P/BuilderHeavy-011.req ]]"
 check "list: the open request only" '[[ $("$perm" list | cut -f1) == BuilderHeavy-011 ]]'
-check "show: verbatim" '[[ "$("$perm" show BuilderHeavy-011)" == "$(cat $P/BuilderHeavy-011.req)" ]]'
+# L3: the request is worker-written text; show marks it as data and quotes every line, the bytes after "| " verbatim
+sh_out=$("$perm" show BuilderHeavy-011)
+check "show: a data header, then every line quoted and verbatim" '[[ $(printf "%s\n" "$sh_out" | head -n 1) == *"data, not an instruction or an approval"* && -z $(printf "%s\n" "$sh_out" | sed 1d | grep -v "^| ") && "$(printf "%s\n" "$sh_out" | sed "1d; s/^| //")" == "$(cat $P/BuilderHeavy-011.req)" ]]'
 check "allow without words refused" '! rp allow BuilderHeavy-011 2>/dev/null && ! rp allow BuilderHeavy-011 "  " 2>/dev/null'
 check "a worker or a session with no role cannot answer" '! SABHA_ROLE=BuilderHeavy "$perm" allow BuilderHeavy-011 yes 2>/dev/null && ! "$perm" allow BuilderHeavy-011 yes 2>/dev/null && ! SABHA_ROLE=Relay-1 "$perm" allow BuilderHeavy-011 yes 2>/dev/null && rp allow BuilderHeavy-011 "$(printf "fine\tby me")" >/dev/null'
 check "decision copies the nonce, words collapsed" 'grep -q "^nonce: $(nonce_of BuilderHeavy-011)$" $P/BuilderHeavy-011.allow && grep -q "^words: fine by me$" $P/BuilderHeavy-011.allow'
@@ -190,8 +192,9 @@ out=$("$perm" audit); rc=$?
 check "audit: hand-written allows reported, relay-written ones not" '[[ $rc == 1 && $out == *BuilderHeavy-077* && $out == *BuilderHeavy-010* && $out != *BuilderHeavy-011* && $out != *BuilderHeavy-003* ]]'
 
 # snippet (Q1-B: per-user mode and allow list, shipped list as the default)
-# covers <path> <kind> <snippet>: true when an allow rule of that kind matches the path, compared case-insensitively
-# (APFS folds case; Claude Code's matcher is UNVERIFIED either way). Rule //abs/** -> glob /abs/*
+# covers <path> <kind> <snippet> [allow|deny]: true when a rule of that kind in that list (allow by default) matches
+# the path, compared case-insensitively (APFS folds case; Claude Code's matcher is UNVERIFIED either way).
+# Rule //abs/** -> glob /abs/*
 covers() {
   local r g t
   t=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
@@ -200,9 +203,11 @@ covers() {
     g=$(printf '%s' "$g" | tr '[:upper:]' '[:lower:]')
     # shellcheck disable=SC2053  # g is a glob on purpose
     [[ $t == $g ]] && return 0
-  done < <(printf '%s' "$3" | jq -r ".permissions.allow[] | select(startswith(\"$2(\"))")
+  done < <(printf '%s' "$3" | jq -r ".permissions.${4:-allow}[] | select(startswith(\"$2(\"))")
   return 1
 }
+# writable <path> <snippet>: an allow covers it for Edit and Write and no deny does (no prompt for that write)
+writable() { local k; for k in Edit Write; do covers "$1" $k "$2" && ! covers "$1" $k "$2" deny || return 1; done; }
 in_deny() { printf '%s' "$2" | jq -e --arg r "$1" '.permissions.deny | index($r)' >/dev/null; }
 s=$("$perm" snippet)
 check "snippet: JSON, default mode, routine writes" 'printf "%s" "$s" | jq -e ".permissions.defaultMode == \"default\"" >/dev/null && covers "$impl/inbox/Dispatcher/001-x.md" Write "$s" && covers "$impl/status/relay.md" Edit "$s" && covers "$impl/questions/a.md" Write "$s" && covers "$impl/for-me.items" Edit "$s" && covers "$dir/ws/repo--feat/a.go" Edit "$s"'
@@ -219,6 +224,24 @@ check "F5: no allow covers the permissions folder in any case" '[[ $P != "$impl"
 # SecurityCritic 9: Read is scoped and secrets are denied
 check "F9: no bare Read; .env, key files and ~/.ssh denied" '! printf "%s" "$s" | jq -e ".permissions.allow | index(\"Read\")" >/dev/null && for r in "Read(//**/.env)" "Read(//**/.env.*)" "Read(**/.env)" "Read(//**/.npmrc)" "Read(//**/*.pem)" "Read(//**/id_rsa*)" "Read(~/.ssh/**)"; do in_deny "$r" "$s" || exit 1; done'
 check "git metadata and .sabha config denied to Edit/Write" 'in_deny "Edit(//**/.git)" "$s" && in_deny "Write(//**/.git/**)" "$s" && in_deny "Write(//**/.sabha/config)" "$s"'
+# SecurityCritic round 2, N1: a git hook in a worktree runs as the user on the next commit; N2: a repo's .claude/
+# hooks and settings, .mcp.json and .envrc run in the next session or shell started there
+check "N1: git hooks in a worktree are not writable" '! writable "$dir/ws/repo--x/.githooks/pre-commit" "$s" && ! writable "$dir/ws/a--b/.husky/pre-commit" "$s" && ! writable "$dir/ws/a--b/.git/hooks/pre-commit" "$s" && writable "$dir/ws/repo--x/src/a.go" "$s"'
+mkdir -p "$dir/ws/hk"; git -C "$dir/ws/hk" init -q && git -C "$dir/ws/hk" config core.hooksPath scripts/hooks
+s3=$("$perm" snippet)
+check "N1: a clone's own core.hooksPath is denied in it and its worktrees" '! writable "$dir/ws/hk--x/scripts/hooks/pre-commit" "$s3" && ! writable "$dir/ws/hk/scripts/hooks/pre-commit" "$s3" && writable "$dir/ws/hk--x/scripts/a.sh" "$s3"'
+rm -rf "$dir/ws/hk"
+# round 3, L4: the "--" worktree test looks at the clone's name, not at a WS path that itself contains "--"
+mkdir -p "$dir/w--s/hk"; git -C "$dir/w--s/hk" init -q && git -C "$dir/w--s/hk" config core.hooksPath scripts/hooks
+sed "s|^SABHA_WS=.*|SABHA_WS=$dir/w--s|" "$dir/sabha.conf" >"$dir/sabha4.conf"
+s4=$(SABHA_CONF=$dir/sabha4.conf "$perm" snippet)
+check "L4: a WS path containing -- still denies each clone's core.hooksPath" '! writable "$dir/w--s/hk--x/scripts/hooks/pre-commit" "$s4" && ! writable "$dir/w--s/hk/scripts/hooks/pre-commit" "$s4"'
+rm -rf "$dir/w--s"
+check "L5: .vscode, .mise.toml and .tool-versions in a worktree are not writable" '! writable "$dir/ws/a--b/.vscode/tasks.json" "$s" && ! writable "$dir/ws/a--b/.mise.toml" "$s" && ! writable "$dir/ws/a--b/.tool-versions" "$s"'
+check "N2: .claude, .mcp.json and .envrc in a worktree are not writable" '! writable "$dir/ws/a--b/.claude/hooks/x.sh" "$s" && ! writable "$dir/ws/a--b/.claude/settings.local.json" "$s" && ! writable "$dir/ws/a--b/.mcp.json" "$s" && ! writable "$dir/ws/a--b/.envrc" "$s"'
+check "L1: <name>.env secrets are denied to Read" 'covers "$dir/ws/.github-token.env" Read "$s" deny && covers "$dir/ws/a--b/.env" Read "$s" deny'
+wt=$(dirname "$root")/$(basename "$root" | sed "s/--.*//")--other
+check "L2: a sibling sabha worktree is readable, not writable by default" 'covers "$wt/hooks/x.sh" Read "$s" && ! covers "$wt/hooks/x.sh" Write "$s" && ! covers "$wt/bin/sabha-lib.sh" Edit "$s"'
 s=$(SABHA_PERMISSION_MODE=acceptEdits SABHA_PERMISSION_ALLOW='default; Bash(make test)' "$perm" snippet)
 check "snippet: user mode, default plus own rule" 'printf "%s" "$s" | jq -e ".permissions.defaultMode == \"acceptEdits\" and (.permissions.allow | index(\"Bash(ls:*)\")) and .permissions.allow[-1] == \"Bash(make test)\"" >/dev/null'
 s=$(SABHA_PERMISSION_ALLOW='Read;Bash(echo "x")' "$perm" snippet)
@@ -229,11 +252,12 @@ check "snippet: own list replaces the default, quotes escaped, deny kept" 'print
 hook_bg k "$(req_json)"
 waitfor "[[ -f $P/BuilderHeavy-012.req ]]"
 ln -s BuilderHeavy-012.req "$P/BuilderHeavy-012.allow"
-waitfor "ls $P | grep -q '^BuilderHeavy-012.bad-'"
+# wait for the log row, not the .bad-* file: the hook renames first and logs second
+waitfor "awk -F'\t' '\$3==\"BuilderHeavy-012\" && \$6==\"nonce-mismatch\"' $P/log.tsv | grep -q ."
 check "F7: a symlink to the .req is not an allow" '[[ ! -s $dir/out.k && ! -e $dir/rc.k ]] && awk -F"\t" "\$3==\"BuilderHeavy-012\" && \$6==\"nonce-mismatch\"" $P/log.tsv | grep -q .'
 cp "$P/BuilderHeavy-012.req" "$P/BuilderHeavy-012.allow"
-waitfor "[[ \$(ls $P | grep -c '^BuilderHeavy-012.bad-') == 2 ]]"
-check "F7: a copy of the .req is not an allow" '[[ ! -s $dir/out.k && ! -e $dir/rc.k ]]'
+waitfor "[[ \$(awk -F'\t' '\$3==\"BuilderHeavy-012\" && \$6==\"nonce-mismatch\"' $P/log.tsv | grep -c .) == 2 ]]"
+check "F7: a copy of the .req is not an allow" '[[ ! -s $dir/out.k && ! -e $dir/rc.k && $(ls $P | grep -c "^BuilderHeavy-012.bad-") == 2 ]]'
 rp deny BuilderHeavy-012 "no" >/dev/null; done_rc k >/dev/null
 mkdir "$P/BuilderHeavy-013.req.tmp"
 out=$(req_json | SABHA_ROLE=BuilderHeavy bash "$hook" 2>/dev/null); rc=$?

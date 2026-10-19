@@ -80,7 +80,8 @@ SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-de
 # settings to paste into your own settings file (sabha never edits one): defaultMode from SABHA_PERMISSION_MODE
 # (default, acceptEdits, plan, ...) and the allow rules in SABHA_PERMISSION_ALLOW, separated by ";". The word
 # "default" in the list stands for the shipped rules (reads in SABHA_IMPL, SABHA_WS and sabha; writes in SABHA_IMPL's
-# inbox/, status/, questions/, for-me.items and the worktrees; a few read-only commands; sabha-perm), so
+# inbox/, status/, questions/, for-me.items and SABHA_WS's worktrees, never their git hooks or .claude/; a few
+# read-only commands; sabha-perm), so
 # "default;Bash(make test)" adds one rule and a list without it replaces them. A test or build rule lets every role
 # run code it wrote itself with no prompt (SECURITY.md layer 4). The snippet's deny part is always printed.
 #SABHA_RELAY_WAIT=1500
