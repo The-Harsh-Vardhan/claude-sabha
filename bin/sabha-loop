@@ -138,8 +138,8 @@ while :; do
   unset SABHA_FORCE
   warned=0 asked=0 cleared=0
   while kill -0 "$cpid" 2>/dev/null; do
-    sleep "$interval"
-    kill -0 "$cpid" 2>/dev/null || break
+    # 1 s steps, not one long sleep: a launch death must measure as ~1 s so the RETRY_WINDOW check can see it
+    for (( i = 0; i < interval; i++ )); do kill -0 "$cpid" 2>/dev/null || break 2; sleep 1; done
     # a session past the min_up window is a good start: an older crash flag no longer holds
     (( cleared || $(date +%s) - start < min_up )) || { crash_unflag; cleared=1; }
     sabha_keep_awake >/dev/null 2>>"$LOOP/$lower.log" || true
