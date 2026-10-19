@@ -27,16 +27,14 @@ The demo workspace is `$HOME/sabha-demo`; change the path if you like, but keep 
 mkdir -p "$HOME/sabha-demo/repo"
 git -C "$HOME/sabha-demo/repo" init
 git -C "$HOME/sabha-demo/repo" commit --allow-empty -m "init"
-cp -R template/impl "$HOME/sabha-demo/impl"
-cd "$HOME/sabha-demo/impl"
-mkdir -p inbox/Vidur inbox/Yudhishthira inbox/Bhima inbox/Arjun inbox/Sahadev inbox/Nakul status/context status/.bak questions
-cd -
-bin/sabha init --plan pro --tracker html --push off --ws "$HOME/sabha-demo" --impl "$HOME/sabha-demo/impl"
-printf 'SABHA_PROTOCOL_CORE=PROTOCOL-core.md\nSABHA_ROLE_DIR=protocol\n' >> sabha.conf
+bin/sabha init --plan pro --tracker html --push off --ws "$HOME/sabha-demo" --home "$HOME/my-claude-sabha"
+export SABHA_CONF="$HOME/my-claude-sabha/sabha-demo/sabha.conf"
 ```
 
-Expected: `wrote .../sabha.conf (plan pro, tracker html, push off, os ..., CLIs: ...)`. The two `SABHA_` lines make every
-role read the generic `PROTOCOL-core.md` and its own `protocol/<Name>.md`.
+Expected: `wrote ~/my-claude-sabha/sabha-demo/sabha.conf (plan pro, ...)`, then `sabha folder: ...` (the starter files
+and one inbox per role) and `link: ~/sabha-demo/my-claude-sabha -> ~/my-claude-sabha/sabha-demo`. The config makes
+every role read the generic `PROTOCOL-core.md` and its own `protocol/<Name>.md`. The `export` lets the next steps run from
+this repo; run from `~/sabha-demo` instead and the scripts find `my-claude-sabha/sabha.conf` without it.
 
 ## 2. Check the machine (30 seconds)
 
@@ -54,9 +52,9 @@ context percent, the restart rule and the usage alerts all read what that hook w
 bin/sabha-up.sh --plan pro
 ```
 
-herdr opens a workspace with one pane each for Vidur (the relay, the session you talk to), Yudhishthira, Bhima,
-Arjun and Nakul. Then start the reviewer, which has no pane on the Pro plan: `bin/sabha-up.sh Sahadev` (or print its
-restart line with `bin/sabha-up.sh --print Sahadev`, the first of its two lines, and run it where you like; the
+herdr opens a workspace with one pane each for Relay (the session you talk to), Dispatcher, BuilderHeavy,
+BuilderPrecise and Writer. Then start the reviewer, which has no pane on the Pro plan: `bin/sabha-up.sh Reviewer` (or print its
+restart line with `bin/sabha-up.sh --print Reviewer`, the first of its two lines, and run it where you like; the
 `pane:` line after it is what a grid pane runs).
 
 If it stops with `already running` because a claude session holds one of those names (for example a real sabha on
@@ -66,27 +64,27 @@ Expected: each pane greets with its name, reads `PROTOCOL-core.md` and its own c
 
 ## 4. Brief to worker (3 minutes)
 
-Paste this into the Vidur session (it is a chat prompt for Claude, not a shell command):
+Paste this into the Relay session (it is a chat prompt for Claude, not a shell command):
 
 ```
-Demo job. In the git repository at ~/sabha-demo/repo, Arjun creates a file hello.txt that holds one line, "hello from sabha", in a worktree named repo--hello, and stages it. Then Sahadev reviews the diff. Nothing is committed in the main checkout and nothing is pushed. Brief Yudhishthira.
+Demo job. In the git repository at ~/sabha-demo/repo, BuilderPrecise creates a file hello.txt that holds one line, "hello from sabha", in a worktree named repo--hello, and stages it. Then Reviewer reviews the diff. Nothing is committed in the main checkout and nothing is pushed. Brief Dispatcher.
 ```
 
 Check each hop from a second terminal (the number is the next free one, usually 001):
 
 ```
-ls "$HOME/sabha-demo/impl/inbox/Yudhishthira"
-ls "$HOME/sabha-demo/impl/inbox/Arjun"
+ls "$HOME/sabha-demo/impl/inbox/Dispatcher"
+ls "$HOME/sabha-demo/impl/inbox/BuilderPrecise"
 ```
 
-Expected within a minute or two: `001.claim`, `001-vidur-<slug>.md` and `001.ack` under Yudhishthira; then a brief,
-an ack and, when Arjun finishes, a `.done` under Arjun. Read the done: `cat "$HOME/sabha-demo/impl/inbox/Arjun/001.done"`
-(the first brief to Arjun may carry another number). `git -C "$HOME/sabha-demo/repo" worktree list` shows
+Expected within a minute or two: `001.claim`, `001-relay-<slug>.md` and `001.ack` under Dispatcher; then a brief,
+an ack and, when BuilderPrecise finishes, a `.done` under BuilderPrecise. Read the done: `cat "$HOME/sabha-demo/impl/inbox/BuilderPrecise/001.done"`
+(the first brief to BuilderPrecise may carry another number). `git -C "$HOME/sabha-demo/repo" worktree list` shows
 `repo--hello`, and `cat "$HOME/sabha-demo/repo--hello/hello.txt"` prints the line.
 
 ## 5. Review (2 minutes)
 
-The dispatcher briefs Sahadev with the `.done`. Expected: a file `questions/<topic>-review.md` in the demo impl whose
+The dispatcher briefs Reviewer with the `.done`. Expected: a file `questions/<topic>-review.md` in the demo impl whose
 first line is `verdict: ACCEPT` (or `verdict: BREAK <n>` with a finding). If it is BREAK, the builder answers in
 `questions/<topic>-review-answer.md` and the dispatcher asks for a new verdict. Check:
 
@@ -96,25 +94,25 @@ head -3 "$HOME/sabha-demo/impl/questions/"*-review.md
 
 ## 6. Handoff and restart (2 minutes)
 
-A session restarts fresh from its handoff; this is the part that keeps contexts small. Paste into the Arjun pane:
+A session restarts fresh from its handoff; this is the part that keeps contexts small. Paste into the BuilderPrecise pane:
 
 ```
-Save your handoff in status/arjun.md now, in the handoff shape, then stop.
+Save your handoff in status/builderprecise.md now, in the handoff shape, then stop.
 ```
 
-Check that the top of `status/arjun.md` holds a `Current:` or `Idle:` line followed by `Task:`, `Done:`, `Next:`:
+Check that the top of `status/builderprecise.md` holds a `Current:` or `Idle:` line followed by `Task:`, `Done:`, `Next:`:
 
 ```
-head -8 "$HOME/sabha-demo/impl/status/arjun.md"
+head -8 "$HOME/sabha-demo/impl/status/builderprecise.md"
 ```
 
-Then exit the Arjun session (type `/exit` in its pane) and start it again with the same opening prompt:
+Then exit the BuilderPrecise session (type `/exit` in its pane) and start it again with the same opening prompt:
 
 ```
-bin/sabha-up.sh Arjun
+bin/sabha-up.sh BuilderPrecise
 ```
 
-Expected: the new Arjun reads its card and `status/arjun.md`, says what it was doing and what is next, and does not
+Expected: the new BuilderPrecise reads its card and `status/builderprecise.md`, says what it was doing and what is next, and does not
 redo the finished brief. Never use `--resume`: it would bring back the full context and defeat the restart.
 In normal use `bin/sabha-loop <Name>` does this for you at 30 percent context once the handoff is newer than the last
 start (see the README, "Restart loop"); this demo does it by hand so you see the mechanism. The automatic path is
@@ -137,7 +135,7 @@ percent and any brief nobody has acked.
 - `hello.txt` exists in the `repo--hello` worktree and nothing is committed or pushed in `repo`.
 - The brief chain has `.claim`, brief, `.ack`, `.done` at both hops.
 - A review file starts with `verdict: ACCEPT`.
-- A restarted Arjun continues from `status/arjun.md` without redoing the work.
+- A restarted BuilderPrecise continues from `status/builderprecise.md` without redoing the work.
 - The board lists the agents, the goal and the open items.
 
 Clean up when you are finished: close the herdr workspace and remove `$HOME/sabha-demo` yourself (nothing in sabha

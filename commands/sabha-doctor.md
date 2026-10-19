@@ -10,5 +10,5 @@ Run `${CLAUDE_PLUGIN_ROOT}/bin/sabha doctor` as one plain command (no pipes, no 
 `~/.claude/settings.json`).
 
 It exits 1 only on a FAIL; warnings never fail the run. Report FAILs first with the fix each line suggests, then the
-warnings. If it says there is no config, suggest `sabha init --out <file>` and setting `SABHA_CONF`. Fix nothing
+warnings. If it says there is no config, suggest `/sabha-init` (or starting the session in the project folder, or setting `SABHA_CONF`). Fix nothing
 yourself.

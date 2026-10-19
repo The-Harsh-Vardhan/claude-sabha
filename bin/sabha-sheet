@@ -45,18 +45,35 @@ def die(msg):
 
 
 def conf_value(key):
-    """Environment first, then sabha.conf (SABHA_CONF, else ../sabha.conf)."""
+    """Environment first, then sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf), then for a
+    shared key the team's .sabha/config (SABHA_SHARED; read as text, never expanded: a pull request can change it)."""
     if os.environ.get(key):
         return os.path.expanduser(os.path.expandvars(os.environ[key]))
-    path = os.environ.get("SABHA_CONF") or os.path.join(HERE, "..", "sabha.conf")
+    local = os.path.join(os.getcwd(), ".sabha", "local", "sabha.conf")
+    path = os.environ.get("SABHA_CONF") or (local if os.path.exists(local) else os.path.join(HERE, "..", "sabha.conf"))
+    v = file_value(path, key)
+    if v is not None:
+        return os.path.expanduser(os.path.expandvars(v))
+    shared = file_value(path, "SABHA_SHARED")
+    if key in ("SABHA_TRACKER", "SABHA_SHEET_ID") and shared:
+        shared = os.path.expanduser(os.path.expandvars(shared))
+        if os.name == "nt" and len(shared) > 2 and shared[0] == "/" and shared[2] == "/":
+            shared = shared[1].upper() + ":" + shared[2:]  # Git Bash /c/x is C:/x to native Windows Python
+        return file_value(os.path.join(shared, "config"), key) or ""
+    return ""
+
+
+def file_value(path, key):
+    """The last KEY=value line in a conf file, one level of quotes stripped; None when absent."""
+    found = None
     try:
-        for raw in open(path, encoding="ascii", errors="replace"):
+        for raw in open(path, encoding="utf-8", errors="replace"):
             line = raw.strip()
             if line.startswith(key + "="):
-                return os.path.expanduser(os.path.expandvars(line.split("=", 1)[1].strip().strip('"').strip("'")))
+                found = line.split("=", 1)[1].strip().strip('"').strip("'")
     except OSError:
         pass
-    return ""
+    return found
 
 
 def write_private(path, obj):

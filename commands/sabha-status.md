@@ -8,7 +8,7 @@ If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use 
 Report the state of the sabha. Both scripts are read-only.
 
 Run each as a single plain command (no pipes, no chaining), honouring `SABHA_CONF` (if sabha-watch says there is no
-config, point the user to `sabha init --out <file>`):
+config, point the user to `/sabha-init`):
 
 1. `${CLAUDE_PLUGIN_ROOT}/bin/sabha-check` for the processes per role. Exit 1 means a DUPLICATE role.
 2. `${CLAUDE_PLUGIN_ROOT}/bin/sabha-watch` for each role's context percent, age and state, restart lines, the user's

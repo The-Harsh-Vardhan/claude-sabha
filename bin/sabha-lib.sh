@@ -4,9 +4,9 @@
 
 SABHA_BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-# sabha_load <caller>: sources sabha.conf (SABHA_CONF, else ../sabha.conf beside the scripts), then the plan file
-# sabha.<SABHA_PLAN>.conf beside the scripts when SABHA_PLAN is set (sabha-up.sh --plan pro|max5|max20; a plan file
-# carries only the roster, the panes, the copies and the labels, never paths), and sets ROLES
+# sabha_load <caller>: reads the config (sabha_conf_read below: sabha.conf, the plan file sabha.<SABHA_PLAN>.conf beside
+# the scripts when SABHA_PLAN is set (sabha-up.sh --plan pro|max5|max20; a plan file carries only the roster, the
+# panes, the copies and the labels, never paths), the team's .sabha/config, sabha.conf again), and sets ROLES
 # ("name agent model effort flags", the relay first, then the dispatcher, then grid order; flags is "-" or a comma
 # list), NAMES (every role), PANES, LAZY, RELAY, DISPATCHER and MAX_COPIES.
 # Roster entry: Name:agent:model[:effort[:flags]]. A second field that is not an agent in SABHA_AGENTS is the model
@@ -17,42 +17,94 @@ SABHA_BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # PANES: the names in SABHA_PANES, in that order, when it is set (every other profile is on demand: a subagent of
 # the dispatcher, or sabha-up.sh <Name>); otherwise every role but the relay and the "ondemand" ones.
 # A role id is one word, and it is the claude -n name, the status file and the inbox directory (Ved Vyasa is
-# VedVyasa). SABHA_LABEL_<Name> is the role label shown next to the name ("Architect").
+# Keeper). SABHA_LABEL_<Name> is the role label shown next to the name ("Architect").
 SABHA_AGENTS=${SABHA_AGENTS:-"claude opencode codex agy muse"}
-sabha_load() {
-  CONF=${SABHA_CONF:-$SABHA_BIN/../sabha.conf}
-  [[ -f $CONF ]] || { echo "$1: no config at $CONF (copy sabha.conf.example to sabha.conf)" >&2; exit 1; }
+# Keys a committed .sabha/config may set: the team's shape and tracker. Everything else (paths, plan, theme, ntfy
+# topic, SABHA_REMOTE, SABHA_USER_ID) is personal and stays in sabha.conf.
+SABHA_SHARED_KEYS="SABHA_PROJECT SABHA_ROSTER SABHA_PANES SABHA_MAX_COPIES SABHA_TRACKER SABHA_SHEET_ID SABHA_LABEL_* SABHA_PROMPT_*"
+
+# sabha_shared_key <key>: true when a committed .sabha/config may set it
+sabha_shared_key() {
+  local k
+  for k in $SABHA_SHARED_KEYS; do
+    # shellcheck disable=SC2254  # the * in SABHA_LABEL_* is the pattern
+    case $1 in $k) return 0 ;; esac
+  done
+  return 1
+}
+
+# sabha_shared_read <file> [warn]: sets the shared keys of a committed .sabha/config WITHOUT running it: a teammate's
+# pull request can change that file, so it is parsed (KEY=value, one level of quotes, no $ or ` expansion), never
+# sourced. A personal or unknown key is skipped (with "warn", reported on stderr).
+sabha_shared_read() {
+  local line key val
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}
+    [[ $line =~ ^(SABHA_[A-Za-z0-9_]+)=(.*)$ ]] || continue
+    key=${BASH_REMATCH[1]} val=${BASH_REMATCH[2]}
+    if ! sabha_shared_key "$key"; then
+      [[ ${2:-} == warn ]] && echo "sabha: $key is personal; ignored in $1 (keep it in your sabha.conf)" >&2
+      continue
+    fi
+    case $val in \"*\") val=${val#\"}; val=${val%\"} ;; \'*\') val=${val#\'}; val=${val%\'} ;; esac
+    printf -v "$key" '%s' "$val"
+  done <"$1"
+}
+
+# sabha_conf_read <caller>: finds sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf beside the
+# scripts) and exports SABHA_CONF, so every pane, hook and worktree session finds the same file whatever its cwd. Then
+# layers: sabha.conf, the plan file sabha.<SABHA_PLAN>.conf, the team's .sabha/config (SABHA_SHARED), and sabha.conf
+# again, so a key you set yourself wins over the team's. Docs (PROTOCOL-core.md, protocol/) come from SABHA_SHARED when
+# it holds them, else SABHA_IMPL (SABHA_DOCS). Returns 1 (message on stderr) when a file is missing.
+sabha_conf_read() {
+  CONF=${SABHA_CONF:-}
+  [[ -z $CONF && -f $PWD/.sabha/local/sabha.conf ]] && CONF=$PWD/.sabha/local/sabha.conf
+  CONF=${CONF:-$SABHA_BIN/../sabha.conf}
+  [[ -f $CONF ]] || { echo "$1: no config at $CONF (run bin/sabha init, or cd to a project that has .sabha/local)" >&2; return 1; }
+  export SABHA_CONF=$CONF
   # shellcheck source=/dev/null
   . "$CONF"
-  : "${SABHA_WS:?missing from sabha.conf}" "${SABHA_IMPL:?missing from sabha.conf}"
   if [[ -n ${SABHA_PLAN:-} ]]; then
     PLAN_CONF=${SABHA_PLAN_DIR:-$SABHA_BIN/..}/sabha.$SABHA_PLAN.conf
-    [[ -f $PLAN_CONF ]] || { echo "$1: no plan file at $PLAN_CONF (plans: pro, max5, max20)" >&2; exit 1; }
+    [[ -f $PLAN_CONF ]] || { echo "$1: no plan file at $PLAN_CONF (plans: pro, max5, max20)" >&2; return 1; }
     # shellcheck source=/dev/null
     . "$PLAN_CONF"
   fi
+  if [[ -n ${SABHA_SHARED:-} && -f $SABHA_SHARED/config ]]; then
+    sabha_shared_read "$SABHA_SHARED/config"
+    # shellcheck source=/dev/null
+    . "$CONF"
+  fi
+  SABHA_DOCS=${SABHA_IMPL:-}
+  [[ -n ${SABHA_SHARED:-} && -f $SABHA_SHARED/${SABHA_PROTOCOL_CORE:-PROTOCOL-core.md} ]] && SABHA_DOCS=$SABHA_SHARED
+  return 0
+}
+
+sabha_load() {
+  sabha_conf_read "$1" || exit 1
+  : "${SABHA_WS:?missing from sabha.conf}" "${SABHA_IMPL:?missing from sabha.conf}"
   # SABHA_ROSTER replaces this default list.
   ROLES=(
-    "Vidur claude opus medium -"
-    "Yudhishthira claude opus medium -"
-    "Bhishma claude fable medium -"
-    "Bhima claude opus high -"
-    "Arjun claude opus medium -"
-    "Sahadev claude sonnet high -"
-    "Nakul claude sonnet medium -"
-    "Karna claude sonnet medium -"
-    "Sanjaya claude haiku high -"
-    "Duryodhan claude opus high gate,lazy"
-    "Dushasan claude sonnet high gate,lazy"
-    "Shakuni claude opus high gate,lazy"
-    "Draupadi claude sonnet high gate,lazy"
-    "Gandhari claude sonnet medium gate,lazy"
-    "VedVyasa claude sonnet medium gate,lazy"
-    "Barbarika claude haiku medium gate"
-    "Abhimanyu claude haiku medium gate"
-    "Krishna claude opus medium ondemand"
-    "Ashwatthama claude haiku high ondemand"
-    "Dronacharya claude sonnet medium ondemand"
+    "Relay claude opus medium -"
+    "Dispatcher claude opus medium -"
+    "Architect claude fable medium -"
+    "BuilderHeavy claude opus high -"
+    "BuilderPrecise claude opus medium -"
+    "Reviewer claude sonnet high -"
+    "Writer claude sonnet medium -"
+    "Runner claude sonnet medium -"
+    "Scribe claude haiku high -"
+    "BackendCritic claude opus high gate,lazy"
+    "FrontendCritic claude sonnet high gate,lazy"
+    "SecurityCritic claude opus high gate,lazy"
+    "ScopeCritic claude sonnet high gate,lazy"
+    "BlindReviewer claude sonnet medium gate,lazy"
+    "Keeper claude sonnet medium gate,lazy"
+    "Observer claude haiku medium gate"
+    "Housekeeper claude haiku medium gate"
+    "Tutor claude opus medium ondemand"
+    "Watcher claude haiku high ondemand"
+    "Coach claude sonnet medium ondemand"
   )
   if [[ -n ${SABHA_ROSTER:-} ]]; then
     ROLES=()
@@ -84,23 +136,19 @@ sabha_load() {
   MAX_COPIES=${SABHA_MAX_COPIES:-2}
 }
 
-# sabha_theme <caller>: SABHA_THEME (default mahabharat) names themes/<theme>.theme, one "Role|Name|#hex|persona" line
-# per role (Role from themes/roles.map; an internal id there still works). It renames ROLES, SABHA_PANES and SABHA_LABEL_<Id> to the themed names and sets SABHA_COLOR_<Name> and
-# SABHA_PERSONA_<Name>. The plan files keep the Mahabharat ids, so one plan works with every theme.
+# sabha_theme <caller>: a theme is a skin. SABHA_THEME (default plain) names themes/<theme>.theme, one
+# "Role|Name|#hex|persona" line per role id. It renames ROLES, SABHA_PANES and SABHA_LABEL_<Role> to the themed names
+# and sets SABHA_COLOR_<Name> and SABHA_PERSONA_<Name>. The plan files keep the role ids, so one plan works with every
+# theme.
 sabha_theme() {
-  local file=${SABHA_THEME_DIR:-$SABHA_BIN/../themes}/${SABHA_THEME:-mahabharat}.theme id name color persona i v panes p
+  local file=${SABHA_THEME_DIR:-$SABHA_BIN/../themes}/${SABHA_THEME:-plain}.theme id name color persona i v panes p
   if [[ ! -f $file ]]; then
     [[ -z ${SABHA_THEME:-} ]] && return 0
     echo "$1: no theme file at $file (themes: $(ls "${file%/*}" 2>/dev/null | sed -n 's/\.theme$//p' | tr '\n' ' '))" >&2
     return 1
   fi
-  # a theme line is keyed by the plain role name (Relay); themes/roles.map turns it into the id the plan files use
-  # read once as "|Relay=Vidur|Dispatcher=Yudhishthira..." so each line is a parameter expansion, not a process
-  local map=${file%/*}/roles.map m= t
-  [[ -f $map ]] && m=$(tr -d '\r' <"$map" | sed -n 's/^\([A-Za-z0-9]*\)|\([A-Za-z0-9]*\)$/|\1=\2/p' | tr -d '\n')
   while IFS='|' read -r id name color persona || [[ -n $id ]]; do
     [[ -z $id || $id == \#* ]] && continue
-    if [[ $m == *"|$id="* ]]; then t=${m#*"|$id="}; id=${t%%|*}; fi
     persona=${persona%$'\r'}
     printf -v "SABHA_ID_$name" '%s' "$id"
     for i in "${!ROLES[@]}"; do [[ ${ROLES[i]%% *} == "$id" ]] && ROLES[i]="$name ${ROLES[i]#* }"; done
@@ -138,17 +186,17 @@ sabha_role() {
 }
 
 # sabha_reads <Name>: what a role reads at start, shared by sabha-up.sh and sabha-run so both open the same way.
-# SABHA_PROTOCOL_CORE (file under SABHA_IMPL) + SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the
-# role file, then the top block of the status file.
+# SABHA_PROTOCOL_CORE (file under SABHA_DOCS: the team's .sabha/ when it holds the docs, else SABHA_IMPL) +
+# SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the role file, then the top block of the status file.
 sabha_reads() {
   # a copy Thor-1 shares Thor's card and persona; a dash is not legal in a variable name
-  local lower card=$1 id=SABHA_ID_${1%-[0-9]*} persona=SABHA_PERSONA_${1%-[0-9]*} tail=
+  local lower card=$1 id=SABHA_ID_${1%-[0-9]*} persona=SABHA_PERSONA_${1%-[0-9]*} tail= docs=${SABHA_DOCS:-$SABHA_IMPL}
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
-  # a themed role keeps the card of its Mahabharat id unless the project has a card under the themed name
-  [[ -n ${!id:-} && ! -f $SABHA_IMPL/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=${!id}
+  # a themed role keeps the card of its role id unless the project has a card under the themed name
+  [[ -n ${!id:-} && ! -f $docs/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=${!id}
   [[ -n ${!persona:-} ]] && tail=". Your persona: ${!persona}"
   if [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]]; then
-    echo "$SABHA_IMPL/$SABHA_PROTOCOL_CORE, then $SABHA_IMPL/$SABHA_ROLE_DIR/$card.md, then the top block of status/$lower.md$tail"
+    echo "$docs/$SABHA_PROTOCOL_CORE, then $docs/$SABHA_ROLE_DIR/$card.md, then the top block of status/$lower.md$tail"
   else
     echo "$SABHA_IMPL/PROTOCOL.md, then status/$lower.md$tail"
   fi
