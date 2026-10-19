@@ -3,11 +3,15 @@
 # marked DUPLICATE when more than one holds the name. The relay is listed too. Exits 1 when a role is duplicated, 2
 # when the process list cannot be read, else 0.
 #   sabha-check
+#   sabha-check --explain   also asks herdr why each recorded pane shows its state (`herdr agent explain`, read-only;
+#                           it never starts a herdr server)
 # Roster from sabha.conf as sabha-up.sh reads it; SABHA_PS_FILE replaces the live process list (see sabha-lib.sh).
 set -uo pipefail
 
 # shellcheck source=sabha-lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh"
+explain=0
+[[ ${1:-} == --explain ]] && explain=1
 sabha_load sabha-check
 
 procs=$(sabha_procs) || { echo "sabha-check: cannot read the process list" >&2; exit 2; }
@@ -23,4 +27,18 @@ for name in "${NAMES[@]}"; do
   done <<<"$rows"
 done
 echo "(ps sees only claude -n/--name sessions; cross-check ListAgents)"
+if (( explain )); then
+  # shellcheck source=sabha-herdr.sh
+  . "$(cd "$(dirname "$0")" && pwd)/sabha-herdr.sh"
+  pf=$SABHA_IMPL/status/herdr-panes.txt
+  if [[ ! -f $pf ]]; then echo "--- no status/herdr-panes.txt: no herdr panes recorded"
+  elif sabha_herdr_guard; then
+    while read -r n p _; do
+      [[ -n $n ]] || continue
+      echo "--- $n ($p): herdr agent explain"
+      # </dev/null: herdr would otherwise read the rest of the panes file as its stdin
+      sabha_h agent explain "$p" </dev/null 2>&1 | head -20
+    done <"$pf"
+  fi
+fi
 exit "$dup"

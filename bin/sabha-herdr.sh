@@ -3,7 +3,9 @@
 # SABHA_BACKEND=iterm keeps the old iTerm2/osascript path (macOS only, frozen). Panes are made with
 # `herdr workspace|tab create` and `herdr pane split`; a Claude role runs `sabha-up.sh <Name>` in its pane, any other
 # agent (opencode tested; codex, agy, muse UNTESTED) is started with `herdr agent start --kind`. The files under
-# SABHA_IMPL stay the source of truth: herdr only nudges and waits. status/herdr-panes.txt maps "Name pane_id".
+# SABHA_IMPL stay the source of truth: herdr only nudges and waits. status/herdr-panes.txt maps "RoleId pane_id": emptied
+# at grid start, filled as each pane is made, added to by a role that starts inside a pane, pruned against `pane list`
+# before each nudge.
 # Windows: herdr is native beta there and bash scripts run in Git Bash (Claude Code on Windows needs Git for Windows
 # as far as we know; UNTESTED, no Windows machine here). `herdr attach` (VS Code integrated terminal) is Mac/Linux only.
 # The JSON keys read below (workspace_id, tab_id, pane_id, root_pane) follow `herdr --skill`; checked against a fake
@@ -63,6 +65,107 @@ sabha_herdr_ready() {
   return 1
 }
 
+# sabha_power_source: ac, battery or unknown, read-only (`pmset -g ps` first line: Now drawing from 'AC Power')
+sabha_power_source() {
+  case $(pmset -g ps 2>/dev/null | head -1) in
+    *"AC Power"*) echo ac ;;
+    *"Battery Power"*) echo battery ;;
+    *) echo unknown ;;
+  esac
+}
+
+# sabha_keep_awake_conf: re-reads the three SABHA_KEEP_AWAKE* keys from sabha.conf (plain words only, never executed)
+# so `sabha keep-awake <mode>` takes effect in a running sabha-loop without a restart
+sabha_keep_awake_conf() {
+  local k v
+  [[ -f ${SABHA_CONF:-} ]] || return 0
+  for k in SABHA_KEEP_AWAKE SABHA_KEEP_AWAKE_AC SABHA_KEEP_AWAKE_BATTERY; do
+    v=$(sed -n "s/^$k=\"\{0,1\}\([a-z]*\)\"\{0,1\}[[:space:]]*\$/\1/p" "$SABHA_CONF" | tail -1)
+    [[ -n $v ]] && eval "$k=\$v"
+  done
+  return 0
+}
+
+# sabha_keep_awake_mode: the effective mode. SABHA_KEEP_AWAKE=auto (the default) picks by power source: AC -> lid
+# (SABHA_KEEP_AWAKE_AC overrides), battery or unknown -> open (SABHA_KEEP_AWAKE_BATTERY overrides). An explicit
+# off|open|lid wins over the per-source pair.
+sabha_keep_awake_mode() {
+  local m=${SABHA_KEEP_AWAKE:-auto}
+  if [[ $m == auto ]]; then
+    case $(sabha_power_source) in
+      ac) m=${SABHA_KEEP_AWAKE_AC:-lid} ;;
+      *) m=${SABHA_KEEP_AWAKE_BATTERY:-open} ;;
+    esac
+  fi
+  echo "$m"
+}
+
+# sabha_keep_awake: off does nothing (and ends a caffeinate this script started). open and lid start
+# `caffeinate -dis -w <herdr server pid>` so idle sleep is blocked as long as the sabha server lives (no sudo; it
+# ends with the server). A caffeinate recorded in status/keep-awake.pid and alive is reused, never doubled. lid also
+# needs `sudo pmset -a disablesleep 1`, which only the user runs (docs/keep-awake.md); this warns when it is not set.
+# sabha-loop calls it every poll, so a power-source or conf change is picked up live.
+# The server's command line (`herdr --session <name> server`) is UNTESTED live.
+sabha_keep_awake() {
+  local mode d=$SABHA_IMPL/status/keep-awake.lck
+  # a test must opt in: a real caffeinate must never start from a test run
+  [[ ${SABHA_TEST:-} == 1 && ${SABHA_KEEP_AWAKE_FAKES:-} != 1 ]] && return 0
+  sabha_keep_awake_conf
+  mode=$(sabha_keep_awake_mode)
+  case $mode in
+    off|open|lid) ;;
+    *) echo "sabha: SABHA_KEEP_AWAKE='$mode' is not auto, off, open or lid; ignored" >&2; return 1 ;;
+  esac
+  mkdir -p "$SABHA_IMPL/status"
+  # loops poll together: a kernel lock (lockf on fd 9) around check+start, so one caffeinate is ever started and a dead
+  # holder leaves nothing stale; no lockf (not macOS) = no lock, and caffeinate is macOS-only anyway
+  if command -v lockf >/dev/null 2>&1; then
+    { lockf -s -t 10 9 || return 1; _sabha_keep_awake_locked "$mode"; } 9>>"$d"
+    return $?
+  fi
+  _sabha_keep_awake_locked "$mode"
+}
+
+# sabha_keep_awake_ours <pid> [server pid]: true only when <pid> is a caffeinate holding -w <server pid>
+# (any pid when none is given); a pid file outlives reboots and macOS reuses pids, so never trust the number alone
+sabha_keep_awake_ours() {
+  local c
+  c=$(ps -p "$1" -o command= 2>/dev/null)
+  case $c in caffeinate\ *|*/caffeinate\ *) ;; *) return 1 ;; esac
+  if [[ -n ${2:-} ]]; then case "$c " in *" -w $2 "*) return 0 ;; *) return 1 ;; esac; fi
+  case $c in *" -w "[0-9]*) return 0 ;; *) return 1 ;; esac
+}
+
+_sabha_keep_awake_locked() {
+  local mode=$1 f=$SABHA_IMPL/status/keep-awake.pid old spid cpid sdw=$SABHA_IMPL/status/keep-awake.warned-sd
+  old=$(cat "$f" 2>/dev/null)
+  # SleepDisabled is machine-wide and only the user can undo it (sudo); outside lid mode a closed lid then keeps running
+  if [[ $mode != lid ]] && pmset -g 2>/dev/null | grep -Eq 'SleepDisabled[[:space:]]+1'; then
+    [[ -f $sdw ]] || { echo "sabha: keep-awake $mode: SleepDisabled is 1, so a closed lid will not sleep: run sudo pmset -a disablesleep 0 (see docs/keep-awake.md)" >&2; : >"$sdw"; }
+  else rm -f "$sdw"; fi
+  if [[ $mode == off ]]; then
+    [[ -n $old ]] && sabha_keep_awake_ours "$old" && kill "$old" 2>/dev/null
+    rm -f "$f"; return 0
+  fi
+  command -v caffeinate >/dev/null 2>&1 || { echo "sabha: SABHA_KEEP_AWAKE=$mode needs caffeinate (macOS only); ignored" >&2; return 1; }
+  spid=$(pgrep -f "herdr --session $(sabha_session) server" 2>/dev/null | head -1)
+  if [[ -z $old ]] || ! sabha_keep_awake_ours "$old" "$spid"; then
+    rm -f "$f"
+    [[ -n $spid ]] || { echo "sabha: keep-awake: no herdr server for session $(sabha_session) to hold awake" >&2; return 1; }
+    caffeinate -dis -w "$spid" >/dev/null 2>&1 9>&- &
+    cpid=$!
+    echo "$cpid" >"$f"
+    echo "sabha: keep-awake ($mode): caffeinate $cpid holds the Mac awake while herdr server $spid runs"
+  fi
+  if [[ $mode == lid ]] && ! pmset -g 2>/dev/null | grep -Eq 'SleepDisabled[[:space:]]+1'; then
+    # said once per mode change, not every poll
+    [[ $(cat "$SABHA_IMPL/status/keep-awake.warned" 2>/dev/null) == lid ]] ||
+      echo "sabha: keep-awake lid: closing the lid still sleeps until you run: sudo pmset -a disablesleep 1 (see docs/keep-awake.md)" >&2
+  fi
+  echo "$mode" >"$SABHA_IMPL/status/keep-awake.warned"
+  return 0
+}
+
 # sabha_session_stop: stops and deletes the sabha session and nothing else (the default session is never touched)
 sabha_session_stop() {
   local s
@@ -78,11 +181,45 @@ sabha_pane_note() {
   { grep -v "^$1 " "$f" 2>/dev/null; echo "$1 $2"; } >"$f.tmp" && mv "$f.tmp" "$f"
 }
 
-# sabha_nudge <Name> <text>: submits text to that role's agent and waits until it settles (idle, done or blocked)
+# sabha_pane_reset: an empty map, for a grid start: the roles of an older grid and their pane ids are gone
+sabha_pane_reset() {
+  mkdir -p "$SABHA_IMPL/status"
+  : >"$SABHA_IMPL/status/herdr-panes.txt"
+}
+
+# sabha_pane_prune: drops the map lines whose pane herdr no longer lists (a closed pane id is never reused, so a line
+# for a missing id is dead for good), and says so on stderr. A failed `pane list`, or one with no pane id we can read,
+# proves nothing and leaves the map alone.
+sabha_pane_prune() {
+  local f=$SABHA_IMPL/status/herdr-panes.txt out live name pane
+  [[ -s $f ]] || return 0
+  out=$(sabha_h pane list 2>/dev/null) || return 0
+  live=$(grep -o '"pane_id" *: *"[^"]*"' <<<"$out" | sed 's/.*: *"\(.*\)"/\1/') || true
+  [[ -n $live ]] || return 0
+  : >"$f.tmp"
+  while read -r name pane; do
+    [[ -n $name ]] || continue
+    if grep -qxF "$pane" <<<"$live"; then echo "$name $pane" >>"$f.tmp"
+    else echo "sabha: pane $pane of $name is gone; dropped from the pane map" >&2; fi
+  done <"$f"
+  mv "$f.tmp" "$f"
+}
+
+# sabha_nudge <Name> <text>: submits text to that role's agent and waits until it settles (idle, done or blocked).
+# The target is the role's live pane from the map, else the lower-case agent name (a role started with `agent start`).
 sabha_nudge() {
   local t
   sabha_herdr_guard || return 1
-  t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null)
+  sabha_pane_prune
+  # awk exits 2 on a missing map, which under set -e would end the caller before the fallback below
+  t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null) || t=
   [[ -n $t ]] || t=$(tr '[:upper:]' '[:lower:]' <<<"$1")
   sabha_h agent prompt "$t" "$2" --wait --timeout "${SABHA_NUDGE_TIMEOUT:-120000}"
+}
+
+# sabha_target <Name>: the herdr target for a role, its recorded pane, else its lower-case agent name (as sabha_nudge)
+sabha_target() {
+  local t
+  t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null)
+  if [[ -n $t ]]; then echo "$t"; else tr '[:upper:]' '[:lower:]' <<<"$1"; fi
 }

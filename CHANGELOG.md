@@ -1,5 +1,66 @@
 # Changelog
 
+## 2.0.0 - 2026-10-20
+
+### Upgrading from 1.x
+
+Breaking changes:
+
+- Session names are role ids. `claude -n` and pane names are Relay, Dispatcher, BuilderHeavy, ... not theme character
+  names; anything that attached by the old name must use the role id.
+- Status files and inboxes are NOT renamed for you. A restart starts fresh role-id files
+  (`status/<roleid>.md`, `status/loop/<roleid>.log`, `inbox/<RoleId>`) and leaves the old character-named ones
+  (`status/vidur.md`, `status/loop/vidur.log`, `inbox/Vidur`) where they are. Keep them, delete them, or move them
+  yourself. Run the move after `sabha-down` and BEFORE `sabha-up`: once the restart has created `inbox/<RoleId>`, the
+  old folder cannot be moved onto it. The loop below never overwrites and never nests; when the new path already
+  exists it prints a skip line naming both paths and leaves the old one for you. For the mahabharat theme, from the
+  sabha folder (UNVERIFIED on a live grid; the old inbox folder's letter case was not checked, adjust if yours differs):
+
+      for p in vidur:Relay yudhishthira:Dispatcher bhishma:Architect bhima:BuilderHeavy arjun:BuilderPrecise sahadev:Reviewer nakul:Writer karna:Runner sanjaya:Scribe duryodhan:BackendCritic dushasan:FrontendCritic shakuni:SecurityCritic draupadi:ScopeCritic gandhari:BlindReviewer vedvyasa:Keeper barbarika:Observer abhimanyu:Housekeeper krishna:Tutor ashwatthama:Watcher dronacharya:Coach; do c=${p%%:*}; r=${p##*:}; l=$(echo $r | tr A-Z a-z); if [ -e status/$c.md ]; then if [ ! -e status/$l.md ]; then mv status/$c.md status/$l.md; else echo "skip: status/$c.md -> status/$l.md exists"; fi; fi; if [ -e status/loop/$c.log ]; then if [ ! -e status/loop/$l.log ]; then mv status/loop/$c.log status/loop/$l.log; else echo "skip: status/loop/$c.log -> status/loop/$l.log exists"; fi; fi; if [ -e inbox/$c ]; then if [ ! -e inbox/$r ]; then mv inbox/$c inbox/$r; else echo "skip: inbox/$c -> inbox/$r exists"; fi; fi; done
+- `statusLine` path: a copy at `~/.claude/statusline-sabha.sh` goes stale. Point `statusLine` at the clone's
+  `bin/statusline-sabha.sh`. `sabha doctor` warns on a stale copy.
+- `sabha-loop` restarts a pane fresh at 30% context (`SABHA_LOOP_LIMIT`, default 30). Launch roles through `sabha-loop`
+  and keep state in files; chat history does not survive the restart.
+- Config lookup: the project the cwd is in wins over a copy's own `sabha.conf`.
+
+Steps:
+
+1. `claude plugin marketplace update claude-sabha`, then `claude plugin update claude-sabha@claude-sabha`, then restart.
+   (Commands checked against `--help`; their effect on disk is UNVERIFIED.)
+2. Point `statusLine` at the clone's script.
+3. Optional, while the grid is down and before `sabha-up`: move the old character-named status files and inboxes with the command in the breaking changes above, or leave them.
+4. Run `sabha doctor`; it should report no old standalone copy and no stale statusline copy.
+5. Restart the grid once. Running panes keep the old behaviour until then.
+
+### Changes
+
+- Fix: `tests/test-leak.sh` runs under `LC_ALL=C`, so a tracked file with a non-ASCII byte is scanned, not skipped by a
+  sed "illegal byte sequence" error.
+- Tooltips: `tips/tips.txt` (key|surfaces|text|doc|needs) feeds the board (hover and keyboard focus on headings, columns,
+  states and the question card) and the CLI (`sabha tips`, `sabha help <key>`, a rotating `Tip:` line after
+  `sabha doctor` and `sabha init`). A tip whose `needs` string is absent from bin/ and hooks/ stays hidden.
+- Themes v2: a theme is a skin over the role ids and never renames a role. `claude -n`, `status/<roleid>.md`,
+  `inbox/<RoleId>` and the hooks key on the role id; the character name, colour and icon are display only (statusline,
+  board, pane titles), and a voice reaches the opening prompt of Relay, Tutor and Coach only. The old per-theme
+  persona line is gone; each role's job line stays in its role card.
+- New theme file format: `key: value` header (title, author, category, fan, description, licence) and 20 rows
+  `Character|DefaultRole|#colour|icon|voice`. The five shipped themes are converted (same cast, new voices).
+- Presets: `~/.config/claude-sabha/presets/<name>.preset` layer your changes over a theme (`Role|theme:Character`,
+  `Character.field|value`), including characters from other themes. `SABHA_THEME` names a theme or a preset.
+- `bin/sabha-theme` (`resolve`, `list`, `show`, `use`, `validate`) is the one parser and validator; `/sabha-theme`
+  lists and switches. Shipped themes are validated strictly; a preset's bad voice is a warning.
+- Upgrading a running grid: the restart starts fresh role-id files (`status/relay.md`) and leaves the old
+  character-named ones (`status/vidur.md`); they are not renamed for you (see Upgrading from 1.x).
+- Fix: `tests/hermetic-bin/herdr` was not executable, so every hermetic test refused to run.
+- Config lookup now walks up from the cwd for `.sabha/local/sabha.conf`, so a role started in a subfolder of its
+  project uses the project's own config, not a copy's. Every resolver (`sabha`, `sabha-lib`, `sabha-theme`,
+  `sabha-for-me`, `sabha-sheet`, the statusline) uses the same order.
+- `sabha doctor` warns (never deletes or moves) about a statusline script that has no `SABHA_CONF` lookup, a second
+  claude-sabha copy whose config names another `SABHA_IMPL`, and a script run from a copy whose config belongs to
+  another project.
+- herdr pane map: `status/herdr-panes.txt` is emptied at grid start, keyed by role id, and pruned against
+  `herdr pane list` before each nudge. Fix: `sabha_nudge` no longer exits under `set -e` when the map is missing.
+
 ## 1.0.0 - 2026-10-18
 
 - First public release.

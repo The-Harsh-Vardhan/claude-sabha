@@ -72,9 +72,10 @@ without a pane is an on-demand subagent of the dispatcher with its own model and
 
 ## Themes
 
-Pick who your team is: `SABHA_THEME` in `sabha.conf`, or `bin/sabha init --theme <name>`. A theme is a display skin: it renames the roles on screen,
-gives each a colour (statusline and board) and a one-line persona (in its opening prompt); scripts, roles and models
-stay the same.
+Pick who your team is: `SABHA_THEME` in `sabha.conf`, `bin/sabha init --theme <name>`, or `/sabha-theme`. A theme is a
+display skin: it shows a character name, colour and icon for each role (statusline, board, pane titles) and gives the
+roles that chat with you (Relay, Tutor, Coach) a voice; scripts, roles, models, inboxes and status files keep the role
+ids. Your own tweaks live in a preset (`~/.config/claude-sabha/presets/`), layered over a theme.
 
 ![The 20 roles in each of the five themes: mahabharat, avengers, hogwarts, middle-earth, plain](docs/assets/banner.png)
 
@@ -87,7 +88,7 @@ stay the same.
 | `plain` (default) | Relay | Dispatcher | Architect | BuilderHeavy, BuilderPrecise |
 
 Each role has an icon per theme in `icons/<theme>/<id>.png` (generic symbols, no likenesses or logos). All 20 roles
-side by side: [Roster](docs/roster.md). The file format and how to add your own: [themes/README.md](themes/README.md). The Avengers,
+side by side: [Roster](docs/roster.md). The file format, presets and how to add your own: [themes/README.md](themes/README.md). The Avengers,
 Hogwarts and Middle-earth themes are fan themes; the names belong to their owners and claude-sabha is not affiliated
 with or endorsed by them.
 
@@ -113,6 +114,40 @@ create`, `workspace list`, `pane list` and `agent list` JSON, `workspace close`,
 Still UNTESTED on a real herdr: `agent start`, `agent prompt`, `agent wait`, `agent read`, `send-keys` and `pane split`
 (see [docs/known-gaps.md](docs/known-gaps.md)). `SABHA_BACKEND=iterm` keeps the frozen macOS iTerm2 path as a fallback.
 The files stay the source of truth; herdr only wakes a pane (`bin/sabha-nudge <Name> "text"`).
+
+Three herdr extras (herdr 0.9.5; each checked against a fake herdr only, UNTESTED live):
+
+- **Blocked-pane alerts.** `bin/sabha-alert` waits on every recorded pane with `herdr agent wait --until blocked`
+  (no polling). When one stops at a permission prompt or a question it copies the visible screen word for word to
+  `status/blocked/<name>.txt`, logs `status/blocked/alerts.log` and shows a herdr toast with the request sound; the
+  relay reads the file and asks you. It never answers a prompt. Run it in a spare pane: `bin/sabha-alert`.
+- **Sidebar status.** The statusline hook reports each role's display name (`--display-agent`) and, as tokens, the
+  brief it holds and its ctx % (`--ttl-ms`, so stale text clears) through `herdr pane report-metadata`; the grid
+  also sets the display name when it opens a pane, so the Agent sidebar shows Arjun, Bhima ... instead of the
+  workspace label. Pane tokens show in Agent sidebar rows as `$brief` and `$ctx`.
+- **Session restore after a herdr crash.** `herdr integration install claude` adds a SessionStart hook to your Claude
+  config (`~/.claude/settings.json` and `~/.claude/hooks/herdr-agent-state.sh`) that tells herdr the session id, so a
+  restarted herdr server resumes each Claude pane's conversation. It only resumes after herdr itself restarts: the
+  30 percent restart stays a fresh session (sabha never passes `--resume`), and since the hook reports every new
+  session, herdr resumes the newest, fresh one. A resumed pane runs Claude without its `sabha-loop`; when that role
+  next writes its handoff, quit it (two Ctrl-C) and run `bin/sabha-loop <Name>` in the pane. Run these yourself:
+  `herdr integration status`, then `herdr integration install claude`; undo with `herdr integration uninstall claude`.
+  `[session] resume_agents_on_restore = false` in herdr's config turns the resume off.
+- **More herdr (ideas 2-10, picks of 19 Oct; 7, a tab-bar command, is skipped).** The statusline hook names each
+  role's herdr agent after its lower-case role id (`agent wait relay` works without a pane id), only in the pane
+  `status/herdr-panes.txt` records for that role; a skipped rename goes once to `status/herdr-rename.log`. UNTESTED
+  on a real herdr: whether a name is per pane or per agent and whether herdr keeps names unique. `sabha-alert`
+  chimes for the relay only. `sabha-loop` flags a crash (an exit nobody asked for, non-zero, not 130 or 143) as
+  `Blocked: crashed ...` on top of the role's status file when the session had a good start or when the loop gives
+  up after two quick exits (one quick exit is a launch race, retried unflagged); a later good start clears it. `bin/sabha-check --explain` adds `herdr agent
+  explain` per recorded pane. `tests/test-herdr-contract.sh` fails when a herdr command sabha calls is not in
+  `tests/herdr-commands.txt`. `bin/sabha-herdr-config` prints suggested herdr settings with your paths filled in
+  (2 s restore stagger, sidebar rows with `$brief` and `$ctx`, herdr's claude sounds off, `prefix+alt+b` board,
+  `prefix+alt+c` check, both in `LESSSECURE=1 less`, `prefix+alt+v` focus the relay's input); it writes nothing,
+  merge it into `~/.config/herdr/config.toml` yourself, since herdr's config is global, then restart the sabha herdr
+  server and check `herdr --session sabha status server`. Run it from the installed plugin copy: the keys run that
+  copy's `bin/` (it warns when run from a git worktree and refuses paths holding `$`, a backtick, a quote or a
+  backslash).
 
 ## Remote control and progress
 
@@ -199,6 +234,8 @@ from the scripts):
 | `SABHA_KILL` | `kill` | `sabha-down.sh`: the command that signals processes (a test hook; leave it alone) |
 | `SABHA_KILL_GRACE` | `3` (seconds) | `sabha-down.sh`: wait between TERM and KILL |
 | `SABHA_NUDGE_TIMEOUT` | `120000` (milliseconds) | `sabha-nudge`: how long `herdr agent prompt --wait` waits |
+| `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
+| `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
@@ -208,11 +245,13 @@ from the scripts):
 | Command | What |
 | --- | --- |
 | `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off] [--ws DIR] [--home DIR] [--name NAME]` | Sets up the project's sabha folder (`~/my-claude-sabha/<name>`) and its `sabha.conf` (plan, OS, the agent CLIs found, tracker, ntfy topic), and links it into the project. Asks for what it is not given on a terminal |
-| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions and the Remote Control policy; exits 1 only on a FAIL |
+| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only); exits 1 only on a FAIL |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the restart line first, then a `pane:` line |
-| `bin/sabha-check` | Read-only list of each role's processes; DUPLICATE when more than one holds a name |
+| `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
 | `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |
 | `bin/sabha-nudge <Name> "text"` | Wakes one pane (`herdr agent prompt --wait`) |
+| `bin/sabha-alert [<Name>...]` | Toast when a pane blocks at a prompt; copies the prompt to `status/blocked/`; never answers |
+| `bin/sabha-herdr-config` | Prints suggested herdr settings (restore stagger, sidebar rows, sounds, keys) to merge by hand; writes nothing |
 | `bin/sabha-loop <Name>` | The restart supervisor for one pane |
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
@@ -241,9 +280,9 @@ from the scripts):
 6. In each repository the roles work on, run `bin/sabha-worktree hook <repo>` (no commits in the main checkout) and
    `bin/sabha-worktree push-hook <repo>` (only you and the relay push). See [SECURITY.md](SECURITY.md).
 
-Role ids are plain names (Relay, Dispatcher, BuilderHeavy, ...) in the plan files, inboxes and status folders. With no
-`SABHA_THEME` set the roles show their plain names; a theme renames them on screen for the launchers, `sabha-watch`,
-the hooks, the statusline and the board (see [Themes](#themes)).
+Role ids are plain names (Relay, Dispatcher, BuilderHeavy, ...) everywhere: the plan files, `claude -n`, inboxes, status
+files, the hooks. With no `SABHA_THEME` set the roles show their plain names; a theme only changes what the statusline,
+the board and the pane titles show (see [Themes](#themes)).
 
 ## What is in it
 

@@ -12,7 +12,10 @@ set -uo pipefail
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$(dirname "$SELF")/sabha-lib.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-limits.sh
+. "$(dirname "$SELF")/sabha-limits.sh"
 sabha_load sabha-run
+sabha_theme sabha-run || exit 1
 PROJECT=${SABHA_PROJECT:-this project}
 MAX=${SABHA_RUN_MAX:-2}
 TIMEOUT=${SABHA_RUN_TIMEOUT:-3600}
@@ -25,9 +28,9 @@ role_cmd() {
   local r name model effort lower to n who
   sabha_role "$1" || { echo "sabha-run: unknown role $1" >&2; return 1; }
   r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
-  who=$name; [[ -n $R_LABEL && $R_LABEL != "$name" ]] && who="$name ($R_LABEL)"
+  who=$(sabha_who "$name")
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
-  n=$(basename "$2"); n=${n:0:3}
+  n=$(basename "$2"); n=${n%%-*}
   to=$DISPATCHER; [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   CMD=(claude -p -n "$name" --model "$model" --effort "$effort")
   # MCP servers each cost memory; "mcp" in the roster flags keeps them, as in sabha-up.sh
@@ -57,9 +60,9 @@ served() {
 # due <Name>: prints the lowest brief with no .ack, .cancel or .done
 due() {
   local b n d=$SABHA_IMPL/inbox/$1
-  for b in "$d"/[0-9][0-9][0-9]-*.md; do
+  for b in "$d"/[0-9][0-9][0-9]*-*.md; do
     [[ -e $b ]] || continue
-    n=$(basename "$b"); n=${n:0:3}
+    n=$(basename "$b"); n=${n%%-*}
     [[ -e $d/$n.ack || -e $d/$n.cancel || -e $d/$n.done ]] && continue
     echo "$b"; return 0
   done
@@ -79,14 +82,14 @@ live_lock() {
 # --child <Name> <brief> <log>: the run itself (spawned by a pass, holds inbox/<Name>/run.lock)
 if [[ ${1:-} == --child ]]; then
   name=$2 brief=$3 log=$4
-  dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n:0:3}
+  dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
   # the child writes its own pid before anything else, so its EXIT trap can never run before the lock names it;
   # the pass waits for this line as its proof that the run started
   echo $$ >|"$dir/run.lock"
   trap 'rm -f "$dir/run.lock"' EXIT
   role_cmd "$name" "$brief"
   { echo "sabha-run: $(utc) start $name $n, timeout ${TIMEOUT}s"; echo "sabha-run: cd $SABHA_WS && ${CMD[*]}"; } >>"$log"
-  timed=0
+  timed=0 cancelled=0
   if cd "$SABHA_WS"; then
     # set -m gives claude its own process group, so the timeout also stops the builds and servers its tools started
     set -m
@@ -96,8 +99,11 @@ if [[ ${1:-} == --child ]]; then
     # a 1 s watch, not `timeout`: stock macOS has none
     end=$(( SECONDS + TIMEOUT ))
     while kill -0 "$cp" 2>/dev/null; do
-      if (( SECONDS >= end )); then
-        timed=1; kill -TERM -- -"$cp" 2>/dev/null
+      # a .cancel written while the run is on stops it like the timeout does (docs/inbox-protocol.md section 5)
+      [[ -e $dir/$n.cancel ]] && cancelled=1
+      if (( SECONDS >= end || cancelled )); then
+        (( cancelled )) || timed=1
+        kill -TERM -- -"$cp" 2>/dev/null
         for _ in 1 2 3 4 5; do kill -0 -- -"$cp" 2>/dev/null || break; sleep 1; done
         kill -KILL -- -"$cp" 2>/dev/null
         break
@@ -105,14 +111,16 @@ if [[ ${1:-} == --child ]]; then
       sleep 1
     done
     wait "$cp"; rc=$?
-    why="exit $rc"; (( timed )) && why="timeout after ${TIMEOUT}s"
+    why="exit $rc"; (( timed )) && why="timeout after ${TIMEOUT}s"; (( cancelled )) && why="cancelled"
   else
     why="cannot cd to $SABHA_WS"
   fi
   echo "sabha-run: $(utc) end $name $n: $why" >>"$log"
   sabha_role "$name" && sabha_cost_log "$name" "$R_MODEL" "brief $n $why"
   # the sender waits on a .done; a run that died without one still has to say so
-  if [[ ! -e $dir/$n.done ]]; then
+  if [[ ! -e $dir/$n.done && $cancelled == 1 ]]; then
+    printf 'utc: %s\nsession: %s [headless]\nresult: CANCELLED stopped by %s.cancel\ncontext: 0\n' "$(utc)" "$name" "$n" >"$dir/$n.done"
+  elif [[ ! -e $dir/$n.done ]]; then
     printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run ended without a done (%s), log %s\ncontext: 0\n' \
       "$(utc)" "$name" "$why" "$log" >"$dir/$n.done"
   fi
@@ -143,7 +151,7 @@ started=0
 for name in "${want[@]}"; do
   served "$name" "$named" || { (( named )) && echo "sabha-run: $name: the relay is never run headless"; continue; }
   brief=$(due "$name") || continue
-  dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n:0:3}
+  dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
   if awk -v n="$name" '$1 == n { f = 1 } END { exit !f }' <<<"$procs"; then
     echo "sabha-run: $name $n: a live claude -n $name holds the role; left to it"; continue
   fi
@@ -158,6 +166,8 @@ for name in "${want[@]}"; do
     echo "$line"
     running=$(( running + 1 )); continue
   fi
+  # SABHA_STOP: no new session while a usage window is at the stop line (bin/sabha-limits.sh)
+  if why=$(sabha_limits_stopped); then echo "sabha-run: $name $n: $why"; continue; fi
   # per-role single flight: noclobber, like the brief-number claim (docs/inbox-protocol.md section 2)
   (set -C; echo $$ >"$dir/run.lock") 2>/dev/null || { echo "sabha-run: $name $n: run.lock taken"; continue; }
   # the ack is the brief's claim: a pane or another pass that acked first wins

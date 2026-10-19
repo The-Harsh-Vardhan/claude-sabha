@@ -2,6 +2,7 @@
 # Fails when a tracked file carries an owner name, a home path, an employer or product name, a sheet id, a token or a
 # peer id. Patterns are shapes or public names only; add new ones to PATTERNS. Run: tests/test-leak.sh
 set -u
+export LC_ALL=C
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 PATTERNS=(
   'harsh'
@@ -22,6 +23,14 @@ PATTERNS=(
 )
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 cd "$root" || exit 1
+# real employer, product and owner names live in an untracked file (one ERE per line, # comments allowed), so no tracked
+# file names them. Default local/leak-patterns (gitignored); SABHA_LEAK_PATTERNS points other worktrees at one shared file
+local_patterns=${SABHA_LEAK_PATTERNS:-$root/local/leak-patterns}
+if [[ -f $local_patterns ]]; then
+  while IFS= read -r p; do [[ -n $p && $p != \#* ]] && PATTERNS+=("$p"); done < "$local_patterns"
+else
+  echo "note: $local_patterns missing, so employer and product names are not checked"
+fi
 self=tests/test-leak.sh
 ALLOW_LICENSE='3:Copyright (c) 2026 Harsh Vardhan'
 # the plugin manifests may carry the owner's name in their author/owner "name" field and nowhere else
