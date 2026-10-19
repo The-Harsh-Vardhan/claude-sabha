@@ -83,7 +83,7 @@ chk "$h" "type=radio name=q4 value=B" "late-appended question renders"
 [[ $(grep -o '<tr><td class=nm>' "$h" | wc -l | tr -d ' ') == 2 ]] || { echo "FAIL: agents table needs one row per roster role"; exit 1; }
 chk "$h" "class=atw" "scroll container"
 chk "$h" "not running" "not-running state"
-ag=$(grep -n '<h2>Agents' "$h" | head -1 | cut -d: -f1); ym=$(grep -n '<h2>Your move' "$h" | head -1 | cut -d: -f1)
+ag=$(grep -n '<h2[^>]*>Agents' "$h" | head -1 | cut -d: -f1); ym=$(grep -n '<h2[^>]*>Your move' "$h" | head -1 | cut -d: -f1)
 [[ -n $ag && -n $ym && $ym -lt $ag ]] || { echo "FAIL: Your move must come before Agents when it has open items (html)"; exit 1; }
 [[ $(grep -n '^## Agents' "$m" | cut -d: -f1) -lt $(grep -n '^## Your move' "$m" | cut -d: -f1) ]] || { echo "FAIL: md order"; exit 1; }
 echo "ok: question item renders radios, rec, textarea, copy button; plain item unchanged"
@@ -117,10 +117,10 @@ chk "$h" "id=s-paused" "paused strip"; chk "$h" "id=s-done" "done strip"
 chk "$h" "Done goals <span class=c>1" "done strip count"
 awk '/lane-P0/{f=1} /lane-P1/{f=0} f&&/Finished work/{bad=1} END{exit bad}' "$h" || { echo "FAIL: done goal in a column"; exit 1; }
 awk '/lane-P2/{f=1} f&&/Legacy goal/{ok=1} END{exit !ok}' "$h" || { echo "FAIL: untagged goal not P2"; exit 1; }
-chk "$h" "<th>Goal</th>" "Goal column header"
+chk "$h" "<th[^>]*>Goal</th>" "Goal column header"
 grep -q "<tr><td class=nm>Zed</td>.*<td>Ship viewer</td>" "$h" || { echo "FAIL: Zed goal cell"; exit 1; }
 grep -q "<tr><td class=nm>Old</td>.*<td>Ship viewer; Plan next</td>" "$h" || { echo "FAIL: Old goal cell"; exit 1; }
-gl=$(grep -n '<h2>Goals' "$h" | head -1 | cut -d: -f1)
+gl=$(grep -n '<h2[^>]*>Goals' "$h" | head -1 | cut -d: -f1)
 kp=$(grep -n 'class=kpis' "$h" | head -1 | cut -d: -f1); ch=$(grep -n 'class=charts' "$h" | head -1 | cut -d: -f1)
 [[ -n $kp && -n $ch && $kp -lt $ym && $ym -lt $ag && $ag -lt $ch && $ch -lt $gl ]] || { echo "FAIL: order must be tiles, Your move, Agents, charts, Goals (html)"; exit 1; }
 chk "$m" "### P0 Now" "md P0"; chk "$m" "### P2 Later" "md P2"
@@ -169,7 +169,7 @@ chk "$h" ">V, 2h ago</div>" "relative time"
 ! grep -q 'e.g. you reply' "$h" || { echo "FAIL: reply example repeated"; exit 1; }
 chk "$h" "e.g. a real example" "real example kept"
 chk "$h" "class=why" "explain text class"
-chk "$h" "<h2>In flight <span class=c>2" "In flight agrees with Busy + Blocked, not with stale"
+chk "$h" "<h2[^>]*>In flight <span class=c>2" "In flight agrees with Busy + Blocked, not with stale"
 chk "$h" "<div class=n>1</div><div class=l>Busy" "busy tile"
 chk "$h" "<div class=n>2</div><div class=l>Stale" "stale tile counts an old busy file once"
 chk "$h" "<div class=n>1</div><div class=l>Idle" "idle tile excludes stale"
