@@ -81,6 +81,19 @@ SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-de
 #SABHA_KEEP_AWAKE=auto
 #SABHA_KEEP_AWAKE_AC=lid
 #SABHA_KEEP_AWAKE_BATTERY=open
+# Permission relay (SECURITY.md layer 4, docs/inbox-protocol.md section 9): a worker's permission prompt goes to you
+# through the relay. SABHA_RELAY_WAIT: seconds the pane waits for your answer before its own prompt shows (default
+# 1500 = 25 min; capped at 1780, under the hook's 1800 s timeout). `bin/sabha-perm snippet` prints the Claude Code
+# settings to paste into your own settings file (sabha never edits one): defaultMode from SABHA_PERMISSION_MODE
+# (default, acceptEdits, plan, ...) and the allow rules in SABHA_PERMISSION_ALLOW, separated by ";". The word
+# "default" in the list stands for the shipped rules (reads in SABHA_IMPL, SABHA_WS and sabha; writes in SABHA_IMPL's
+# inbox/, status/, questions/, for-me.items and SABHA_WS's worktrees, never their git hooks or .claude/; a few
+# read-only commands; sabha-perm), so
+# "default;Bash(make test)" adds one rule and a list without it replaces them. A test or build rule lets every role
+# run code it wrote itself with no prompt (SECURITY.md layer 4). The snippet's deny part is always printed.
+#SABHA_RELAY_WAIT=1500
+#SABHA_PERMISSION_MODE=default
+#SABHA_PERMISSION_ALLOW="default"
 SABHA_WAITING="Reviewer1 Reviewer2"
 # Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
 #SABHA_TASK_FALLBACK="Name=task text"
