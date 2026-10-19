@@ -18,6 +18,8 @@ BIN=$(cd "$(dirname "$0")" && pwd)
 . "$BIN/sabha-lib.sh"
 # shellcheck source=sabha-limits.sh
 . "$BIN/sabha-limits.sh"
+# shellcheck source=sabha-herdr.sh
+. "$BIN/sabha-herdr.sh"
 
 mtime() { date -r "$1" +%s 2>/dev/null || echo 0; }
 
@@ -87,6 +89,7 @@ if [[ $1 == --stop ]]; then
   echo "sabha-loop: $2 ends after its current session"; exit 0
 fi
 
+sabha_keep_awake || true
 name=$1 agent="" model=""
 for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent model _ <<<"$r"; break; }; done
 [[ -n $agent ]] || { echo "sabha-loop: unknown role: $name" >&2; exit 2; }
@@ -123,6 +126,7 @@ while :; do
   while kill -0 "$cpid" 2>/dev/null; do
     sleep "$interval"
     kill -0 "$cpid" 2>/dev/null || break
+    sabha_keep_awake >/dev/null 2>>"$LOOP/$lower.log" || true
     case $(decide "$kind" "$ctx" "$handoff" "$inbox" "$last") in
       restart)
         log "restart: $([[ $kind == claude ]] && echo "context $(tr -d ' \n' <"$ctx")% and a newer handoff" || echo "a brief finished")"
