@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Themes v2: a theme is a skin over the role ids and never renames a role. `claude -n`, `status/<roleid>.md`,
+  `inbox/<RoleId>` and the hooks key on the role id; the character name, colour and icon are display only (statusline,
+  board, pane titles), and a voice reaches the opening prompt of Relay, Tutor and Coach only. The old per-theme
+  persona line is gone; each role's job line stays in its role card.
+- New theme file format: `key: value` header (title, author, category, fan, description, licence) and 20 rows
+  `Character|DefaultRole|#colour|icon|voice`. The five shipped themes are converted (same cast, new voices).
+- Presets: `~/.config/claude-sabha/presets/<name>.preset` layer your changes over a theme (`Role|theme:Character`,
+  `Character.field|value`), including characters from other themes. `SABHA_THEME` names a theme or a preset.
+- `bin/sabha-theme` (`resolve`, `list`, `show`, `use`, `validate`) is the one parser and validator; `/sabha-theme`
+  lists and switches. Shipped themes are validated strictly; a preset's bad voice is a warning.
+- Upgrading a running grid: status files and inboxes named for the old character (`status/vidur.md`) move to the role
+  id (`status/relay.md`) at the grid's next full restart.
+- Fix: `tests/hermetic-bin/herdr` was not executable, so every hermetic test refused to run.
+
 ## 1.0.0 - 2026-10-18
 
 - First public release.
