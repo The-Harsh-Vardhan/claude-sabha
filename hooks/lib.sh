@@ -55,7 +55,7 @@ hk_init() {
 hk_open_briefs() {
   local dir=$HK_IMPL/inbox/$HK_ROLE f b n
   [ -d "$dir" ] || return 0
-  for f in "$dir"/[0-9][0-9][0-9]-*.md; do
+  for f in "$dir"/[0-9][0-9][0-9]*-*.md; do
     [ -f "$f" ] || continue
     b=${f##*/}
     n=${b%%-*}
