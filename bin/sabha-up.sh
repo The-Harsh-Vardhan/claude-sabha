@@ -144,6 +144,9 @@ guard "${build[@]}" ${gate[@]+"${gate[@]}"}
 # --force reach that inner sabha-up.sh as environment, since sabha-loop takes only the name
 pane_args=""; [[ -n ${SABHA_PLAN:-} ]] && pane_args="SABHA_PLAN=$SABHA_PLAN "
 (( FORCE )) && pane_args+="SABHA_FORCE=1 "
+# a spawned pane has no inherited env (herdr pane run, a fresh iTerm tab): pass the config path sabha_conf_read found,
+# or sabha-loop falls back to its own no-fallback search and fails with "no config"
+[[ -n ${SABHA_CONF:-} ]] && pane_args+="SABHA_CONF='$SABHA_CONF' "
 
 # herdr backend (the default): one workspace, Build as its first tab and Gate as a second; each tab is two rows of up
 # to four panes. fill_tab <root pane id> <name>...: columns by splitting right, the second row by splitting down, then
@@ -209,10 +212,13 @@ tab_script() {
   done
   k=1
   for name in "$@"; do
-    printf '    tell %s%d\n      set name to "%s"\n      write text "%s"\n    end tell\n' "$p" "$k" "$name" "$pane_args'$LOOP' $name"
+    printf '    tell %s%d\n      set name to "%s"\n      write text "%s"\n    end tell\n' "$p" "$k" "$name" "cd '$SABHA_WS' && ${pane_args}'$LOOP' $name"
     k=$(( k + 1 ))
   done
 }
+# $SABHA_WS and $SABHA_CONF go into AppleScript text (tab_script) and a shell line it writes: a quote, $ or backtick
+# in either would break both
+[[ $SABHA_WS${SABHA_CONF:-} != *[\"\$\`]* ]] || { echo "sabha-up: config value holds a quote, \$ or backtick" >&2; exit 1; }
 echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
 gate_tab=""
 if (( ${#gate[@]} )); then
