@@ -6,6 +6,7 @@ set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-doctor.XXXXXX") || exit 1
+dir=$(cd "$dir" && pwd)   # $TMPDIR may end in a slash; $PWD never does
 trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 JQ=$(command -v jq) || fail "jq is needed to run this test"
@@ -20,7 +21,9 @@ echo '{"statusLine":{"type":"command","command":"bash /x/bin/statusline-sabha.sh
 # Git Bash: a copied tool cannot load msys-2.0.dll, so /usr/bin goes first (it holds no git and no agent CLI)
 SB=$dir/sysbin
 case $(uname -s) in MINGW*|MSYS*) SB=/usr/bin:$dir/sysbin ;; esac
-D() { PATH="$dir/fakebin:$SB" SABHA_CONF=$dir/sabha.conf SABHA_SETTINGS=$dir/settings.json "${BASH:-bash}" "$ROOT/bin/sabha" doctor 2>&1; }
+# DC: the claude-sabha copies doctor looks for besides this one (SABHA_DOCTOR_COPIES, empty = none, so the real ones on this machine never count)
+DC=""
+D() { PATH="$dir/fakebin:$SB" SABHA_CONF=$dir/sabha.conf SABHA_SETTINGS=$dir/settings.json SABHA_DOCTOR_COPIES=$DC "${BASH:-bash}" "$ROOT/bin/sabha" doctor 2>&1; }
 
 o=$(D); rc=$?
 [[ $rc -eq 0 ]] || fail "healthy machine should pass, rc=$rc: $o"
@@ -63,6 +66,46 @@ SABHA_REMOTE=1" >>"$dir/sabha.conf"
 o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  SABHA_REMOTE=1' || fail "SABHA_REMOTE=1 on a personal seat should warn about org policy, rc 0"
 
+# item 5: two copies, a stale statusline copy, a copy whose config belongs to another project: warnings only, nothing is touched
+other=$dir/other-impl; mkdir -p "$other"
+cp "$ROOT/bin/statusline-sabha.sh" "$dir/good-statusline-sabha.sh"
+printf '#!/bin/bash\nCTX_DIR="/somewhere/else/status/context"\ninput=$(cat)\n' > "$dir/statusline-sabha.sh"
+echo "{\"statusLine\":{\"type\":\"command\",\"command\":\"bash $dir/statusline-sabha.sh\"}}" >"$dir/settings.json"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q "^warn  statusLine runs $dir/statusline-sabha.sh, an old standalone copy" || fail "a statusline script with no sabha.conf lookup must WARN (rc 0): rc=$rc: $o"
+[[ -f $dir/statusline-sabha.sh ]] || fail "doctor must never delete or move a copy"
+mkdir -p "$dir/goodsl"; cp "$ROOT/bin/statusline-sabha.sh" "$dir/goodsl/statusline-sabha.sh"
+echo "{\"statusLine\":{\"type\":\"command\",\"command\":\"bash $dir/goodsl/statusline-sabha.sh\"}}" >"$dir/settings.json"
+o=$(D)
+echo "$o" | grep -q 'old standalone copy' && fail "the repo's own statusline script must not be called stale: $o"
+echo '{"statusLine":{"type":"command","command":"bash /x/bin/statusline-sabha.sh"}}' >"$dir/settings.json"
+o=$(D)
+echo "$o" | grep -q 'old standalone copy' && fail "a statusLine script that does not exist is not reported as a stale copy: $o"
+
+mkdir -p "$dir/copy1/bin"; : > "$dir/copy1/bin/sabha-lib.sh"
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\n' "$dir/otherws" "$other" > "$dir/copy1/sabha.conf"
+DC="$dir/copy1"; o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q "^warn  a second claude-sabha copy at $dir/copy1 (this one is $ROOT)" || fail "a second copy must WARN (rc 0): rc=$rc: $o"
+echo "$o" | grep -q "copy1.*sabha.conf names SABHA_IMPL=$other, not $dir/impl" || fail "the copy's own config pointing elsewhere must be named: $o"
+[[ -d $dir/copy1 ]] || fail "doctor must never delete or move a copy"
+DC="$ROOT"; o=$(D)
+echo "$o" | grep -q 'second claude-sabha copy' && fail "this copy is not a second copy: $o"
+DC="$dir/nothere"; o=$(D)
+echo "$o" | grep -q 'second claude-sabha copy' && fail "a path with no scripts is not a copy: $o"
+DC=""
+
+# run from a copy whose own sabha.conf belongs to another project, in a directory outside it, with no .sabha/local above
+mkdir -p "$dir/runcopy/bin" "$dir/elsewhere"; cp "$ROOT"/bin/sabha "$ROOT"/bin/sabha-lib.sh "$dir/runcopy/bin/"
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\n' "$dir/otherws" "$other" > "$dir/runcopy/sabha.conf"
+o=$(cd "$dir/elsewhere" && env -u SABHA_CONF PATH="$dir/fakebin:$SB" SABHA_SETTINGS=$dir/settings.json SABHA_DOCTOR_COPIES= "${BASH:-bash}" "$dir/runcopy/bin/sabha" doctor 2>&1); rc=$?
+echo "$o" | grep -q "^warn  running from $dir/elsewhere with $dir/runcopy/sabha.conf, which belongs to another project (SABHA_WS=$dir/otherws)" || fail "a copy's own config used outside its workspace must WARN: $o"
+[[ $rc -eq 0 ]] || fail "that warning must not fail doctor, rc=$rc"
+o=$(cd "$dir/otherws" 2>/dev/null || mkdir -p "$dir/otherws"; cd "$dir/otherws" && env -u SABHA_CONF PATH="$dir/fakebin:$SB" SABHA_SETTINGS=$dir/settings.json SABHA_DOCTOR_COPIES= "${BASH:-bash}" "$dir/runcopy/bin/sabha" doctor 2>&1)
+echo "$o" | grep -q 'belongs to another project' && fail "inside its own workspace the copy's config is the right one: $o"
+# the active config is another project's and this copy's own sabha.conf names a different SABHA_IMPL
+o=$(cd "$dir/elsewhere" && PATH="$dir/fakebin:$SB" SABHA_CONF=$dir/sabha.conf SABHA_SETTINGS=$dir/settings.json SABHA_DOCTOR_COPIES= "${BASH:-bash}" "$dir/runcopy/bin/sabha" doctor 2>&1)
+echo "$o" | grep -q "^warn  this copy's own $dir/runcopy/sabha.conf names SABHA_IMPL=$other, but the active config $dir/sabha.conf names $dir/impl" || fail "a copy with its own config for another project must WARN when another config is active: $o"
+
 rm "$dir/sabha.conf"; o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  no config' || fail "no config is a warning"
-echo "ok: doctor passes a healthy machine, FAILs on a missing claude, jq, git or python3, warns (rc 0) on herdr, hook, optional CLIs, Team/Enterprise and SABHA_REMOTE"
+echo "ok: doctor passes a healthy machine, FAILs on a missing claude, jq, git or python3, warns (rc 0) on herdr, hook, optional CLIs, Team/Enterprise and SABHA_REMOTE, a stale statusline copy, a second copy and a copy whose config is another project's"

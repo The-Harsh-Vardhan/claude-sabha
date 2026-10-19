@@ -15,6 +15,14 @@
 - Upgrading a running grid: status files and inboxes named for the old character (`status/vidur.md`) move to the role
   id (`status/relay.md`) at the grid's next full restart.
 - Fix: `tests/hermetic-bin/herdr` was not executable, so every hermetic test refused to run.
+- Config lookup now walks up from the cwd for `.sabha/local/sabha.conf`, so a role started in a subfolder of its
+  project uses the project's own config, not a copy's. Every resolver (`sabha`, `sabha-lib`, `sabha-theme`,
+  `sabha-for-me`, `sabha-sheet`, the statusline) uses the same order.
+- `sabha doctor` warns (never deletes or moves) about a statusline script that has no `SABHA_CONF` lookup, a second
+  claude-sabha copy whose config names another `SABHA_IMPL`, and a script run from a copy whose config belongs to
+  another project.
+- herdr pane map: `status/herdr-panes.txt` is emptied at grid start, keyed by role id, and pruned against
+  `herdr pane list` before each nudge. Fix: `sabha_nudge` no longer exits under `set -e` when the map is missing.
 
 ## 1.0.0 - 2026-10-18
 

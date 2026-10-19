@@ -209,7 +209,7 @@ from the scripts):
 | Command | What |
 | --- | --- |
 | `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off] [--ws DIR] [--home DIR] [--name NAME]` | Sets up the project's sabha folder (`~/my-claude-sabha/<name>`) and its `sabha.conf` (plan, OS, the agent CLIs found, tracker, ntfy topic), and links it into the project. Asks for what it is not given on a terminal |
-| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions and the Remote Control policy; exits 1 only on a FAIL |
+| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only); exits 1 only on a FAIL |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the restart line first, then a `pane:` line |
 | `bin/sabha-check` | Read-only list of each role's processes; DUPLICATE when more than one holds a name |
 | `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |

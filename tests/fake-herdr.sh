@@ -27,7 +27,16 @@ case "$1 $2" in
   "workspace close") echo '{"result":{}}' ;;
   "tab create") echo "{\"result\":{\"tab\":{\"tab_id\":\"w1:t2\"},\"root_pane\":{\"pane_id\":\"w1:p$(next)\"}}}" ;;
   "pane split") echo "{\"result\":{\"pane\":{\"pane_id\":\"w1:p$(next)\"}}}" ;;
-  "pane list") echo '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","terminal_id":"t","workspace_id":"w1","cwd":"/","foreground_cwd":"/","agent_status":"unknown"}],"type":"pane_list"}}' ;;
+  "pane list")
+    [[ ${FAKE_HERDR_FAIL_PANELIST:-} == 1 ]] && { echo '{"error":"internal"}'; exit 1; }
+    # FAKE_HERDR_PANES="w1:p1 w1:p2": the live panes of the test (default: the one pane below)
+    if [[ -n ${FAKE_HERDR_PANES:-} ]]; then
+      printf '{"result":{"panes":['; sep=""
+      for id in $FAKE_HERDR_PANES; do printf '%s{"pane_id":"%s","tab_id":"w1:t1","workspace_id":"w1","agent_status":"unknown"}' "$sep" "$id"; sep=","; done
+      printf '],"type":"pane_list"}}\n'
+    else
+      echo '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","terminal_id":"t","workspace_id":"w1","cwd":"/","foreground_cwd":"/","agent_status":"unknown"}],"type":"pane_list"}}'
+    fi ;;
   "agent list") echo '{"result":{"agents":[],"type":"agent_list"}}' ;;
   "agent get") exit 1 ;;
   "agent prompt") [[ ${FAKE_HERDR_FAIL_PROMPT:-} == 1 ]] && { echo '{"error":"agent_blocked"}'; exit 1; }; echo '{"result":{}}' ;;
