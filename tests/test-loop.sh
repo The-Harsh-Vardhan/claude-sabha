@@ -52,6 +52,16 @@ SABHA_LOOP_RETRIES=0 SABHA_LOOP_MIN_UP=10 SABHA_LOOP_CMD='exit 1' bash "$BIN/sab
 grep -q 'stopped: 2 sessions in a row' "$log" || fail "stop reason missing: $(cat "$log")"
 [[ $(grep -c ' start (' "$log") -eq 2 ]] || fail "exactly 2 starts expected: $(cat "$log")"
 
+# 2a. the retry is bounded: an agent that always dies at once, with the default retries, gets SABHA_LOOP_RETRIES (3)
+# retries, then two counted failures: 5 starts and the loop stops with rc 1 (it cannot loop forever or hide a real failure)
+: >"$log"; rm -f "$dir/tries"
+SABHA_LOOP_MIN_UP=10 SABHA_LOOP_CMD='echo x >>"'"$dir"'/tries"; exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null; rc=$?
+[[ $rc -eq 1 ]] || fail "an agent that always dies must stop the loop with rc 1, got $rc: $(cat "$log")"
+[[ $(wc -l <"$dir/tries") -eq 5 ]] || fail "3 retries + 2 counted failures = 5 starts, got $(wc -l <"$dir/tries"): $(cat "$log")"
+[[ $(grep -c 'launch failed within' "$log") -eq 3 ]] && grep -q 'stopped: 2 sessions in a row' "$log" || fail "retry bound not logged: $(cat "$log")"
+SABHA_LOOP_RETRIES=1 SABHA_LOOP_MIN_UP=10 SABHA_LOOP_CMD='echo x >>"'"$dir"'/tries2"; exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null
+[[ $(wc -l <"$dir/tries2") -eq 3 ]] || fail "SABHA_LOOP_RETRIES=1 = 1 retry + 2 counted failures = 3 starts, got $(wc -l <"$dir/tries2")"
+
 # 2b. a launch failure (the agent dies within SABHA_LOOP_RETRY_WINDOW) is started again before it counts: the fake
 # dies at once on its first two starts and lives on the third, so the loop must still be running after the retries
 : >"$log"; rm -f "$dir/tries"
@@ -85,4 +95,4 @@ wait_for "$olog" ' start \(' 20; sleep 2; : >"$dir/inbox/Oc/001.done"
 wait_for "$olog" 'restart: a brief finished' 20
 grep -q 'restart: a brief finished' "$olog" || fail "other pane did not restart on .done: $(cat "$olog" 2>/dev/null)"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
-echo "ok: self-test, restart at 35% with a newer handoff, launch-failure retry, SABHA_FORCE first start only, TERM fallback for an INT-proof agent, stop after 2 dead starts, SABHA_STOP gate, --stop, .done restart"
+echo "ok: self-test, restart at 35% with a newer handoff, launch-failure retry and its bound, SABHA_FORCE first start only, TERM fallback for an INT-proof agent, stop after 2 dead starts, SABHA_STOP gate, --stop, .done restart"
