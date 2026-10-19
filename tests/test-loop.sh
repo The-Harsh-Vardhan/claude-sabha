@@ -47,10 +47,22 @@ kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 # 2. an agent that dies at once: the loop gives up after the second death
 : >"$log"
 # a wider window here: where starting bash alone takes 2-3 s (Git Bash under load) an instant death looks like 3 s
-SABHA_LOOP_MIN_UP=10 SABHA_LOOP_CMD='exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null; rc=$?
+SABHA_LOOP_RETRIES=0 SABHA_LOOP_MIN_UP=10 SABHA_LOOP_CMD='exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null; rc=$?
 [[ $rc -eq 1 ]] || fail "loop should exit 1 after 2 failed starts, got $rc"
 grep -q 'stopped: 2 sessions in a row' "$log" || fail "stop reason missing: $(cat "$log")"
 [[ $(grep -c ' start (' "$log") -eq 2 ]] || fail "exactly 2 starts expected: $(cat "$log")"
+
+# 2b. a launch failure (the agent dies within SABHA_LOOP_RETRY_WINDOW) is started again before it counts: the fake
+# dies at once on its first two starts and lives on the third, so the loop must still be running after the retries
+: >"$log"; rm -f "$dir/tries"
+SABHA_LOOP_RETRY_WINDOW=3 SABHA_LOOP_CMD='echo x >>"'"$dir"'/tries"; [ $(wc -l <"'"$dir"'/tries") -ge 3 ] && { trap "exit 0" TERM; sleep 20 & wait; }; exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
+lp=$!
+wait_for "$log" 'retry 2' 20
+for _ in $(seq 1 20); do [[ $(wc -l <"$dir/tries") -ge 3 ]] && break; sleep 1; done
+[[ $(wc -l <"$dir/tries") -ge 3 ]] || { kill -TERM "$lp" 2>/dev/null; fail "launch failures were not retried: $(cat "$log")"; }
+kill -0 "$lp" 2>/dev/null || fail "two quick failures within the retry window must not stop the loop: $(cat "$log")"
+grep -q 'stopped: 2 sessions' "$log" && fail "retried launch failures counted toward the stop: $(cat "$log")"
+kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 
 # 3. SABHA_STOP: a window at 95% with the reset ahead starts nothing; --stop ends the loop
 : >"$log"
@@ -73,4 +85,4 @@ wait_for "$olog" ' start \(' 20; sleep 2; : >"$dir/inbox/Oc/001.done"
 wait_for "$olog" 'restart: a brief finished' 20
 grep -q 'restart: a brief finished' "$olog" || fail "other pane did not restart on .done: $(cat "$olog" 2>/dev/null)"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
-echo "ok: self-test, restart at 35% with a newer handoff, SABHA_FORCE first start only, TERM fallback for an INT-proof agent, stop after 2 dead starts, SABHA_STOP gate, --stop, .done restart"
+echo "ok: self-test, restart at 35% with a newer handoff, launch-failure retry, SABHA_FORCE first start only, TERM fallback for an INT-proof agent, stop after 2 dead starts, SABHA_STOP gate, --stop, .done restart"
