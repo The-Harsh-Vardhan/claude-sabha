@@ -308,7 +308,8 @@ cmd_show() {
 cmd_use() {
   local name=${1:-} conf=${SABHA_CONF:-} tmp
   [[ -n $name ]] || usage
-  [[ -z $conf && -f $PWD/.sabha/local/sabha.conf ]] && conf=$PWD/.sabha/local/sabha.conf
+  # shellcheck source=sabha-lib.sh
+  [[ -z $conf ]] && { . "$BIN/sabha-lib.sh"; conf=$(sabha_find_local) || conf=''; }
   [[ -n $conf && -f $conf ]] || die "no config: set SABHA_CONF, or run from a project that has .sabha/local/sabha.conf"
   [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "bad name $name"
   locate "$name" || die "no theme or preset named $name (themes: $(names "$THEME_DIR" theme); presets: $(names "$PRESET_DIR" preset))"

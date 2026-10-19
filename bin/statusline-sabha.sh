@@ -4,11 +4,18 @@
 # Side effects: writes the context percent to $SABHA_IMPL/status/context/<name>.txt (what sabha-loop, sabha-watch and
 # the board read) and the usage windows to status/limits.txt, then fires the SABHA_NOTIFY alerts (bin/sabha-limits.sh).
 # Install: in ~/.claude/settings.json, "statusLine": {"type": "command", "command": "bash /path/to/bin/statusline-sabha.sh"}.
-# Needs jq. Paths come from sabha.conf (SABHA_CONF, else ./.sabha/local/sabha.conf, else ../sabha.conf beside this
+# Needs jq. Paths come from sabha.conf (SABHA_CONF, else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this
 # script); SABHA_CTX_DIR overrides.
 BIN=$(cd "$(dirname "$0")" && pwd)
 CONF=${SABHA_CONF:-}
-[ -z "$CONF" ] && [ -f "$PWD/.sabha/local/sabha.conf" ] && CONF=$PWD/.sabha/local/sabha.conf
+# the nearest .sabha/local/sabha.conf from the cwd upward (the project the session is in), else the one beside the scripts
+if [ -z "$CONF" ]; then
+  d=$PWD
+  while [ -n "$d" ]; do
+    [ -f "$d/.sabha/local/sabha.conf" ] && { CONF=$d/.sabha/local/sabha.conf; break; }
+    d=${d%/*}
+  done
+fi
 CONF=${CONF:-$BIN/../sabha.conf}
 # shellcheck source=/dev/null
 [ -f "$CONF" ] && . "$CONF"

@@ -10,12 +10,14 @@
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
-# Env: SABHA_CONF (config path; else ./.sabha/local/sabha.conf, else ../sabha.conf beside this script),
+# Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$BIN/.." && pwd)
+# shellcheck source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
 CONF=${SABHA_CONF:-}
-[[ -z $CONF && -f $PWD/.sabha/local/sabha.conf ]] && CONF=$PWD/.sabha/local/sabha.conf
+[[ -z $CONF ]] && { CONF=$(sabha_find_local) || CONF=; }
 CONF=${CONF:-$ROOT/sabha.conf}
 
 die() { echo "sabha: $*" >&2; exit 1; }
@@ -290,6 +292,37 @@ cmd_doctor() {
     ok "statusline hook in $settings"
   else
     warn "statusline hook missing in $settings: set statusLine.command to bash $BIN/statusline-sabha.sh (context % and usage alerts need it)"
+  fi
+
+  # warnings only, nothing is deleted or moved: a statusline script that is an old standalone copy, a second claude-sabha
+  # copy, and a copy whose own sabha.conf belongs to another project (its context files and board land in that project)
+  local sl w here copies cand real other seen
+  if command -v jq >/dev/null 2>&1 && [[ -f $settings ]]; then
+    sl=$(jq -r '.statusLine.command // ""' "$settings" 2>/dev/null)
+    for w in $sl; do
+      [[ $w == *statusline-sabha.sh && -f $w ]] || continue
+      grep -q SABHA_CONF "$w" || warn "statusLine runs $w, an old standalone copy with no sabha.conf lookup (its context files can land in another project's folder): set statusLine.command to bash $BIN/statusline-sabha.sh"
+    done
+  fi
+  here=$(cd "$ROOT" && pwd -P)
+  seen=" $here "
+  copies=${SABHA_DOCTOR_COPIES-"${HOME:-}/Work/claude-sabha ${HOME:-}/claude-sabha ${HOME:-}/.claude/plugins/marketplaces/claude-sabha"}
+  for cand in $copies; do
+    [[ -f $cand/bin/sabha-lib.sh ]] || continue
+    real=$(cd "$cand" && pwd -P)
+    [[ $seen == *" $real "* ]] && continue
+    seen="$seen$real "
+    warn "a second claude-sabha copy at $cand (this one is $ROOT): with no project config found, each copy's scripts use their own sabha.conf; keep one copy, or set SABHA_CONF"
+    other=$( set +u; [[ -f $cand/sabha.conf ]] && . "$cand/sabha.conf" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
+    [[ -n $other && -n $impl && $other != "$impl" ]] && warn "$cand/sabha.conf names SABHA_IMPL=$other, not $impl: a script of that copy run outside a project folder writes there"
+  done
+  if [[ -f $ROOT/sabha.conf ]]; then
+    other=$( set +u; . "$ROOT/sabha.conf" >/dev/null 2>&1; echo "${SABHA_IMPL:-}|${SABHA_WS:-}" )
+    if [[ $CONF == "$ROOT/sabha.conf" ]]; then
+      case $PWD/ in "${other#*|}"/*) ;; *) [[ -n ${other#*|} ]] && warn "running from $PWD with $CONF, which belongs to another project (SABHA_WS=${other#*|}): cd into your project (it has .sabha/local) or set SABHA_CONF" ;; esac
+    elif [[ -n ${other%|*} && -n $impl && ${other%|*} != "$impl" ]]; then
+      warn "this copy's own $ROOT/sabha.conf names SABHA_IMPL=${other%|*}, but the active config $CONF names $impl: a script of this copy run without that config would write there"
+    fi
   fi
 
   # without a config there is no impl dir to protect yet, so a read-only install dir (brew, root-owned) is only a warning
