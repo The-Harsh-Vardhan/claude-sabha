@@ -59,4 +59,5 @@ SABHA_ROLE=BuilderHeavy SABHA_CONF=$dir/missing.conf "$bin/sabha-worktree" push-
 SABHA_ROLE=BuilderHeavy git -C "$wt" push -q origin wt/feat 2>/dev/null && { echo "FAIL: worker push allowed"; exit 1; }
 git -C "$wt" push -q origin wt/feat 2>/dev/null || { echo "FAIL: human push blocked"; exit 1; }
 echo "ok: worktree <repo>--<slug> on a new branch, bad base/slug/reuse refused, hook blocks main-checkout commits only,"
-echo "    pre-push hook refuses worker and unresolvable roles, lets the human and the relay push"
+echo "    no .sabha/local file or personal .sabha/config key in a commit, pre-push hook refuses worker and unresolvable"
+echo "    roles, lets the human and the relay push"
