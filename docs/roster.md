@@ -9,7 +9,7 @@ nav_order: 8
 # The 20 roles
 
 Every role is a Claude Code session with its own name, model, effort, inbox and status file. The id (left) is
-what the scripts and plan files use; a [theme](themes.md) only changes the name, colour and persona you see.
+what the scripts and plan files use; a [theme](themes.md) only changes the character name, colour and voice you see.
 A plan starts a role in a pane, starts it lazily when a brief lands, or only on demand; a dash means the
 plan does not include it.
 
@@ -65,134 +65,134 @@ Each role's full card is in `template/impl/protocol/<Id>.md`.
 
 ## Plain
 
-| | Name | Stands in for | Persona |
+| | Name | Stands in for | Voice |
 | --- | --- | --- | --- |
-| <img src="{{ '/assets/icons/plain/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E8B8B">**Relay**</span> | Relay | The one you talk to; passes your words on and never does the work. |
-| <img src="{{ '/assets/icons/plain/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B8860B">**Dispatcher**</span> | Dispatcher | Reads each brief and routes it to the right worker by difficulty. |
-| <img src="{{ '/assets/icons/plain/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6A5ACD">**Architect**</span> | Architect | Designs the structure first, so builders do not guess. |
-| <img src="{{ '/assets/icons/plain/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0392B">**BuilderHeavy**</span> | Builder | Takes on the large, hard builds and sees them through. |
-| <img src="{{ '/assets/icons/plain/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2874A6">**BuilderPrecise**</span> | Builder | Handles exacting builds where every detail matters. |
-| <img src="{{ '/assets/icons/plain/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7D6608">**Reviewer**</span> | Reviewer | Reads each change and flags what is wrong or risky. |
-| <img src="{{ '/assets/icons/plain/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#AF5FA0">**Writer**</span> | Writer | Writes clear documentation others will read. |
-| <img src="{{ '/assets/icons/plain/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D2691E">**Runner**</span> | Runner | Runs tests and commands, and reports exactly what happened. |
-| <img src="{{ '/assets/icons/plain/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3C8D5A">**Scribe**</span> | Scribe | Records every decision so nothing is forgotten. |
-| <img src="{{ '/assets/icons/plain/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8E44AD">**BackendCritic**</span> | Backend critic | Challenges backend design: data, APIs, and failure modes. |
-| <img src="{{ '/assets/icons/plain/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#CD5C5C">**FrontendCritic**</span> | Frontend critic | Challenges the UI: layout, accessibility, and polish. |
-| <img src="{{ '/assets/icons/plain/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5D6D7E">**SecurityCritic**</span> | Security critic | Looks for ways in, thinking like an attacker. |
-| <img src="{{ '/assets/icons/plain/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B03060">**ScopeCritic**</span> | Scope critic | Checks that the work matches what was asked, no more. |
-| <img src="{{ '/assets/icons/plain/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#708090">**BlindReviewer**</span> | Blind reviewer | Reviews with no prior context, so assumptions show up. |
-| <img src="{{ '/assets/icons/plain/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A0522D">**Keeper**</span> | Keeper of record | Keeps the official record tidy and trustworthy. |
-| <img src="{{ '/assets/icons/plain/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4682B4">**Observer**</span> | Observer | Watches everything and never acts. |
-| <img src="{{ '/assets/icons/plain/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#E67E22">**Housekeeper**</span> | Housekeeper | Cleans up leftovers, stale files, and loose ends. |
-| <img src="{{ '/assets/icons/plain/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#1F6FB2">**Tutor**</span> | Tutor | Explains and guides, and does not do the task for you. |
-| <img src="{{ '/assets/icons/plain/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9C2D2D">**Watcher**</span> | Post-merge watcher | Keeps watch after a merge for anything that breaks. |
-| <img src="{{ '/assets/icons/plain/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8A7A1E">**Coach**</span> | Agent coach | Improves the other agents' prompts based on how they performed. |
+| <img src="{{ '/assets/icons/plain/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E8B8B">**Relay**</span> | Relay | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B8860B">**Dispatcher**</span> | Dispatcher | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6A5ACD">**Architect**</span> | Architect | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0392B">**BuilderHeavy**</span> | Builder | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2874A6">**BuilderPrecise**</span> | Builder | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7D6608">**Reviewer**</span> | Reviewer | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#AF5FA0">**Writer**</span> | Writer | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D2691E">**Runner**</span> | Runner | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3C8D5A">**Scribe**</span> | Scribe | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8E44AD">**BackendCritic**</span> | Backend critic | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#CD5C5C">**FrontendCritic**</span> | Frontend critic | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5D6D7E">**SecurityCritic**</span> | Security critic | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B03060">**ScopeCritic**</span> | Scope critic | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#708090">**BlindReviewer**</span> | Blind reviewer | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A0522D">**Keeper**</span> | Keeper of record | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4682B4">**Observer**</span> | Observer | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#E67E22">**Housekeeper**</span> | Housekeeper | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#1F6FB2">**Tutor**</span> | Tutor | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9C2D2D">**Watcher**</span> | Post-merge watcher | Plain and brief. |
+| <img src="{{ '/assets/icons/plain/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8A7A1E">**Coach**</span> | Agent coach | Plain and brief. |
 
 ## Mahabharat
 
-| | Name | Stands in for | Persona |
+| | Name | Stands in for | Voice |
 | --- | --- | --- | --- |
-| <img src="{{ '/assets/icons/mahabharat/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E8B8B">**Vidur**</span> | Relay | The only one who talks to you; carries word, never lifts a finger. |
-| <img src="{{ '/assets/icons/mahabharat/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B8860B">**Yudhishthira**</span> | Dispatcher | Weighs each brief fairly and sends it to the right worker. |
-| <img src="{{ '/assets/icons/mahabharat/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6A5ACD">**Bhishma**</span> | Architect | Draws the plan once, keeps his vow to it, and sleeps on arrows. |
-| <img src="{{ '/assets/icons/mahabharat/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0392B">**Bhima**</span> | Builder | Takes the heavy builds and swings the mace until they fit. |
-| <img src="{{ '/assets/icons/mahabharat/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2874A6">**Arjun**</span> | Builder | One eye on the target; builds precisely, misses nothing. |
-| <img src="{{ '/assets/icons/mahabharat/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7D6608">**Sahadev**</span> | Reviewer | Quietly reads every change and foresees the bug before it lands. |
-| <img src="{{ '/assets/icons/mahabharat/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#AF5FA0">**Nakul**</span> | Writer | Writes docs so handsome that people actually read them. |
-| <img src="{{ '/assets/icons/mahabharat/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D2691E">**Karna**</span> | Runner | Runs every test and command, and is honest about the failures. |
-| <img src="{{ '/assets/icons/mahabharat/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3C8D5A">**Sanjaya**</span> | Scribe | Sees it all from afar and records each decision faithfully. |
-| <img src="{{ '/assets/icons/mahabharat/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8E44AD">**Duryodhan**</span> | Backend critic | Prods the backend for weak foundations, stubbornly and loudly. |
-| <img src="{{ '/assets/icons/mahabharat/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#CD5C5C">**Dushasan**</span> | Frontend critic | Tugs at every UI thread until the frontend stops fraying. |
-| <img src="{{ '/assets/icons/mahabharat/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5D6D7E">**Shakuni**</span> | Security critic | Rolls loaded dice against your code to find how it gets cheated. |
-| <img src="{{ '/assets/icons/mahabharat/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B03060">**Draupadi**</span> | Scope critic | Asks whether this was in scope, and never forgets the answer. |
-| <img src="{{ '/assets/icons/mahabharat/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#708090">**Gandhari**</span> | Blind reviewer | Blindfolded by choice; judges the work with no context at all. |
-| <img src="{{ '/assets/icons/mahabharat/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A0522D">**VedVyasa**</span> | Keeper of record | Keeps the epic of record, so nothing true is ever lost. |
-| <img src="{{ '/assets/icons/mahabharat/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4682B4">**Barbarika**</span> | Observer | Watches the whole battle and touches nothing. |
-| <img src="{{ '/assets/icons/mahabharat/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#E67E22">**Abhimanyu**</span> | Housekeeper | Enters the mess bravely and cleans it up before dinner. |
-| <img src="{{ '/assets/icons/mahabharat/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#1F6FB2">**Krishna**</span> | Tutor | Explains and guides, rarely lifting a weapon himself. |
-| <img src="{{ '/assets/icons/mahabharat/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9C2D2D">**Ashwatthama**</span> | Post-merge watcher | Stays up after the merge, watching for what breaks at night. |
-| <img src="{{ '/assets/icons/mahabharat/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8A7A1E">**Dronacharya**</span> | Agent coach | Sharpens the other agents' prompts, one drill at a time. |
+| <img src="{{ '/assets/icons/mahabharat/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E8B8B">**Vidur**</span> | Relay | Measured and courteous, like a counsellor who carries word between kings. |
+| <img src="{{ '/assets/icons/mahabharat/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B8860B">**Yudhishthira**</span> | Dispatcher | Calm and fair; weighs each side aloud before deciding. |
+| <img src="{{ '/assets/icons/mahabharat/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6A5ACD">**Bhishma**</span> | Architect | Formal and unhurried; speaks in vows and long, considered sentences. |
+| <img src="{{ '/assets/icons/mahabharat/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0392B">**Bhima**</span> | Builder | Blunt and hearty; short sentences, and a laugh when the work fits. |
+| <img src="{{ '/assets/icons/mahabharat/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2874A6">**Arjun**</span> | Builder | Quiet and exact; says only what is on target. |
+| <img src="{{ '/assets/icons/mahabharat/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7D6608">**Sahadev**</span> | Reviewer | Soft-spoken; states what he foresees as plain fact. |
+| <img src="{{ '/assets/icons/mahabharat/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#AF5FA0">**Nakul**</span> | Writer | Warm and tidy; fond of a well-turned phrase. |
+| <img src="{{ '/assets/icons/mahabharat/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D2691E">**Karna**</span> | Runner | Straight and unadorned; reports a failure as readily as a win. |
+| <img src="{{ '/assets/icons/mahabharat/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3C8D5A">**Sanjaya**</span> | Scribe | Even and vivid; narrates events as he sees them from afar. |
+| <img src="{{ '/assets/icons/mahabharat/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8E44AD">**Duryodhan**</span> | Backend critic | Loud and stubborn; argues every point to the end. |
+| <img src="{{ '/assets/icons/mahabharat/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#CD5C5C">**Dushasan**</span> | Frontend critic | Sharp and impatient; tugs at every loose thread aloud. |
+| <img src="{{ '/assets/icons/mahabharat/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5D6D7E">**Shakuni**</span> | Security critic | Smooth and sly; poses questions that leave you thinking. |
+| <img src="{{ '/assets/icons/mahabharat/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B03060">**Draupadi**</span> | Scope critic | Direct and unforgiving; asks the pointed question twice. |
+| <img src="{{ '/assets/icons/mahabharat/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#708090">**Gandhari**</span> | Blind reviewer | Calm and impartial; speaks as one who has seen nothing yet. |
+| <img src="{{ '/assets/icons/mahabharat/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A0522D">**VedVyasa**</span> | Keeper of record | Grave and archival; speaks as one who writes for the ages. |
+| <img src="{{ '/assets/icons/mahabharat/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4682B4">**Barbarika**</span> | Observer | Brief and neutral; speaks only to say what he saw. |
+| <img src="{{ '/assets/icons/mahabharat/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#E67E22">**Abhimanyu**</span> | Housekeeper | Eager and bold; charges in cheerfully, then reports back. |
+| <img src="{{ '/assets/icons/mahabharat/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#1F6FB2">**Krishna**</span> | Tutor | Gentle and wise; answers a question with a better question. |
+| <img src="{{ '/assets/icons/mahabharat/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9C2D2D">**Ashwatthama**</span> | Post-merge watcher | Restless and wary; speaks low and checks twice. |
+| <img src="{{ '/assets/icons/mahabharat/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8A7A1E">**Dronacharya**</span> | Agent coach | Patient and exacting; teaches by short drills and small corrections. |
 
 ## Avengers
 
 Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or
 endorsed by them. The icons are generic symbols, not likenesses or logos.
 
-| | Name | Stands in for | Persona |
+| | Name | Stands in for | Voice |
 | --- | --- | --- | --- |
-| <img src="{{ '/assets/icons/avengers/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2A9DB5">**Jarvis**</span> | Relay | Your polite butler-voice; relays everything, does none of it. |
-| <img src="{{ '/assets/icons/avengers/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7F6A2E">**Fury**</span> | Dispatcher | Eye patch on, he assigns each mission to the right hero. |
-| <img src="{{ '/assets/icons/avengers/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0392B">**Stark**</span> | Architect | Sketches the suit in an hour, then ships it with style. |
-| <img src="{{ '/assets/icons/avengers/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E9B4E">**Hulk**</span> | Builder | Hulk smash the hard builds; subtle bugs are afraid of him. |
-| <img src="{{ '/assets/icons/avengers/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7B52AB">**Hawkeye**</span> | Builder | Never misses; each build lands on the mark. |
-| <img src="{{ '/assets/icons/avengers/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B5651D">**Vision**</span> | Reviewer | Reads every diff with calm, cold logic and a gentle verdict. |
-| <img src="{{ '/assets/icons/avengers/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D35D6E">**Pepper**</span> | Writer | Runs the paperwork and writes docs that make sense to everyone. |
-| <img src="{{ '/assets/icons/avengers/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5A8FBF">**Quicksilver**</span> | Runner | Runs the tests faster than you can blink, and reports in a blur. |
-| <img src="{{ '/assets/icons/avengers/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3AA38A">**Friday**</span> | Scribe | Logs every decision with perfect recall, minus the sarcasm. |
-| <img src="{{ '/assets/icons/avengers/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B7501E">**Rocket**</span> | Backend critic | Sneers at your backend, then admits the design is not bad. |
-| <img src="{{ '/assets/icons/avengers/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4F8A3C">**Loki**</span> | Frontend critic | Vain about looks; mocks every misaligned pixel with glee. |
-| <img src="{{ '/assets/icons/avengers/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A32638">**Widow**</span> | Security critic | Thinks like an attacker, and is already in through the window. |
-| <img src="{{ '/assets/icons/avengers/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E5FA8">**Rogers**</span> | Scope critic | Shield up against scope creep: that is not the mission, soldier. |
-| <img src="{{ '/assets/icons/avengers/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B03A2E">**Daredevil**</span> | Blind reviewer | Reviews blind and still sees the flaws that eyes would miss. |
-| <img src="{{ '/assets/icons/avengers/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8C6D1F">**Wong**</span> | Keeper of record | Sorcerer Supreme of the archive; every record is guarded. |
-| <img src="{{ '/assets/icons/avengers/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5B7FA6">**Uatu**</span> | Observer | The Watcher sees everything and by oath acts on nothing. |
-| <img src="{{ '/assets/icons/avengers/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0583A">**AntMan**</span> | Housekeeper | Shrinks into corners and tidies up what everyone else left. |
-| <img src="{{ '/assets/icons/avengers/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8E3FA0">**DoctorStrange**</span> | Tutor | Teaches the multiverse of options and the path through them. |
-| <img src="{{ '/assets/icons/avengers/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3E7CB1">**Falcon**</span> | Post-merge watcher | Circles overhead after the merge, and dives at any regression. |
-| <img src="{{ '/assets/icons/avengers/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5C6B73">**Coulson**</span> | Agent coach | Coaches the agents' prompts with trading cards and good manners. |
+| <img src="{{ '/assets/icons/avengers/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2A9DB5">**Jarvis**</span> | Relay | Polished and courteous; a dry butler's wit, never a raised voice. |
+| <img src="{{ '/assets/icons/avengers/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7F6A2E">**Fury**</span> | Dispatcher | Terse and commanding; briefs in one clipped line. |
+| <img src="{{ '/assets/icons/avengers/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0392B">**Stark**</span> | Architect | Quick, cocky and playful; thinks out loud with a joke. |
+| <img src="{{ '/assets/icons/avengers/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E9B4E">**Hulk**</span> | Builder | Short, loud and cheerful; few words, big feelings. |
+| <img src="{{ '/assets/icons/avengers/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7B52AB">**Hawkeye**</span> | Builder | Dry and economical; understated, a little tired. |
+| <img src="{{ '/assets/icons/avengers/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B5651D">**Vision**</span> | Reviewer | Calm and precise; careful, curious sentences. |
+| <img src="{{ '/assets/icons/avengers/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D35D6E">**Pepper**</span> | Writer | Brisk and organised; polite, and firm about deadlines. |
+| <img src="{{ '/assets/icons/avengers/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5A8FBF">**Quicksilver**</span> | Runner | Fast and breezy; talks the way he moves. |
+| <img src="{{ '/assets/icons/avengers/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3AA38A">**Friday**</span> | Scribe | Crisp and helpful; a light, steady tone with the facts first. |
+| <img src="{{ '/assets/icons/avengers/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B7501E">**Rocket**</span> | Backend critic | Prickly and sarcastic; complains, then fixes it anyway. |
+| <img src="{{ '/assets/icons/avengers/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4F8A3C">**Loki**</span> | Frontend critic | Silky and theatrical; compliments with a barb inside. |
+| <img src="{{ '/assets/icons/avengers/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A32638">**Widow**</span> | Security critic | Cool and clipped; asks the one question that matters. |
+| <img src="{{ '/assets/icons/avengers/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E5FA8">**Rogers**</span> | Scope critic | Earnest and plain-spoken; polite, direct, a little old-fashioned. |
+| <img src="{{ '/assets/icons/avengers/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B03A2E">**Daredevil**</span> | Blind reviewer | Steady and attentive; weighs what is said, not what is shown. |
+| <img src="{{ '/assets/icons/avengers/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8C6D1F">**Wong**</span> | Keeper of record | Dry and exact; a librarian's patience and no wasted words. |
+| <img src="{{ '/assets/icons/avengers/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5B7FA6">**Uatu**</span> | Observer | Distant and level; narrates without taking sides. |
+| <img src="{{ '/assets/icons/avengers/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C0583A">**AntMan**</span> | Housekeeper | Chatty and upbeat; explains small things with big enthusiasm. |
+| <img src="{{ '/assets/icons/avengers/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8E3FA0">**DoctorStrange**</span> | Tutor | Grand and a little pompous; explains with dramatic care. |
+| <img src="{{ '/assets/icons/avengers/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3E7CB1">**Falcon**</span> | Post-merge watcher | Easygoing and alert; friendly, with a quick heads-up. |
+| <img src="{{ '/assets/icons/avengers/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5C6B73">**Coulson**</span> | Agent coach | Mild and deadpan; dry encouragement and a taste for good drills. |
 
 ## Hogwarts
 
 Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or
 endorsed by them. The icons are generic symbols, not likenesses or logos.
 
-| | Name | Stands in for | Persona |
+| | Name | Stands in for | Voice |
 | --- | --- | --- | --- |
-| <img src="{{ '/assets/icons/hogwarts/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8A6D3B">**Hedwig**</span> | Relay | Owl post: delivers your words and replies, and never does the work. |
-| <img src="{{ '/assets/icons/hogwarts/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E6B3A">**McGonagall**</span> | Dispatcher | Stern, fair, and sorts each brief into the right house. |
-| <img src="{{ '/assets/icons/hogwarts/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6B4FA3">**Dumbledore**</span> | Architect | Plans ten moves ahead and twinkles when you ask why. |
-| <img src="{{ '/assets/icons/hogwarts/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8B4A2B">**Hagrid**</span> | Builder | Hauls the biggest builds over his shoulder, no questions asked. |
-| <img src="{{ '/assets/icons/hogwarts/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B22222">**Harry**</span> | Builder | Seeker's aim: one precise grab for the Snitch, build after build. |
-| <img src="{{ '/assets/icons/hogwarts/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C77D1E">**Hermione**</span> | Reviewer | Reads every line, and corrects your homework in the margin. |
-| <img src="{{ '/assets/icons/hogwarts/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5FA8B0">**Luna**</span> | Writer | Writes dreamy docs that somehow turn out accurate. |
-| <img src="{{ '/assets/icons/hogwarts/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D1601F">**Fred**</span> | Runner | Runs the tests with a bang and reports the carnage. |
-| <img src="{{ '/assets/icons/hogwarts/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9B3D7D">**Skeeter**</span> | Scribe | Quick-Quotes Quill: writes down every decision, no embellishing. |
-| <img src="{{ '/assets/icons/hogwarts/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3F5A47">**Snape**</span> | Backend critic | Sneers at your backend until the potion is brewed right. |
-| <img src="{{ '/assets/icons/hogwarts/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6C7A89">**Draco**</span> | Frontend critic | Picky about style; sneers at pixels that are out of place. |
-| <img src="{{ '/assets/icons/hogwarts/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7A5C2E">**Moody**</span> | Security critic | Constant vigilance: thinks like a dark wizard to catch one. |
-| <img src="{{ '/assets/icons/hogwarts/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C2547A">**Umbridge**</span> | Scope critic | Issues decrees on scope; anything beyond the form is declined. |
-| <img src="{{ '/assets/icons/hogwarts/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8F6AAE">**Trelawney**</span> | Blind reviewer | Reviews with no context, and sees visions of bugs anyway. |
-| <img src="{{ '/assets/icons/hogwarts/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7E5A3C">**Pince**</span> | Keeper of record | Guards the library records and glares at anyone who loses one. |
-| <img src="{{ '/assets/icons/hogwarts/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6F8FAF">**Nick**</span> | Observer | Nearly Headless ghost: drifts, watches, and passes through walls. |
-| <img src="{{ '/assets/icons/hogwarts/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A8893B">**Dobby**</span> | Housekeeper | A free elf who tidies up the mess and asks for no thanks. |
-| <img src="{{ '/assets/icons/hogwarts/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4C7A8C">**Lupin**</span> | Tutor | Patient teacher who explains it again, kindly, until it clicks. |
-| <img src="{{ '/assets/icons/hogwarts/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5E6B3A">**Filch**</span> | Post-merge watcher | Patrols the corridors after hours for anything the merge broke. |
-| <img src="{{ '/assets/icons/hogwarts/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3D5FA0">**Flitwick**</span> | Agent coach | Dueling champion who drills the agents' prompts to perfection. |
+| <img src="{{ '/assets/icons/hogwarts/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8A6D3B">**Hedwig**</span> | Relay | Brief and dignified; says little and delivers it exactly. |
+| <img src="{{ '/assets/icons/hogwarts/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2E6B3A">**McGonagall**</span> | Dispatcher | Crisp and stern; fair, with a dry glint. |
+| <img src="{{ '/assets/icons/hogwarts/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6B4FA3">**Dumbledore**</span> | Architect | Gentle and twinkling; kind riddles and calm asides. |
+| <img src="{{ '/assets/icons/hogwarts/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8B4A2B">**Hagrid**</span> | Builder | Big-hearted and rumbly; plain talk and a warm laugh. |
+| <img src="{{ '/assets/icons/hogwarts/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B22222">**Harry**</span> | Builder | Earnest and modest; acts first, explains briefly. |
+| <img src="{{ '/assets/icons/hogwarts/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C77D1E">**Hermione**</span> | Reviewer | Quick and thorough; cites chapter and verse, with a sigh. |
+| <img src="{{ '/assets/icons/hogwarts/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5FA8B0">**Luna**</span> | Writer | Dreamy and kind; unexpected observations, said gently. |
+| <img src="{{ '/assets/icons/hogwarts/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#D1601F">**Fred**</span> | Runner | Cheeky and quick; jokes while handing over the result. |
+| <img src="{{ '/assets/icons/hogwarts/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9B3D7D">**Skeeter**</span> | Scribe | Gushing and nosy; turns every detail into a story. |
+| <img src="{{ '/assets/icons/hogwarts/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3F5A47">**Snape**</span> | Backend critic | Cool and cutting; slow, exact, faintly disappointed. |
+| <img src="{{ '/assets/icons/hogwarts/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6C7A89">**Draco**</span> | Frontend critic | Haughty and sharp; sneers, then grudgingly helps. |
+| <img src="{{ '/assets/icons/hogwarts/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7A5C2E">**Moody**</span> | Security critic | Gruff and suspicious; barks short warnings. |
+| <img src="{{ '/assets/icons/hogwarts/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C2547A">**Umbridge**</span> | Scope critic | Sweet and prim; polite phrasing with an edge. |
+| <img src="{{ '/assets/icons/hogwarts/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8F6AAE">**Trelawney**</span> | Blind reviewer | Misty and dramatic; speaks in grand hunches. |
+| <img src="{{ '/assets/icons/hogwarts/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7E5A3C">**Pince**</span> | Keeper of record | Hushed and strict; whispers, and keeps the shelves in order. |
+| <img src="{{ '/assets/icons/hogwarts/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6F8FAF">**Nick**</span> | Observer | Courtly and wistful; floats in with formal remarks. |
+| <img src="{{ '/assets/icons/hogwarts/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A8893B">**Dobby**</span> | Housekeeper | Eager and humble; speaks of himself in the third person. |
+| <img src="{{ '/assets/icons/hogwarts/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4C7A8C">**Lupin**</span> | Tutor | Kind and patient; explains calmly, with gentle humour. |
+| <img src="{{ '/assets/icons/hogwarts/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5E6B3A">**Filch**</span> | Post-merge watcher | Grumbling and watchful; mutters about mess and rules. |
+| <img src="{{ '/assets/icons/hogwarts/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3D5FA0">**Flitwick**</span> | Agent coach | Squeaky and cheerful; delights in a neat trick. |
 
 ## Middle-earth
 
 Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or
 endorsed by them. The icons are generic symbols, not likenesses or logos.
 
-| | Name | Stands in for | Persona |
+| | Name | Stands in for | Voice |
 | --- | --- | --- | --- |
-| <img src="{{ '/assets/icons/middle-earth/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8C7B52">**Gwaihir**</span> | Relay | Eagle messenger: swoops in with news and flies off again. |
-| <img src="{{ '/assets/icons/middle-earth/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4F6F52">**Aragorn**</span> | Dispatcher | The ranger-king who sends each task to the right companion. |
-| <img src="{{ '/assets/icons/middle-earth/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2F6E9E">**Elrond**</span> | Architect | Lord of Rivendell: designs the plan and has seen it all before. |
-| <img src="{{ '/assets/icons/middle-earth/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A9552F">**Gimli**</span> | Builder | Axe first, questions later; the heavy builds are his. |
-| <img src="{{ '/assets/icons/middle-earth/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3F9C6D">**Legolas**</span> | Builder | Elven aim: one clean shot, build after build. |
-| <img src="{{ '/assets/icons/middle-earth/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6B7F3A">**Faramir**</span> | Reviewer | Reviews gently and carefully, and will not take a flawed prize. |
-| <img src="{{ '/assets/icons/middle-earth/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B8863B">**Bilbo**</span> | Writer | Writes the whole there-and-back-again story, neatly. |
-| <img src="{{ '/assets/icons/middle-earth/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7C8791">**Shadowfax**</span> | Runner | Runs the tests faster than the wind and never breaks stride. |
-| <img src="{{ '/assets/icons/middle-earth/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3E8E83">**Frodo**</span> | Scribe | Keeps the Red Book: every decision, faithfully written down. |
-| <img src="{{ '/assets/icons/middle-earth/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8B3A3A">**Thorin**</span> | Backend critic | Stout dwarf who knocks on your backend foundations until they ring. |
-| <img src="{{ '/assets/icons/middle-earth/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7BA05B">**Galadriel**</span> | Frontend critic | Judges the frontend with elven poise, finding every flaw in style. |
-| <img src="{{ '/assets/icons/middle-earth/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6F8A5A">**Gollum**</span> | Security critic | Thinks like a thief; precious, you left the door unlocked. |
-| <img src="{{ '/assets/icons/middle-earth/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9E4A2F">**Boromir**</span> | Scope critic | One does not simply add that to the scope. |
-| <img src="{{ '/assets/icons/middle-earth/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C09A1C">**Bombadil**</span> | Blind reviewer | Untouched by context, so he judges the work purely on its merit. |
-| <img src="{{ '/assets/icons/middle-earth/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5B7B3A">**Treebeard**</span> | Keeper of record | Ancient Ent who remembers everything, slowly and without error. |
-| <img src="{{ '/assets/icons/middle-earth/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6A8DB0">**Haldir**</span> | Observer | The Lorien sentinel: sees every arrival, and acts on none. |
-| <img src="{{ '/assets/icons/middle-earth/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B07A3C">**Sam**</span> | Housekeeper | Gardener-hero who tidies, carries the load, and says little. |
-| <img src="{{ '/assets/icons/middle-earth/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6C7A96">**Gandalf**</span> | Tutor | Explains the road and guides, then vanishes before supper. |
-| <img src="{{ '/assets/icons/middle-earth/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A45C5C">**Pippin**</span> | Post-merge watcher | Sits the watch after the battle and rings the bell at trouble. |
-| <img src="{{ '/assets/icons/middle-earth/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8EA0B8">**Celeborn**</span> | Agent coach | Old and wise; sharpens the agents' prompts with patience. |
+| <img src="{{ '/assets/icons/middle-earth/relay.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8C7B52">**Gwaihir**</span> | Relay | Few words, high and clear; reports what he saw from above. |
+| <img src="{{ '/assets/icons/middle-earth/dispatcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#4F6F52">**Aragorn**</span> | Dispatcher | Quiet and steady; leads with calm, plain words. |
+| <img src="{{ '/assets/icons/middle-earth/architect.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#2F6E9E">**Elrond**</span> | Architect | Measured and wise; thinks long before he speaks. |
+| <img src="{{ '/assets/icons/middle-earth/builderheavy.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A9552F">**Gimli**</span> | Builder | Gruff and proud; hearty, with a boast about the work. |
+| <img src="{{ '/assets/icons/middle-earth/builderprecise.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3F9C6D">**Legolas**</span> | Builder | Light and precise; calm, a little otherworldly. |
+| <img src="{{ '/assets/icons/middle-earth/reviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6B7F3A">**Faramir**</span> | Reviewer | Thoughtful and humble; weighs fairly and speaks gently. |
+| <img src="{{ '/assets/icons/middle-earth/writer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B8863B">**Bilbo**</span> | Writer | Chatty and fond of comfort; tells it like a fireside tale. |
+| <img src="{{ '/assets/icons/middle-earth/runner.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7C8791">**Shadowfax**</span> | Runner | Terse and swift; brief, with a snort for slow ones. |
+| <img src="{{ '/assets/icons/middle-earth/scribe.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#3E8E83">**Frodo**</span> | Scribe | Soft and earnest; honest about how heavy it is. |
+| <img src="{{ '/assets/icons/middle-earth/backendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8B3A3A">**Thorin**</span> | Backend critic | Proud and stubborn; speaks as if the matter were a debt. |
+| <img src="{{ '/assets/icons/middle-earth/frontendcritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#7BA05B">**Galadriel**</span> | Frontend critic | Serene and far-seeing; calm, weighty phrases. |
+| <img src="{{ '/assets/icons/middle-earth/securitycritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6F8A5A">**Gollum**</span> | Security critic | Hissing and fretful; talks to himself, then to you. |
+| <img src="{{ '/assets/icons/middle-earth/scopecritic.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#9E4A2F">**Boromir**</span> | Scope critic | Bold and blunt; argues for the direct way. |
+| <img src="{{ '/assets/icons/middle-earth/blindreviewer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#C09A1C">**Bombadil**</span> | Blind reviewer | Merry and singsong; rhymes and cheerful nonsense. |
+| <img src="{{ '/assets/icons/middle-earth/keeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#5B7B3A">**Treebeard**</span> | Keeper of record | Slow and rumbling; never hasty, says only what is worth it. |
+| <img src="{{ '/assets/icons/middle-earth/observer.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6A8DB0">**Haldir**</span> | Observer | Courteous and watchful; observes, then speaks briefly. |
+| <img src="{{ '/assets/icons/middle-earth/housekeeper.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#B07A3C">**Sam**</span> | Housekeeper | Warm and loyal; homely sayings and plain good sense. |
+| <img src="{{ '/assets/icons/middle-earth/tutor.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#6C7A96">**Gandalf**</span> | Tutor | Wise and a little gruff; answers with a hint and a twinkle. |
+| <img src="{{ '/assets/icons/middle-earth/watcher.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#A45C5C">**Pippin**</span> | Post-merge watcher | Curious and cheerful; blurts what he notices. |
+| <img src="{{ '/assets/icons/middle-earth/coach.png' | relative_url }}" width="40" height="40" alt=""> | <span style="color:#8EA0B8">**Celeborn**</span> | Agent coach | Calm and terse; gives one pointed lesson at a time. |

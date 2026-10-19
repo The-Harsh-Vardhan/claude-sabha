@@ -72,9 +72,10 @@ without a pane is an on-demand subagent of the dispatcher with its own model and
 
 ## Themes
 
-Pick who your team is: `SABHA_THEME` in `sabha.conf`, or `bin/sabha init --theme <name>`. A theme is a display skin: it renames the roles on screen,
-gives each a colour (statusline and board) and a one-line persona (in its opening prompt); scripts, roles and models
-stay the same.
+Pick who your team is: `SABHA_THEME` in `sabha.conf`, `bin/sabha init --theme <name>`, or `/sabha-theme`. A theme is a
+display skin: it shows a character name, colour and icon for each role (statusline, board, pane titles) and gives the
+roles that chat with you (Relay, Tutor, Coach) a voice; scripts, roles, models, inboxes and status files keep the role
+ids. Your own tweaks live in a preset (`~/.config/claude-sabha/presets/`), layered over a theme.
 
 ![The 20 roles in each of the five themes: mahabharat, avengers, hogwarts, middle-earth, plain](docs/assets/banner.png)
 
@@ -87,7 +88,7 @@ stay the same.
 | `plain` (default) | Relay | Dispatcher | Architect | BuilderHeavy, BuilderPrecise |
 
 Each role has an icon per theme in `icons/<theme>/<id>.png` (generic symbols, no likenesses or logos). All 20 roles
-side by side: [Roster](docs/roster.md). The file format and how to add your own: [themes/README.md](themes/README.md). The Avengers,
+side by side: [Roster](docs/roster.md). The file format, presets and how to add your own: [themes/README.md](themes/README.md). The Avengers,
 Hogwarts and Middle-earth themes are fan themes; the names belong to their owners and claude-sabha is not affiliated
 with or endorsed by them.
 
@@ -241,9 +242,9 @@ from the scripts):
 6. In each repository the roles work on, run `bin/sabha-worktree hook <repo>` (no commits in the main checkout) and
    `bin/sabha-worktree push-hook <repo>` (only you and the relay push). See [SECURITY.md](SECURITY.md).
 
-Role ids are plain names (Relay, Dispatcher, BuilderHeavy, ...) in the plan files, inboxes and status folders. With no
-`SABHA_THEME` set the roles show their plain names; a theme renames them on screen for the launchers, `sabha-watch`,
-the hooks, the statusline and the board (see [Themes](#themes)).
+Role ids are plain names (Relay, Dispatcher, BuilderHeavy, ...) everywhere: the plan files, `claude -n`, inboxes, status
+files, the hooks. With no `SABHA_THEME` set the roles show their plain names; a theme only changes what the statusline,
+the board and the pane titles show (see [Themes](#themes)).
 
 ## What is in it
 
