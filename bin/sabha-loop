@@ -45,6 +45,17 @@ decide() {
   fi
 }
 
+# crash_flag <text>: "Blocked: crashed at <utc> (<text>)" on line 1 of the role's status file, replacing an older one;
+# crash_unflag drops it again. The unflag keeps the file's mtime: decide reads a newer handoff as a restart cue
+crash_flag() {
+  { echo "Blocked: crashed at $(sabha_utc) ($1)"; sed '1{/^Blocked: crashed /d;}' "$handoff" 2>/dev/null; } >"$handoff.tmp" &&
+    mv "$handoff.tmp" "$handoff"
+}
+crash_unflag() {
+  [[ $(sed -n 1p "$handoff" 2>/dev/null) == "Blocked: crashed "* ]] || return 0
+  sed 1d "$handoff" >"$handoff.tmp" && touch -r "$handoff" "$handoff.tmp" && mv "$handoff.tmp" "$handoff"
+}
+
 # kind_of <agent>: the roster's agent field (sabha-lib.sh ROLES: "name agent model effort flags")
 kind_of() { [[ $1 == claude ]] && echo claude || echo other; }
 
@@ -122,15 +133,18 @@ while :; do
   "${cmd[@]}" <"$tty_in" & cpid=$!
   # a grid --force covers the first start only; a restart meets the duplicate-name guard again
   unset SABHA_FORCE
-  warned=0
+  warned=0 asked=0 cleared=0
   while kill -0 "$cpid" 2>/dev/null; do
     sleep "$interval"
     kill -0 "$cpid" 2>/dev/null || break
+    # a session past the min_up window is a good start: an older crash flag no longer holds
+    (( cleared || $(date +%s) - start < min_up )) || { crash_unflag; cleared=1; }
     case $(decide "$kind" "$ctx" "$handoff" "$inbox" "$last") in
       restart)
         log "restart: $([[ $kind == claude ]] && echo "context $(tr -d ' \n' <"$ctx")% and a newer handoff" || echo "a brief finished")"
         # Claude Code quits on two Ctrl-C a second apart; a child started with "&" in a script may have SIGINT
         # ignored (Reviewer 032), so anything still alive after the grace gets TERM (tests/test-loop.sh case 1b)
+        asked=1
         kill -INT "$cpid" 2>/dev/null; sleep 1; kill -INT "$cpid" 2>/dev/null
         for _ in $(seq 1 "${SABHA_LOOP_GRACE:-15}"); do kill -0 "$cpid" 2>/dev/null || break; sleep 1; done
         kill -0 "$cpid" 2>/dev/null && kill -TERM "$cpid" 2>/dev/null
@@ -138,9 +152,14 @@ while :; do
       stale) (( warned )) || { log "warning: $ctx older than ${SABHA_LOOP_STALE:-120}s, keeping the session"; warned=1; } ;;
     esac
   done
-  wait "$cpid" 2>/dev/null; cpid=""
+  wait "$cpid" 2>/dev/null; crc=$? cpid=""
   up=$(( $(date +%s) - start ))
   log "session ended after ${up}s"
+  # idea 2: an end nobody asked for, with a failing status, is a crash (a clean /exit returns 0; 130/143 are a
+  # Ctrl-C or TERM someone sent on purpose). One quick death is a launch race the next start retries, so the board
+  # is flagged only for a crash after a good start, or when the loop gives up
+  crashed=0
+  (( asked || crc == 0 || crc == 130 || crc == 143 )) || { crashed=1; log "crash: exit $crc"; }
   sabha_cost_log "$name" "$model" "session-end ${up}s"
   if (( up < ${SABHA_LOOP_RETRY_WINDOW:-5} )); then
     if (( retries < ${SABHA_LOOP_RETRIES:-3} )); then
@@ -149,6 +168,13 @@ while :; do
   else retries=0; fi
   if (( up < min_up )); then
     fails=$(( fails + 1 ))
-    (( fails >= 2 )) && { log "stopped: 2 sessions in a row ended within ${min_up}s"; exit 1; }
-  else fails=0; fi
+    if (( fails >= 2 )); then
+      log "stopped: 2 sessions in a row ended within ${min_up}s"
+      (( crashed )) && crash_flag "exit $crc; sabha-loop stopped after 2 quick exits, start it with bin/sabha-loop $name"
+      exit 1
+    fi
+  else
+    fails=0
+    (( crashed )) && crash_flag "exit $crc; sabha-loop is restarting it"
+  fi
 done
