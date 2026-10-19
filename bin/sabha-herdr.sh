@@ -115,3 +115,10 @@ sabha_nudge() {
   [[ -n $t ]] || t=$(tr '[:upper:]' '[:lower:]' <<<"$1")
   sabha_h agent prompt "$t" "$2" --wait --timeout "${SABHA_NUDGE_TIMEOUT:-120000}"
 }
+
+# sabha_target <Name>: the herdr target for a role, its recorded pane, else its lower-case agent name (as sabha_nudge)
+sabha_target() {
+  local t
+  t=$(awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$SABHA_IMPL/status/herdr-panes.txt" 2>/dev/null)
+  if [[ -n $t ]]; then echo "$t"; else tr '[:upper:]' '[:lower:]' <<<"$1"; fi
+}
