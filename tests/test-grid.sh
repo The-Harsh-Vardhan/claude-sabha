@@ -37,9 +37,9 @@ check "equal columns by halving: b1->b3, b1->b2, b3->b4" 'grep -q "tell b1 to se
 check "g2 under g1 and the Gate tab is created" 'grep -q "tell g1 to set g2 to (split horizontally" <<<"$out" && grep -q "create tab with default profile" <<<"$out"'
 check "on-demand Tutor, Watcher, Coach and relay Relay are not panes" '! grep -qE "Tutor|Watcher|Coach|\"Relay\"" <<<"$out"'
 check "no menu click any more" '! grep -q "Arrange Split Panes" <<<"$out"'
-check "each pane runs sabha-loop <Name>, not sabha-up.sh or claude" 'grep -q "write text \"'"'"'$BIN/sabha-loop'"'"' BuilderPrecise\"" <<<"$out" && [[ $(grep -c "write text \"'"'"'$BIN/sabha-loop'"'"' " <<<"$out") -eq 10 ]] && ! grep -q "write text .*sabha-up.sh" <<<"$out"'
+check "each pane runs sabha-loop <Name>, not sabha-up.sh or claude" 'grep -q "write text \"cd .* \&\& .*'"'"'$BIN/sabha-loop'"'"' BuilderPrecise\"" <<<"$out" && [[ $(grep -c "write text \"cd .* \&\& .*'"'"'$BIN/sabha-loop'"'"' " <<<"$out") -eq 10 ]] && ! grep -q "write text .*sabha-up.sh" <<<"$out"'
 out=$(SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --plan max5 --force 2>&1)
-check "--plan and --force reach the loop as environment" 'grep -q "write text \"SABHA_PLAN=max5 SABHA_FORCE=1 '"'"'$BIN/sabha-loop'"'"' BuilderPrecise\"" <<<"$out"'
+check "--plan and --force reach the loop as environment" 'grep -q "write text \"cd .* \&\& SABHA_PLAN=max5 SABHA_FORCE=1 .*'"'"'$BIN/sabha-loop'"'"' BuilderPrecise\"" <<<"$out"'
 out=$(SABHA_CONF=$dir/sabha.conf "$SH" "$BIN/sabha-up.sh" --print BuilderPrecise); rc=$?
 check "--print: restart line first, then the wrapped pane command" '(( rc == 0 )) && sed -n 1p <<<"$out" | grep -q "claude -n BuilderPrecise " && [[ $(sed -n 2p <<<"$out") == "pane: cd \"$dir/ws\" && '"'"'$BIN/sabha-loop'"'"' BuilderPrecise" ]]'
 for n in Relay Dispatcher Architect BuilderHeavy BuilderPrecise Reviewer Writer Runner Scribe BackendCritic FrontendCritic SecurityCritic ScopeCritic BlindReviewer Keeper Observer Housekeeper Tutor Watcher Coach; do
