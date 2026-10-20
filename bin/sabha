@@ -326,7 +326,7 @@ cmd_doctor() {
 
   # warnings only, nothing is deleted or moved: a statusline script that is an old standalone copy, a second claude-sabha
   # copy, and a copy whose own sabha.conf belongs to another project (its context files and board land in that project)
-  local sl w here copies cand real other seen
+  local sl w here copies cand real other seen oh mh upd
   if command -v jq >/dev/null 2>&1 && [[ -f $settings ]]; then
     sl=$(jq -r '.statusLine.command // ""' "$settings" 2>/dev/null)
     for w in $sl; do
@@ -343,6 +343,22 @@ cmd_doctor() {
     [[ $seen == *" $real "* ]] && continue
     seen="$seen$real "
     warn "a second claude-sabha copy at $cand (this one is $ROOT): with no project config found, each copy's scripts use their own sabha.conf; keep one copy, or set SABHA_CONF"
+    if command -v git >/dev/null 2>&1; then
+      oh=$(git -C "$cand" rev-parse HEAD 2>/dev/null); mh=$(git -C "$here" rev-parse HEAD 2>/dev/null)
+      if [[ -n $oh && -n $mh && $oh != "$mh" ]]; then
+        case $cand in
+          */plugins/marketplaces/*) upd="claude plugin marketplace update claude-sabha, then claude plugin update claude-sabha@claude-sabha, then restart" ;;
+          *) upd="git -C $cand pull" ;;
+        esac
+        if git -C "$here" merge-base --is-ancestor "$oh" "$mh" 2>/dev/null; then
+          warn "$cand is at ${oh:0:7}, behind this copy (${mh:0:7}): its skills, hooks and scripts run older code; update it: $upd"
+        elif git -C "$cand" merge-base --is-ancestor "$mh" "$oh" 2>/dev/null; then
+          warn "this copy ($ROOT) is at ${mh:0:7}, behind $cand (${oh:0:7}): update this one"
+        else
+          warn "$cand is at ${oh:0:7} and this copy is at ${mh:0:7}, and neither contains the other: align them"
+        fi
+      fi
+    fi
     other=$( set +u; [[ -f $cand/sabha.conf ]] && . "$cand/sabha.conf" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
     [[ -n $other && -n $impl && $other != "$impl" ]] && warn "$cand/sabha.conf names SABHA_IMPL=$other, not $impl: a script of that copy run outside a project folder writes there"
   done
