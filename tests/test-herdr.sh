@@ -39,7 +39,7 @@ check "codex (UNTESTED kind) goes the same way, in the Gate tab" 'grep -q "^agen
 check "the opening prompt is submitted without --wait" 'grep "^agent prompt o You are O" "$FAKE_HERDR_LOG" | grep -vq -- "--wait"'
 check "pane ids are recorded for nudges" 'grep -q "^A w1:p" "$dir/impl/status/herdr-panes.txt" && grep -q "^O w1:p" "$dir/impl/status/herdr-panes.txt"'
 check "each grid pane gets its display name in the Agent sidebar (002)" 'grep -q "^pane report-metadata w1:p[0-9]* --source sabha:name --display-agent A$" "$FAKE_HERDR_LOG"'
-check "attach hint printed" 'grep -q "herdr attach" <<<"$out"'
+check "attach hint printed" 'grep -q "herdr session attach" <<<"$out"'
 
 check "every call carries --session sabha (the default session is never used)" '[[ -s $dir/calls ]] && ! grep -v -E "^(--session sabha |session )" "$dir/calls" | grep -q .'
 check "the server of that session is started before anything else" 'sed -n 1p "$dir/calls" | grep -q "^--session sabha status server" && grep -q "^--session sabha server$" "$dir/calls"'

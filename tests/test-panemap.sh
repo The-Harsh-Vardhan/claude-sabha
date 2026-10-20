@@ -63,5 +63,14 @@ reset; : > "$map"
 out=$("$SH" "$BIN/sabha-up.sh" Dispatcher 2>&1)
 check "outside herdr (no HERDR_PANE_ID) it records nothing" '[[ ! -s $map ]]'
 
+echo "--- concurrent writers"
+# a grid start: every pane writes its row at once; without the lock the last writer's map erased the others (~70% lost)
+: > "$map"
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  SABHA_IMPL=$dir/impl "$SH" -c ". '$BIN/sabha-lib.sh' 2>/dev/null; . '$BIN/sabha-herdr.sh'; sabha_pane_note Role$i w1:p$i" &
+done
+wait
+check "10 concurrent sabha_pane_note: all 10 rows kept, no lock or temp left" '[[ $(grep -c . "$map") -eq 10 ]] && [[ -z $(ls "$dir/impl/status" | grep -E "lock|panes\.txt\.") ]]'
+
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: pane map: fresh at grid start, role ids as keys, self-registration, dead entries pruned, missing map and failed list handled"
