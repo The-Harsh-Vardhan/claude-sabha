@@ -47,15 +47,30 @@ decide() {
   fi
 }
 
+# handoff_rewrite <keep|new> <cmd...>: replaces the handoff with <cmd> run on a copy of it, only while the handoff still
+# matches that copy; else it reads again (up to 5 times). The agent saves the handoff with no lock, so a plain
+# read-modify-write could put the old text back over a fresh save (#22). keep: the result keeps the old mtime
+# ponytail: compare-then-mv leaves a window of one cmp; closing it needs every writer to take a lock
+handoff_rewrite() {
+  local how=$1 snap=$handoff.snap tmp=$handoff.tmp i; shift
+  for (( i = 0; i < 5; i++ )); do
+    cp -p "$handoff" "$snap" 2>/dev/null || rm -f "$snap"
+    "$@" "$snap" >"$tmp" || break
+    [[ $how == keep && -e $snap ]] && touch -r "$snap" "$tmp"
+    if { [[ -e $snap ]] && cmp -s "$snap" "$handoff"; } || [[ ! -e $snap && ! -e $handoff ]]; then
+      mv "$tmp" "$handoff"; rm -f "$snap"; return 0
+    fi
+  done
+  rm -f "$snap" "$tmp"; return 1
+}
 # crash_flag <text>: "Blocked: crashed at <utc> (<text>)" on line 1 of the role's status file, replacing an older one;
 # crash_unflag drops it again. The unflag keeps the file's mtime: decide reads a newer handoff as a restart cue
-crash_flag() {
-  { echo "Blocked: crashed at $(sabha_utc) ($1)"; sed '1{/^Blocked: crashed /d;}' "$handoff" 2>/dev/null; } >"$handoff.tmp" &&
-    mv "$handoff.tmp" "$handoff"
-}
+flag_lines() { echo "Blocked: crashed at $(sabha_utc) ($flag_text)"; sed '1{/^Blocked: crashed /d;}' "$1" 2>/dev/null; }
+crash_flag() { flag_text=$1 handoff_rewrite new flag_lines; }
 crash_unflag() {
   [[ $(sed -n 1p "$handoff" 2>/dev/null) == "Blocked: crashed "* ]] || return 0
-  sed 1d "$handoff" >"$handoff.tmp" && touch -r "$handoff" "$handoff.tmp" && mv "$handoff.tmp" "$handoff"
+  # the pattern, not a bare 1d: a re-read after a fresh save must not drop the agent's own first line
+  handoff_rewrite keep sed '1{/^Blocked: crashed /d;}'
 }
 
 # kind_of <agent>: the roster's agent field (sabha-lib.sh ROLES: "name agent model effort flags")
