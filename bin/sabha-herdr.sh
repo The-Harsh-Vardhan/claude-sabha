@@ -174,11 +174,27 @@ sabha_session_stop() {
   herdr session stop "$s" >/dev/null 2>&1; herdr session delete "$s" >/dev/null 2>&1
 }
 
+# sabha_map_lock / sabha_map_unlock: every pane of a grid start rewrites the map at once, and a read-modify-write
+# without a lock keeps only the last writer's row. mkdir is atomic on every OS; flock is not on macOS.
+# A lock dir older than 10 s is stale (its writer died between mkdir and rmdir); after 30 s of waiting we write anyway.
+sabha_map_lock() {
+  local l=$SABHA_IMPL/status/herdr-panes.lock i m
+  for (( i = 0; i < 300; i++ )); do
+    mkdir "$l" 2>/dev/null && return 0
+    (( i % 10 )) || { m=$(date -r "$l" +%s 2>/dev/null) && (( $(date +%s) - m > 10 )) && rmdir "$l" 2>/dev/null; }
+    sleep 0.1
+  done
+}
+sabha_map_unlock() { rmdir "$SABHA_IMPL/status/herdr-panes.lock" 2>/dev/null || true; }
+
 # sabha_pane_note <Name> <pane_id>: records which pane holds a role (replaces an older line for that Name)
 sabha_pane_note() {
-  local f=$SABHA_IMPL/status/herdr-panes.txt
+  local f=$SABHA_IMPL/status/herdr-panes.txt t
   mkdir -p "$SABHA_IMPL/status"
-  { grep -v "^$1 " "$f" 2>/dev/null; echo "$1 $2"; } >"$f.tmp" && mv "$f.tmp" "$f"
+  sabha_map_lock
+  # mktemp, not $f.tmp.$$: $$ is the parent's pid inside a ( ) subshell
+  t=$(mktemp "$f.XXXXXX") && { grep -v "^$1 " "$f" 2>/dev/null; echo "$1 $2"; } >"$t" && mv "$t" "$f"
+  sabha_map_unlock
 }
 
 # sabha_pane_reset: an empty map, for a grid start: the roles of an older grid and their pane ids are gone
@@ -191,18 +207,20 @@ sabha_pane_reset() {
 # for a missing id is dead for good), and says so on stderr. A failed `pane list`, or one with no pane id we can read,
 # proves nothing and leaves the map alone.
 sabha_pane_prune() {
-  local f=$SABHA_IMPL/status/herdr-panes.txt out live name pane
+  local f=$SABHA_IMPL/status/herdr-panes.txt out live name pane t
   [[ -s $f ]] || return 0
   out=$(sabha_h pane list 2>/dev/null) || return 0
   live=$(grep -o '"pane_id" *: *"[^"]*"' <<<"$out" | sed 's/.*: *"\(.*\)"/\1/') || true
   [[ -n $live ]] || return 0
-  : >"$f.tmp"
+  sabha_map_lock
+  t=$(mktemp "$f.XXXXXX") || { sabha_map_unlock; return 0; }
   while read -r name pane; do
     [[ -n $name ]] || continue
-    if grep -qxF "$pane" <<<"$live"; then echo "$name $pane" >>"$f.tmp"
+    if grep -qxF "$pane" <<<"$live"; then echo "$name $pane" >>"$t"
     else echo "sabha: pane $pane of $name is gone; dropped from the pane map" >&2; fi
   done <"$f"
-  mv "$f.tmp" "$f"
+  mv "$t" "$f"
+  sabha_map_unlock
 }
 
 # sabha_nudge <Name> <text>: submits text to that role's agent and waits until it settles (idle, done or blocked).
