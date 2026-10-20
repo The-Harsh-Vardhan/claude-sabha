@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # bin/sabha-loop, round 2, with a fake agent (SABHA_LOOP_CMD) and fake files, no Claude run:
 #   #22 an agent's handoff save that lands while the loop rewrites the crash flag survives (a sed shim saves it
-#       between the loop's read and its replace).
+#       between the loop's read and its replace);
+#   #20 a loop that gives up after two quick exits says so once in status/alerts.log, in status/blocked/alerts.log
+#       (the relay's alert path) and through a fake osascript, with the role, the exit code and the restart command.
 # Run: tests/test-loop-r2.sh (a few seconds)
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
@@ -36,4 +38,16 @@ grep -qx 'Current: fresh save' "$md" && grep -qx 'Next: keep me' "$md" ||
 grep -q 'old' "$md" && fail "#22: the old handoff came back: $(cat "$md")"
 ls "$dir/status" | grep -q 'builderprecise\.md\.' && fail "#22: temp files left behind: $(ls "$dir/status")"
 
-echo "ok: a handoff save during the crash flag survives (#22)"
+# #20: the stop is announced once, with the role, the exit code and the restart command
+rm -f "$dir/status/alerts.log" "$dir/status/blocked/alerts.log"
+mkdir -p "$dir/fakebin"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/osa.out"\n' "$dir" >"$dir/fakebin/osascript"; chmod +x "$dir/fakebin/osascript"
+PATH="$dir/fakebin:$PATH" SABHA_NOTIFY_DESKTOP=1 SABHA_LOOP_CMD='exit 7' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null
+want='BuilderPrecise: sabha-loop stopped after 2 quick exits (exit 7); start it again with bin/sabha-loop BuilderPrecise'
+for f in "$dir/status/alerts.log" "$dir/status/blocked/alerts.log"; do
+  [[ $(grep -cF "$want" "$f" 2>/dev/null) -eq 1 ]] || fail "#20: one stop alert expected in $f: $(cat "$f" 2>/dev/null)"
+done
+if [[ $(uname -s) == Darwin ]]; then
+  [[ $(grep -cF "$want" "$dir/osa.out" 2>/dev/null) -eq 1 ]] || fail "#20: one macOS notification expected: $(cat "$dir/osa.out" 2>/dev/null)"
+fi
+echo "ok: a handoff save during the crash flag survives (#22); a stopped loop alerts once, log + relay + desktop (#20)"
