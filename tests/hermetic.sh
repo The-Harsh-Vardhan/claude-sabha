@@ -2,9 +2,11 @@
 # and starts real claude sessions on the default herdr session): this puts tests/hermetic-bin (a fake) first on PATH,
 # sets SABHA_TEST=1 and SABHA_HERDR_BIN (bin/sabha-herdr.sh then refuses any other herdr binary), and exits 2 when
 # the fake is not the first herdr on PATH. A test that installs its own fake copy resets SABHA_HERDR_BIN to it.
+# a test run from a grid pane or a sabha shell must not inherit its SABHA_* (PLAN, ROLE, CONF ...): the live roster
+# and config would replace the test's own (test-loop case 4, test-procs)
+while read -r _v; do unset "$_v"; done < <(compgen -v SABHA_)
+unset _v
 SABHA_TEST=1
-# a test run from inside a live sabha shell must not inherit its plan: the plan roster would replace the test's own
-unset SABHA_PLAN
 HERMETIC_BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/hermetic-bin
 PATH=$HERMETIC_BIN:$PATH
 SABHA_HERDR_BIN=$HERMETIC_BIN/herdr
