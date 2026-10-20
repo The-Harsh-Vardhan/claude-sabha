@@ -12,6 +12,8 @@ printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_ROSTER="Relay:opus BuilderPrecise:opus
 # a short grace: where the test runs with SIGINT ignored (CI, a tool shell) the fake only dies from the TERM that follows
 export SABHA_CONF=$dir/sabha.conf SABHA_LOOP_INTERVAL=1 SABHA_LOOP_MIN_UP=3 SABHA_LOOP_GRACE=2 SABHA_NOTIFY_DESKTOP=0
 mkdir -p "$dir/status/context" "$dir/inbox/BuilderPrecise" "$dir/inbox/Oc"
+# every wait below is for an event with this ceiling (seconds), not a fixed sleep; a loaded machine starts a loop slowly
+W=${SABHA_TEST_WAIT:-120}
 fail() { echo "FAIL: $*"; exit 1; }
 # wait_for <file> <grep -E pattern> <seconds>: poll instead of a fixed sleep; a loop on a slow machine (Git Bash) can
 # take several seconds to log its start
@@ -26,10 +28,10 @@ echo 35 >"$dir/status/context/builderprecise.txt"
 SABHA_FORCE=1 SABHA_LOOP_CMD='echo "${SABHA_FORCE:-unset}" >>"'"$dir"'/force.txt"; trap "exit 0" INT TERM; sleep 20 & wait' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
 lp=$!
 # the handoff must be newer than the logged start (1 s mtime granularity): wait for the line, then step past that second
-wait_for "$log" ' start \(' 20; sleep 2; touch "$dir/status/context/builderprecise.txt" "$dir/status/builderprecise.md"
-wait_for "$log" 'restart: context 35%' 20
+wait_for "$log" ' start \(' "$W"; sleep 2; touch "$dir/status/context/builderprecise.txt" "$dir/status/builderprecise.md"
+wait_for "$log" 'restart: context 35%' "$W"
 grep -q 'restart: context 35%' "$log" || fail "no restart logged: $(cat "$log" 2>/dev/null)"
-for _ in $(seq 1 20); do [[ $(grep -c '^.* start (' "$log") -ge 2 ]] && break; sleep 1; done
+for _ in $(seq 1 "$W"); do [[ $(grep -c '^.* start (' "$log") -ge 2 ]] && break; sleep 1; done
 [[ $(grep -c '^.* start (' "$log") -ge 2 ]] || fail "a second start should follow the restart: $(cat "$log")"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 [[ $(sed -n 1p "$dir/force.txt") == 1 && $(sed -n 2p "$dir/force.txt") == unset ]] || fail "SABHA_FORCE must reach the first start only: $(cat "$dir/force.txt")"
@@ -39,8 +41,8 @@ kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 : >"$log"; touch -t 202001010000 "$dir/status/builderprecise.md"
 SABHA_LOOP_CMD='trap "" INT; trap "exit 0" TERM; sleep 20 & wait' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
 lp=$!
-wait_for "$log" ' start \(' 20; sleep 2; touch "$dir/status/context/builderprecise.txt" "$dir/status/builderprecise.md"
-for _ in $(seq 1 30); do [[ $(grep -c ' start (' "$log" 2>/dev/null) -ge 2 ]] && break; sleep 1; done
+wait_for "$log" ' start \(' "$W"; sleep 2; touch "$dir/status/context/builderprecise.txt" "$dir/status/builderprecise.md"
+for _ in $(seq 1 "$W"); do [[ $(grep -c ' start (' "$log" 2>/dev/null) -ge 2 ]] && break; sleep 1; done
 [[ $(grep -c ' start (' "$log") -ge 2 ]] || fail "an INT-proof agent was not restarted through TERM: $(cat "$log")"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 
@@ -62,19 +64,19 @@ run_twice() {
   : >"$log"; rm -f "$dir/n" "$dir/up2"; printf '%s\nbody\n' "$2" >"$dir/status/builderprecise.md"
   SABHA_LOOP_CMD=$(twice "$1") bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
   lp=$!
-  for _ in $(seq 1 20); do [[ -e $dir/up2 ]] && break; sleep 1; done
+  for _ in $(seq 1 "$W"); do [[ -e $dir/up2 ]] && break; sleep 1; done
   [[ -e $dir/up2 ]] || fail "a second session should start: $(cat "$log")"
 }
 md=$dir/status/builderprecise.md
 # 2d. one quick death (a launch race) is retried, not flagged; a good start clears an older crash line
 run_twice 'exit 1' 'Blocked: crashed at old (exit 9; x)'
-for _ in $(seq 1 10); do [[ $(sed -n 1p "$md") == body ]] && break; sleep 1; done
+for _ in $(seq 1 "$W"); do [[ $(sed -n 1p "$md") == body ]] && break; sleep 1; done
 [[ $(cat "$md") == body ]] || fail "idea 2: a launch race must not flag Blocked, a good start clears the old line: $(cat "$md")"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 # 2e. a crash after a good start says the loop is restarting it, then the restarted session clears it
 run_twice 'sleep 6; exit 3' 'first'
 grep -q '^Blocked: crashed at .* (exit 3; sabha-loop is restarting it)$' "$md" || fail "idea 2: a crash after a good start should be flagged: $(cat "$md")"
-for _ in $(seq 1 10); do [[ $(sed -n 1p "$md") == first ]] && break; sleep 1; done
+for _ in $(seq 1 "$W"); do [[ $(sed -n 1p "$md") == first ]] && break; sleep 1; done
 [[ $(sed -n 1p "$md") == first ]] || fail "idea 2: a good restart should clear the crash line: $(cat "$md")"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 # 2f. exit 130 or 143 is a stop someone sent on purpose, not a crash
@@ -97,8 +99,8 @@ SABHA_LOOP_RETRIES=1 SABHA_LOOP_MIN_UP=10 SABHA_LOOP_CMD='echo x >>"'"$dir"'/tri
 : >"$log"; rm -f "$dir/tries"
 SABHA_LOOP_RETRY_WINDOW=3 SABHA_LOOP_CMD='echo x >>"'"$dir"'/tries"; [ $(wc -l <"'"$dir"'/tries") -ge 3 ] && { trap "exit 0" TERM; sleep 20 & wait; }; exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
 lp=$!
-wait_for "$log" 'retry 2' 20
-for _ in $(seq 1 20); do [[ $(wc -l <"$dir/tries") -ge 3 ]] && break; sleep 1; done
+wait_for "$log" 'retry 2' "$W"
+for _ in $(seq 1 "$W"); do [[ $(wc -l <"$dir/tries") -ge 3 ]] && break; sleep 1; done
 [[ $(wc -l <"$dir/tries") -ge 3 ]] || { kill -TERM "$lp" 2>/dev/null; fail "launch failures were not retried: $(cat "$log")"; }
 kill -0 "$lp" 2>/dev/null || fail "two quick failures within the retry window must not stop the loop: $(cat "$log")"
 grep -q 'stopped: 2 sessions' "$log" && fail "retried launch failures counted toward the stop: $(cat "$log")"
@@ -109,7 +111,7 @@ kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 printf 'five_hour 95 %s %s\n' $(( $(date +%s) + 3600 )) "$(date +%s)" >"$dir/status/limits.txt"
 SABHA_LOOP_CMD='exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
 lp=$!
-wait_for "$log" 'SABHA_STOP: five-hour at 95%' 20
+wait_for "$log" 'SABHA_STOP: five-hour at 95%' "$W"
 grep -q 'SABHA_STOP: five-hour at 95%' "$log" || fail "SABHA_STOP not logged: $(cat "$log")"
 grep -q ' start (' "$log" && fail "nothing may start under SABHA_STOP"
 bash "$BIN/sabha-loop" --stop BuilderPrecise >/dev/null
@@ -121,8 +123,8 @@ rm -f "$dir/status/limits.txt"
 olog=$dir/status/loop/oc.log
 SABHA_LOOP_CMD='trap "exit 0" INT TERM; sleep 20 & wait' bash "$BIN/sabha-loop" Oc 2>/dev/null &
 lp=$!
-wait_for "$olog" ' start \(' 20; sleep 2; : >"$dir/inbox/Oc/001.done"
-wait_for "$olog" 'restart: a brief finished' 20
+wait_for "$olog" ' start \(' "$W"; sleep 2; : >"$dir/inbox/Oc/001.done"
+wait_for "$olog" 'restart: a brief finished' "$W"
 grep -q 'restart: a brief finished' "$olog" || fail "other pane did not restart on .done: $(cat "$olog" 2>/dev/null)"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 echo "ok: self-test, restart at 35% with a newer handoff, launch-failure retry and its bound, SABHA_FORCE first start only, TERM fallback for an INT-proof agent, stop after 2 dead starts, crash flag only on a real crash and cleared after a good restart, SABHA_STOP gate, --stop, .done restart"

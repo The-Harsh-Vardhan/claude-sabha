@@ -3,6 +3,8 @@
 # sets SABHA_TEST=1 and SABHA_HERDR_BIN (bin/sabha-herdr.sh then refuses any other herdr binary), and exits 2 when
 # the fake is not the first herdr on PATH. A test that installs its own fake copy resets SABHA_HERDR_BIN to it.
 SABHA_TEST=1
+# a test run from inside a live sabha shell must not inherit its plan: the plan roster would replace the test's own
+unset SABHA_PLAN
 HERMETIC_BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/hermetic-bin
 PATH=$HERMETIC_BIN:$PATH
 SABHA_HERDR_BIN=$HERMETIC_BIN/herdr
