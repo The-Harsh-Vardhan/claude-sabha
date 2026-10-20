@@ -17,6 +17,9 @@ Nothing is pushed, tagged or published until every step passes. Run from the rep
 5. ASCII: `LC_ALL=C git grep --untracked -I -n '[^ -~]' -- . ':!docs/diagrams/'` is empty. `docs/diagrams/` holds
    generated archify exports (middle dots in labels, the viewer's own script); regenerate them, never hand-edit.
 6. Checks: the commands in CONTRIBUTING.md pass.
-7. CHANGELOG.md has the version and date; README status line is current.
-8. A reviewer scans the tree and the history and signs off in writing.
-9. Only then: create the remote, push, tag.
+7. Live smoke: `tests/smoke-live.sh` (about 30 s, needs `claude` on PATH, spends no tokens, never touches herdr) runs
+   `bin/sabha-loop` in a real pty with plain interactive claude and prints `ok:`. The hermetic suite cannot see launch
+   bugs that need a tty (#5, #8); it fails on the 2.0.0 tag (535afbd) and passes on a fixed tree.
+8. CHANGELOG.md has the version and date; README status line is current.
+9. A reviewer scans the tree and the history and signs off in writing.
+10. Only then: create the remote, push, tag.
