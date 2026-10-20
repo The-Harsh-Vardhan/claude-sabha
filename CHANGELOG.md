@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.1 - 2026-10-20
+
+Fix release; every fix release bumps the version so `claude plugin list` shows which copy runs.
+
+- #5 sabha-loop: the launch-failure retry fires (session uptime is measured in 1 s steps).
+- #6 sabha_pane_note: a per-process temp file, so panes starting together do not race.
+- #7 sabha-up: the herdr grid opens in the launching terminal by default.
+- #8 sabha-loop: the agent gets the pane's stdin, not a reopened /dev/tty (Bun kqueue EINVAL).
+- #9 pane map: the map is locked, so concurrent writers keep every row.
+- #10 tests/test-grid.sh matches the current iTerm write-text patterns.
+- #11 test-loop and test-permission wait for the event, not a fixed sleep.
+- #18 a live pty smoke test for sabha-loop and a release-checklist step.
+- #19 `sabha doctor` warns when the plugin copy or another copy is at a different commit and names the update command.
+- #20 sabha-loop alerts the Relay when it stops after two quick exits.
+- #21 sabha-down shows progress while it waits for saves.
+- #22 crash_flag no longer rewrites the role handoff without a lock.
+
 ## 2.0.0 - 2026-10-20
 
 ### Upgrading from 1.x
