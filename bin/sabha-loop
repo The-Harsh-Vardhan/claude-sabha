@@ -9,8 +9,8 @@
 # session with the same opening prompt; never --resume. A context file older than SABHA_LOOP_STALE (120) seconds is
 # not trusted: the agent keeps running and the loop warns. Any other pane stays headful and restarts after each
 # brief, when a new inbox/<Name>/NNN.done appears. Two sessions in a row that end within SABHA_LOOP_MIN_UP (60)
-# seconds of starting stop the loop. While SABHA_STOP holds (bin/sabha-limits.sh) no session starts; a running one
-# is left alone. Log: status/loop/<name>.log. SABHA_LOOP_CMD replaces the agent command (tests); SABHA_LOOP_INTERVAL
+# seconds of starting stop the loop and alert (sabha_notify, status/blocked/alerts.log). While SABHA_STOP holds
+# (bin/sabha-limits.sh) no session starts; a running one is left alone. Log: status/loop/<name>.log. SABHA_LOOP_CMD replaces the agent command (tests); SABHA_LOOP_INTERVAL
 # (20) is the poll in seconds, SABHA_LOOP_GRACE (15) the seconds an agent gets after the two Ctrl-C before TERM.
 # A session that ends within SABHA_LOOP_RETRY_WINDOW (5) seconds is a launch failure (the Bun kqueue EINVAL race when an
 # agent is backgrounded with stdin reopened from /dev/tty): it is started again after 1 s, up to SABHA_LOOP_RETRIES (3)
@@ -191,6 +191,11 @@ while :; do
     if (( fails >= 2 )); then
       log "stopped: 2 sessions in a row ended within ${min_up}s"
       (( crashed )) && crash_flag "exit $crc; sabha-loop stopped after 2 quick exits, start it with bin/sabha-loop $name"
+      # #20: a stopped loop went unnoticed (only its own log said so): the usage-alert path (status/alerts.log and the
+      # desktop) plus the relay's status/blocked/alerts.log, once per stop
+      msg="$name: sabha-loop stopped after 2 quick exits (exit $crc); start it again with bin/sabha-loop $name"
+      sabha_notify "$msg"
+      mkdir -p "$SABHA_IMPL/status/blocked" && echo "$(sabha_utc) $msg" >>"$SABHA_IMPL/status/blocked/alerts.log"
       exit 1
     fi
   else

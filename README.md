@@ -139,7 +139,7 @@ Three herdr extras (herdr 0.9.5; each checked against a fake herdr only, UNTESTE
   on a real herdr: whether a name is per pane or per agent and whether herdr keeps names unique. `sabha-alert`
   chimes for the relay only. `sabha-loop` flags a crash (an exit nobody asked for, non-zero, not 130 or 143) as
   `Blocked: crashed ...` on top of the role's status file when the session had a good start or when the loop gives
-  up after two quick exits (one quick exit is a launch race, retried unflagged); a later good start clears it. `bin/sabha-check --explain` adds `herdr agent
+  up after two quick exits (one quick exit is a launch race, retried unflagged); a later good start clears it. A loop that gives up also alerts once (`status/alerts.log`, the desktop, `status/blocked/alerts.log`). `bin/sabha-check --explain` adds `herdr agent
   explain` per recorded pane. `tests/test-herdr-contract.sh` fails when a herdr command sabha calls is not in
   `tests/herdr-commands.txt`. `bin/sabha-herdr-config` prints suggested herdr settings with your paths filled in
   (2 s restore stagger, sidebar rows with `$brief` and `$ctx`, herdr's claude sounds off, `prefix+alt+b` board,
