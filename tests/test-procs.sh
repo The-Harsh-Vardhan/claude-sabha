@@ -131,6 +131,12 @@ check "never the relay, its tty, or the unsaved role (101 102 501 301 302)" '! g
 check "unsaved role listed and exit 1" '(( rc == 1 )) && grep -q "left running, no save: Writer" <<<"$out"'
 check "M1: only the window whose every session was killed is closed (1)" '[[ $(grep ^CLOSE <<<"$act") == "CLOSE 1" ]]'
 
+# #21: the wait prints a hint first and a progress line (saved, pending, seconds left) while it waits
+: > "$ACTLOG"; rm -rf "$dir/impl/inbox"; mkdir -p "$dir/impl/inbox"
+out=$(env -u CLAUDECODE SABHA_DOWN_PROGRESS=1 SABHA_KILL=fakekill FAKE_SAVERS="Dispatcher" "$SH" "$BIN/sabha-down.sh" --yes --timeout 3 2>&1)
+check "#21: hint names --timeout, --kill-unsaved, Ctrl-C and that nothing is killed meanwhile" 'grep -q "^waiting up to 3s.*--timeout.*--kill-unsaved.*Ctrl-C.*nothing is killed" <<<"$out"'
+check "#21: progress line lists saved and pending roles and seconds left" 'grep -qE "^waiting: saved:.*Dispatcher.* \| pending: .*Writer.* \| [0-9]+s left$" <<<"$out"'
+
 yes_run "" --kill-unsaved
 kills=$(grep '^KILL -TERM' <<<"$act")
 check "--kill-unsaved stops all four, still not the relay or its tty" '(( rc == 0 )) && [[ $kills == "KILL -TERM 201 301 302 401" ]]'
