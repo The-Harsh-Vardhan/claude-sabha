@@ -15,7 +15,7 @@ Fix release; every fix release bumps the version so `claude plugin list` shows w
 - #19 `sabha doctor` warns when the plugin copy or another copy is at a different commit and names the update command.
 - #20 sabha-loop alerts the Relay when it stops after two quick exits.
 - #21 sabha-down shows progress while it waits for saves.
-- #22 crash_flag no longer rewrites the role handoff without a lock.
+- #22 sabha-loop: the crash flag replaces the role handoff only while it still matches what was read, so an agent's save is no longer erased (one short window remains; the agent takes no lock).
 
 ## 2.0.0 - 2026-10-20
 
