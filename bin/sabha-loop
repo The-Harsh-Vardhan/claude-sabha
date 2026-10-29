@@ -18,6 +18,8 @@
 # A role on a named account (SABHA_ACCOUNT_<Role>, README "Running roles on different Claude accounts") runs with that
 # account's token and stops at SABHA_STOP_<NAME> when set; limits.txt is shared by the whole kit, so another account's
 # reading can hold this one back (use the per-account line, or start when the other panes are idle).
+# While status/loop/<name>.hold exists a Claude pane is not restarted below SABHA_LOOP_HOLD_MAX (45) percent, so the
+# dispatcher's in-session helpers survive; at or over the cap it restarts as usual and logs "hold ignored".
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=sabha-lib.sh
@@ -29,9 +31,9 @@ BIN=$(cd "$(dirname "$0")" && pwd)
 
 mtime() { date -r "$1" +%s 2>/dev/null || echo 0; }
 
-# decide <claude|other> <ctx file> <handoff file> <inbox dir> <last start epoch>: prints restart, stale or wait
+# decide <claude|other> <ctx file> <handoff file> <inbox dir> <last start epoch> [hold file]: prints restart, stale or wait
 decide() {
-  local kind=$1 ctx=$2 handoff=$3 inbox=$4 last=$5 now pct d
+  local kind=$1 ctx=$2 handoff=$3 inbox=$4 last=$5 hold=${6:-} now pct d
   now=$(date +%s)
   if [[ $kind == claude ]]; then
     [[ -f $ctx ]] || { echo wait; return; }
@@ -39,6 +41,7 @@ decide() {
     pct=$(tr -d ' \n' <"$ctx"); pct=${pct%.*}
     [[ $pct =~ ^[0-9]+$ ]] || { echo wait; return; }
     if (( pct >= ${SABHA_LOOP_LIMIT:-30} )) && [[ -f $handoff ]] && (( $(mtime "$handoff") > last )); then
+      [[ -n $hold && -e $hold ]] && (( pct < ${SABHA_LOOP_HOLD_MAX:-45} )) && { echo wait; return; }
       echo restart; return
     fi
     echo wait
@@ -93,6 +96,12 @@ self_test() {
   echo 31.5 >"$t/ctx.txt"
   check "31.5% + handoff newer than last start = restart" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" restart
   check "31.5% + handoff older than last start = wait" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" $(( now + 60 )))" wait
+  check "31.5% + newer handoff, no hold file = restart" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0 "$t/x.hold")" restart
+  : >"$t/x.hold"; echo 31 >"$t/ctx.txt"
+  check "hold + 31% = wait" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0 "$t/x.hold")" wait
+  echo 46 >"$t/ctx.txt"
+  check "hold + 46% = restart" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0 "$t/x.hold")" restart
+  rm -f "$t/x.hold"
   touch -t 202001010000 "$t/ctx.txt"
   check "old context file = stale" "$(decide claude "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" stale
   check "other pane, no done = wait" "$(decide other "$t/ctx.txt" "$t/status/x.md" "$t/inbox" 0)" wait
@@ -133,7 +142,7 @@ lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
 LOOP=$SABHA_IMPL/status/loop; mkdir -p "$LOOP"
 log() { printf '%s %s\n' "$(sabha_utc)" "$*" | tee -a "$LOOP/$lower.log" >&2; }
 ctx=$SABHA_IMPL/status/context/$lower.txt handoff=$SABHA_IMPL/status/$lower.md inbox=$SABHA_IMPL/inbox/$name
-stop=$LOOP/$lower.stop; rm -f "$stop"
+stop=$LOOP/$lower.stop; rm -f "$stop"; hold=$LOOP/$lower.hold
 interval=${SABHA_LOOP_INTERVAL:-20} min_up=${SABHA_LOOP_MIN_UP:-60}
 if [[ -n ${SABHA_LOOP_CMD:-} ]]; then cmd=(bash -c "$SABHA_LOOP_CMD")
 else cmd=("$BIN/sabha-up.sh" "$name"); fi   # a non-claude role: sabha-up.sh starts it through herdr and waits (UNTESTED live)
@@ -165,8 +174,9 @@ while :; do
     # a session past the min_up window is a good start: an older crash flag no longer holds
     (( cleared || $(date +%s) - start < min_up )) || { crash_unflag; cleared=1; }
     sabha_keep_awake >/dev/null 2>>"$LOOP/$lower.log" || true
-    case $(decide "$kind" "$ctx" "$handoff" "$inbox" "$last") in
+    case $(decide "$kind" "$ctx" "$handoff" "$inbox" "$last" "$hold") in
       restart)
+        [[ $kind == claude && -e $hold ]] && log "hold ignored: context $(tr -d ' \n' <"$ctx")%"
         log "restart: $([[ $kind == claude ]] && echo "context $(tr -d ' \n' <"$ctx")% and a newer handoff" || echo "a brief finished")"
         # Claude Code quits on two Ctrl-C a second apart; a child started with "&" in a script may have SIGINT
         # ignored (Reviewer 032), so anything still alive after the grace gets TERM (tests/test-loop.sh case 1b)
