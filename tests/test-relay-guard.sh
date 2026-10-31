@@ -39,12 +39,14 @@ check "inbox/../ escape is denied" 'denies Write file_path "$I/inbox/../PROTOCOL
 check "a relative path is denied" 'denies Write file_path "inbox/Yudhi/001.md"'
 
 for c in 'ls -la inbox' 'cat status/x.md | head -5' 'git -C /r log --oneline -3 2>/dev/null' 'git status && git diff' \
-         'git branch --show-current' 'cd /r; grep -rn foo . | wc -l' 'tail -20 a >/dev/null 2>&1'; do
+         'git branch --show-current' 'echo a=b' 'grep -rn "foo bar" docs' 'cd /r; grep -rn foo . | wc -l' 'tail -20 a >/dev/null 2>&1'; do
   check "Bash read-only: $c" 'allows Bash command "$c"'
 done
 for c in 'rm -rf x' 'ls; rm -rf x' 'ls && touch x' 'cat a | tee b' 'echo $(rm x)' 'echo `id`' 'echo x > f' \
          'echo x >> f' 'cat <(rm x)' 'git branch -D main' 'git -c core.pager=sh log' 'git diff --output=f' \
-         'X=1 ls' 'ls >/dev/nullx' 'git push' 'git -C /r push' 'bin/sabha-run' 'sed -i s/a/b/ f' $'ls\nrm x' 'ls & rm x'; do
+         'X=1 ls' 'ls >/dev/nullx' 'git push' 'git -C /r push' 'bin/sabha-run' 'sed -i s/a/b/ f' $'ls\nrm x' 'ls & rm x' \
+         'cat =(touch F)' 'ls *(e:'"'"'touch F'"'"':)' 'echo ${(e):-\$\(touch F\)}' 'echo ${x@P}' 'echo $HOME' 'ls {a,b}' \
+         'echo a\;touch F' '=ls' 'ls =ls' 'ls a\ b' 'ls $'"'"'a\tb'"'"'' 'echo a=b b=(c)'; do
   check "Bash denied: $c" 'denies Bash command "$c"'
 done
 hook pre 'not json'

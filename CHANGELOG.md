@@ -19,6 +19,9 @@
 - `SABHA_RELAY_GUARD=1` (default off): `bin/sabha-relay-guard`, PreToolUse, UserPromptSubmit and Stop hooks that
   `sabha-up.sh` passes to the relay only (`--settings`). The relay reads, writes briefs and memory, asks and messages;
   anything else is denied with "relay: brief the dispatcher". "you do it" in the user's prompt lifts it for one turn.
+  The guard fails closed (a crash, an unbound variable or `exit` in the conf, empty or garbage input and a missing field
+  are a deny), and its Bash list is plain words only: any `( ) { } $` backtick, backslash, newline, redirect or word
+  starting with `=` is refused, so zsh's `=(cmd)`, `*(e:cmd:)` and `${(e):-...}` cannot run code.
   Test: `tests/test-relay-guard.sh`.
 
 ## 2.0.1 - 2026-10-20

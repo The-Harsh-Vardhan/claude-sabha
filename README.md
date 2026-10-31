@@ -425,7 +425,7 @@ All off by default; set them in `sabha.conf`.
 
 | Flag | What it does |
 | --- | --- |
-| `SABHA_RELAY_GUARD=1` | `sabha-up.sh` gives the relay (only) Claude hooks running `bin/sabha-relay-guard`: Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents and ToolSearch pass; Write and Edit only under `SABHA_IMPL/inbox/` and the Claude memory dirs; Bash only for a short read-only list (ls, cat, head, tail, wc, grep, stat, du, date, pwd, cd, echo, git status/log/diff/show/rev-parse/branch --show-current), with no substitution, chaining into anything else or redirect but `/dev/null`. Everything else is denied with "relay: brief the dispatcher". A user prompt containing "you do it" lifts the guard for that one turn. Needs `jq`; without the config or jq the guard denies |
+| `SABHA_RELAY_GUARD=1` | `sabha-up.sh` gives the relay (only) Claude hooks running `bin/sabha-relay-guard`: Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents and ToolSearch pass; Write and Edit only under `SABHA_IMPL/inbox/` and the Claude memory dirs; Bash only for a short read-only list (ls, cat, head, tail, wc, grep, stat, du, date, pwd, cd, echo, git status/log/diff/show/rev-parse/branch --show-current), as plain words only: any `( ) { } $`, backtick, backslash, newline, redirect but `/dev/null`, word starting with `=` or chaining into anything else is refused (the Bash tool runs your shell, zsh on a Mac, where `=(cmd)` and `*(e:cmd:)` run code). Everything else is denied with "relay: brief the dispatcher". A user prompt containing "you do it" lifts the guard for that one turn. Needs `jq`; without the config or jq the guard denies |
 
 ## License
 

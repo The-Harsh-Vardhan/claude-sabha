@@ -44,18 +44,22 @@ writable() {
   return 1
 }
 
-# read_only <command>: every segment between ; & | and newlines is on the list. Command substitution, any redirect
-# but a discard to /dev/null, and a leading VAR=value are refused, so chaining cannot smuggle a write in.
+# read_only <command>: every segment between ; & | is on the list. Expansions and grouping (zsh as well as bash), any
+# redirect but a discard to /dev/null, and a leading VAR=value are refused, so chaining cannot smuggle a write in.
 # ponytail: a quoted ; or | splits a segment and denies a harmless command; the relay then briefs it instead
 read_only() {
   local c=$1 seg i t sub segs w re='>/dev/null[^[:space:];&|]'
   [[ $c =~ $re ]] && return 1
   c=${c//2>&1/}; c=${c//2>\/dev\/null/}; c=${c//>\/dev\/null/}
-  case $c in *'$('*|*'`'*|*'>'*|*'<'*) return 1 ;; esac
+  # The Bash tool runs the user's shell, zsh on a Mac, where =(cmd), *(e:cmd:) and ${(e):-...} run code with no
+  # $( or backtick. So the list is a plain-words list: no ( ) { } $ backslash, newline or redirect, and no word
+  # starting with = (zsh =cmd expansion).
+  case $c in *'$'*|*'`'*|*'>'*|*'<'*|*'('*|*')'*|*'{'*|*'}'*|*'\'*|*$'\n'*|*$'\r'*) return 1 ;; esac
   IFS=$';&|\n' read -r -d '' -a segs <<<"$c"
   for seg in ${segs[@]+"${segs[@]}"}; do
     read -r -a w <<<"$seg"
     (( ${#w[@]} )) || continue
+    for t in "${w[@]}"; do [[ $t == =* ]] && return 1; done
     case ${w[0]} in
       ls|cat|head|tail|wc|grep|stat|du|date|pwd|cd|echo|true) continue ;;
       git) ;;
