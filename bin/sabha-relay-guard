@@ -5,7 +5,7 @@
 #                              opening check) and ToolSearch (loads SendMessage) through; Write, Edit and MultiEdit only
 #                              under $SABHA_IMPL/inbox/ and the user's Claude memory dirs; Bash only for a short
 #                              read-only list. Anything else exits 2: "relay: brief the dispatcher".
-#   sabha-relay-guard prompt   UserPromptSubmit: a prompt holding "you do it" lifts the guard for that turn
+#   sabha-relay-guard prompt   UserPromptSubmit: a prompt holding the words "you do it" (any case) lifts the guard for that turn
 #   sabha-relay-guard stop     Stop: the turn is over, the guard is back
 # Letting a call through only skips this hook's veto; the user's permission rules and deny list still apply.
 # Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
@@ -33,7 +33,7 @@ mark=$SABHA_IMPL/status/.relay-override
 
 case $mode in
   prompt)
-    if jq -r '.prompt // ""' <<<"$in" | grep -qi 'you do it'; then mkdir -p "$SABHA_IMPL/status" && : >"$mark"
+    if jq -r '.prompt // ""' <<<"$in" | grep -qiw 'you do it'; then mkdir -p "$SABHA_IMPL/status" && : >"$mark"
     else rm -f "$mark"; fi
     exit 0 ;;
   stop) rm -f "$mark"; exit 0 ;;
@@ -42,14 +42,19 @@ case $mode in
 esac
 [[ -e $mark ]] && allow
 
-# writable <path>: an absolute path with no .. segment, under the inbox or a Claude memory dir
+# writable <path>: an absolute path with no .. segment, under the inbox or the relay's own project memory dir. Claude
+# names that dir after the relay's cwd (SABHA_WS) with every non-alphanumeric character as "-"; memory is flat, so
+# nothing nested. ponytail: a symlinked SABHA_WS is named by its real path, so memory writes are denied (brief them)
 writable() {
-  local p=$1 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+  local p=$1 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude} slug mem
   [[ $p == /* && $p != *'/../'* && $p != *'/..' ]] || return 1
   case $p in
-    "$SABHA_IMPL"/inbox/*|"$cfg"/projects/*/memory/*) return 0 ;;
+    "$SABHA_IMPL"/inbox/*) return 0 ;;
   esac
-  return 1
+  [[ -n ${SABHA_WS:-} ]] || return 1
+  slug=$(printf %s "$SABHA_WS" | sed 's/[^A-Za-z0-9]/-/g')
+  mem=$cfg/projects/$slug/memory/
+  [[ $p == "$mem"* && -n ${p#"$mem"} && ${p#"$mem"} != */* ]]
 }
 
 # read_only <command>: every segment between ; & | is on the list. Expansions and grouping (zsh as well as bash), any
