@@ -419,6 +419,14 @@ Sabha does not depend on these and has no integration code for them; each can be
 - superpowers: its planning, TDD and debugging skills can be used inside any worker session; they shape how a worker
   does a brief, while sabha shapes how briefs move between sessions.
 
+## Opt-in workflow flags
+
+All off by default; set them in `sabha.conf`.
+
+| Flag | What it does |
+| --- | --- |
+| `SABHA_RELAY_GUARD=1` | `sabha-up.sh` gives the relay (only) Claude hooks running `bin/sabha-relay-guard`: Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents and ToolSearch pass; Write and Edit only under `SABHA_IMPL/inbox/` and the Claude memory dirs; Bash only for a short read-only list (ls, cat, head, tail, wc, grep, stat, du, date, pwd, cd, echo, git status/log/diff/show/rev-parse/branch --show-current), with no substitution, chaining into anything else or redirect but `/dev/null`. Everything else is denied with "relay: brief the dispatcher". A user prompt containing "you do it" lifts the guard for that one turn. Needs `jq`; without the config or jq the guard denies |
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

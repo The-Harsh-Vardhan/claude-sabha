@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Claude hook for the relay only (SABHA_RELAY_GUARD=1; sabha-up.sh passes it with --settings). The relay talks to the
+# user and writes briefs; everything else goes to the dispatcher. The hook JSON comes on stdin.
+#   sabha-relay-guard pre      PreToolUse: lets Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents (the
+#                              opening check) and ToolSearch (loads SendMessage) through; Write, Edit and MultiEdit only
+#                              under $SABHA_IMPL/inbox/ and the user's Claude memory dirs; Bash only for a short
+#                              read-only list. Anything else exits 2: "relay: brief the dispatcher".
+#   sabha-relay-guard prompt   UserPromptSubmit: a prompt holding "you do it" lifts the guard for that turn
+#   sabha-relay-guard stop     Stop: the turn is over, the guard is back
+# Letting a call through only skips this hook's veto; the user's permission rules and deny list still apply.
+# Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+mode=${1:-}
+in=$(cat)
+deny() { echo "relay: brief the dispatcher (denied: $1)" >&2; exit 2; }
+# a broken setup must not open the gate: pre denies, prompt and stop do nothing
+broken() { [[ $mode == pre ]] && deny "$1"; exit 0; }
+CONF=${SABHA_CONF:-$BIN/../sabha.conf}
+# shellcheck source=/dev/null
+[[ -f $CONF ]] && . "$CONF"
+[[ -n ${SABHA_IMPL:-} ]] || broken "the guard found no SABHA_IMPL"
+command -v jq >/dev/null || broken "the guard needs jq"
+mark=$SABHA_IMPL/status/.relay-override
+
+case $mode in
+  prompt)
+    if jq -r '.prompt // ""' <<<"$in" | grep -qi 'you do it'; then mkdir -p "$SABHA_IMPL/status" && : >"$mark"
+    else rm -f "$mark"; fi
+    exit 0 ;;
+  stop) rm -f "$mark"; exit 0 ;;
+  pre) ;;
+  *) echo "usage: sabha-relay-guard pre|prompt|stop" >&2; exit 2 ;;
+esac
+[[ -e $mark ]] && exit 0
+
+# writable <path>: an absolute path with no .. segment, under the inbox or a Claude memory dir
+writable() {
+  local p=$1 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+  [[ $p == /* && $p != *'/../'* && $p != *'/..' ]] || return 1
+  case $p in
+    "$SABHA_IMPL"/inbox/*|"$cfg"/projects/*/memory/*) return 0 ;;
+  esac
+  return 1
+}
+
+# read_only <command>: every segment between ; & | and newlines is on the list. Command substitution, any redirect
+# but a discard to /dev/null, and a leading VAR=value are refused, so chaining cannot smuggle a write in.
+# ponytail: a quoted ; or | splits a segment and denies a harmless command; the relay then briefs it instead
+read_only() {
+  local c=$1 seg i t sub segs w re='>/dev/null[^[:space:];&|]'
+  [[ $c =~ $re ]] && return 1
+  c=${c//2>&1/}; c=${c//2>\/dev\/null/}; c=${c//>\/dev\/null/}
+  case $c in *'$('*|*'`'*|*'>'*|*'<'*) return 1 ;; esac
+  IFS=$';&|\n' read -r -d '' -a segs <<<"$c"
+  for seg in ${segs[@]+"${segs[@]}"}; do
+    read -r -a w <<<"$seg"
+    (( ${#w[@]} )) || continue
+    case ${w[0]} in
+      ls|cat|head|tail|wc|grep|stat|du|date|pwd|cd|echo|true) continue ;;
+      git) ;;
+      *) return 1 ;;
+    esac
+    # git: -c, --output and --ext-diff can run or write something, so they never pass
+    for t in "${w[@]}"; do case $t in -c|--output*|--ext-diff|--exec*) return 1 ;; esac; done
+    i=1; [[ ${w[1]:-} == -C ]] && i=3
+    sub=${w[i]:-}
+    case $sub in
+      status|log|diff|show|rev-parse) ;;
+      branch) for t in "${w[@]:i+1}"; do case $t in --show-current|--list|-a|-r|-v|-vv) ;; *) return 1 ;; esac; done ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+tool=$(jq -r '.tool_name // ""' <<<"$in" 2>/dev/null)
+case $tool in
+  Read|Grep|Glob|SendMessage|AskUserQuestion|ListAgents|ToolSearch) exit 0 ;;
+  Write|Edit|MultiEdit)
+    path=$(jq -r '.tool_input.file_path // ""' <<<"$in")
+    writable "$path" && exit 0
+    deny "$tool outside inbox/ and memory" ;;
+  Bash)
+    read_only "$(jq -r '.tool_input.command // ""' <<<"$in")" && exit 0
+    deny "Bash beyond the read-only list" ;;
+esac
+deny "${tool:-unreadable hook input}"

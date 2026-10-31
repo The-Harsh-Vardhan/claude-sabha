@@ -16,6 +16,10 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
+- `SABHA_RELAY_GUARD=1` (default off): `bin/sabha-relay-guard`, PreToolUse, UserPromptSubmit and Stop hooks that
+  `sabha-up.sh` passes to the relay only (`--settings`). The relay reads, writes briefs and memory, asks and messages;
+  anything else is denied with "relay: brief the dispatcher". "you do it" in the user's prompt lifts it for one turn.
+  Test: `tests/test-relay-guard.sh`.
 
 ## 2.0.1 - 2026-10-20
 
