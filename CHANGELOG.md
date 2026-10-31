@@ -23,7 +23,9 @@
   are a deny), and its Bash list is plain words only: any `( ) { } $` backtick, backslash, newline, redirect or word
   starting with `=` is refused, so zsh's `=(cmd)`, `*(e:cmd:)` and `${(e):-...}` cannot run code.
   "you do it" is a whole-phrase match, and memory writes are limited to the relay's own project memory dir. `sabha
-  doctor` warns when the guard is on and `disableAllHooks` is set. Tests: `tests/test-relay-guard.sh`,
+  doctor` warns when the guard is on and `disableAllHooks` is set. A discard (`2>&1`, `2>/dev/null`, `>/dev/null`) passes
+  only as a whole word (`echo hi2>&1x` is refused), and a Bash command over 2000 characters is refused before any
+  pattern work (a hook timeout does not block, so the cap is the control). Tests: `tests/test-relay-guard.sh`,
   `tests/test-doctor.sh`.
 
 ## 2.0.1 - 2026-10-20

@@ -58,12 +58,22 @@ writable() {
 }
 
 # read_only <command>: every segment between ; & | is on the list. Expansions and grouping (zsh as well as bash), any
-# redirect but a discard to /dev/null, and a leading VAR=value are refused, so chaining cannot smuggle a write in.
+# redirect but the whole words 2>&1, 2>/dev/null and >/dev/null, and a leading VAR=value are refused, so chaining
+# cannot smuggle a write in. A command over 2000 characters is refused.
 # ponytail: a quoted ; or | splits a segment and denies a harmless command; the relay then briefs it instead
 read_only() {
-  local c=$1 seg i t sub segs w re='>/dev/null[^[:space:];&|]'
-  [[ $c =~ $re ]] && return 1
-  c=${c//2>&1/}; c=${c//2>\/dev\/null/}; c=${c//>\/dev\/null/}
+  local c=$1 seg i t sub segs w
+  # a read-only one-liner never needs more; the cap comes first because the pattern work below is super-linear on
+  # bash 3.2 (20 KB took over 50 s), and a hook that times out is not a block
+  (( ${#c} <= 2000 )) || return 1
+  # a stderr dup or a discard is allowed only as a whole word; nothing is deleted from inside a word, so
+  # "echo hi2>&1x" (a write to a file named 1x) keeps its ">" and is refused below
+  case $c in *$'\n'*|*$'\r'*) return 1 ;; esac
+  read -r -a w <<<"$c"
+  c=
+  for t in ${w[@]+"${w[@]}"}; do
+    case $t in 2'>&1'|2'>/dev/null'|'>/dev/null') ;; *) c+="$t " ;; esac
+  done
   # The Bash tool runs the user's shell, zsh on a Mac, where =(cmd), *(e:cmd:) and ${(e):-...} run code with no
   # $( or backtick. So the list is a plain-words list: no ( ) { } $ backslash, newline or redirect, and no word
   # starting with = (zsh =cmd expansion).
