@@ -67,6 +67,26 @@ check "no config: pre fails closed" '(( rc == 2 ))'
 out=$(SABHA_CONF=$dir/none.conf "$SH" "$BIN/sabha-relay-guard" pre <<<'{"tool_name":"Read"}' 2>&1); rc=$?
 check "no config: even Read is denied (the guard cannot judge)" '(( rc == 2 ))'
 
+# fail closed: any crash or odd input is a deny, never the non-blocking exit 1 of a hook
+EDIT_IN='{"tool_name":"Edit","tool_input":{"file_path":"/x"}}'
+badconf() { printf '%s\nSABHA_IMPL=%s\n' "$1" "$I" > "$dir/bad.conf"; out=$(SABHA_CONF=$dir/bad.conf "$SH" "$BIN/sabha-relay-guard" pre <<<"${2:-$EDIT_IN}" 2>&1); rc=$?; }
+badconf 'SABHA_X=$NOPE_UNSET_VAR'
+check "conf with an unbound variable: pre denies (rc 2)" '(( rc == 2 )) && [[ $out == *"brief the dispatcher"* ]]'
+badconf 'exit 3'
+check "conf that exits: pre denies (rc 2)" '(( rc == 2 )) && [[ $out == *"brief the dispatcher"* ]]'
+badconf 'false' '{"tool_name":"Read","tool_input":{"file_path":"/x"}}'
+check "conf with a failing command still lets Read through" '(( rc == 0 ))'
+hook pre ''
+check "empty stdin: pre denies" '(( rc == 2 )) && [[ $err == "relay: brief the dispatcher"* ]]'
+hook pre '{"tool_name":"Bash","tool_input":{}}'
+check "Bash with no command field: denied" '(( rc == 2 ))'
+hook pre '{"tool_name":"Write","tool_input":{}}'
+check "Write with no file_path: denied" '(( rc == 2 ))'
+hook pre '{"tool_name":"Bash","tool_input":{"command":5}}'
+check "Bash with a non-string command: denied" '(( rc == 2 ))'
+hook pre '[1,2'
+check "truncated JSON: denied" '(( rc == 2 ))'
+
 out=$(SABHA_RELAY_GUARD=1 "$SH" "$BIN/sabha-up.sh" --print Vidur 2>&1)
 json=$(sed -n "s/.* --settings '\([^']*\)'.*/\1/p" <<<"$out")
 check "sabha-up --print: the relay gets --settings with the guard hooks" '[[ -n $json ]] && jq -e --arg g "\"$BIN/sabha-relay-guard\" pre" ".hooks.PreToolUse[0].matcher == \"*\" and .hooks.PreToolUse[0].hooks[0].command == \$g and (.hooks.UserPromptSubmit | length) == 1 and (.hooks.Stop | length) == 1" <<<"$json" >/dev/null'

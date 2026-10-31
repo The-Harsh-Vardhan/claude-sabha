@@ -16,9 +16,17 @@ in=$(cat)
 deny() { echo "relay: brief the dispatcher (denied: $1)" >&2; exit 2; }
 # a broken setup must not open the gate: pre denies, prompt and stop do nothing
 broken() { [[ $mode == pre ]] && deny "$1"; exit 0; }
+# pre allows only through allow(): a conf that runs "exit 0" must not open the gate
+allow() { exit 100; }
+# the decision runs in a subshell below: a crash in it (an unbound variable in the conf, a conf that exits) ends the
+# subshell with a status other than 0 or 2, and the wrapper turns that into a deny
+guard() {
 CONF=${SABHA_CONF:-$BIN/../sabha.conf}
+# no set -u while the conf runs: an unbound reference in it must not kill the guard with a non-blocking exit 1
+set +u
 # shellcheck source=/dev/null
 [[ -f $CONF ]] && . "$CONF"
+set -u
 [[ -n ${SABHA_IMPL:-} ]] || broken "the guard found no SABHA_IMPL"
 command -v jq >/dev/null || broken "the guard needs jq"
 mark=$SABHA_IMPL/status/.relay-override
@@ -32,7 +40,7 @@ case $mode in
   pre) ;;
   *) echo "usage: sabha-relay-guard pre|prompt|stop" >&2; exit 2 ;;
 esac
-[[ -e $mark ]] && exit 0
+[[ -e $mark ]] && allow
 
 # writable <path>: an absolute path with no .. segment, under the inbox or a Claude memory dir
 writable() {
@@ -80,13 +88,27 @@ read_only() {
 
 tool=$(jq -r '.tool_name // ""' <<<"$in" 2>/dev/null)
 case $tool in
-  Read|Grep|Glob|SendMessage|AskUserQuestion|ListAgents|ToolSearch) exit 0 ;;
+  Read|Grep|Glob|SendMessage|AskUserQuestion|ListAgents|ToolSearch) allow ;;
   Write|Edit|MultiEdit)
-    path=$(jq -r '.tool_input.file_path // ""' <<<"$in")
-    writable "$path" && exit 0
+    path=$(jq -er '.tool_input.file_path | strings' <<<"$in" 2>/dev/null) || deny "$tool without a file_path"
+    writable "$path" && allow
     deny "$tool outside inbox/ and memory" ;;
   Bash)
-    read_only "$(jq -r '.tool_input.command // ""' <<<"$in")" && exit 0
+    cmd=$(jq -er '.tool_input.command | strings | select(contains("\u0000") | not)' <<<"$in" 2>/dev/null) || deny "Bash without a plain command"
+    [[ -n $cmd ]] && read_only "$cmd" && allow
     deny "Bash beyond the read-only list" ;;
 esac
 deny "${tool:-unreadable hook input}"
+}
+
+(guard)
+rc=$?
+if [[ $mode == pre ]]; then
+  case $rc in
+    100) exit 0 ;;
+    2) exit 2 ;;
+  esac
+  deny "the guard failed (exit $rc)"
+fi
+(( rc == 2 )) && exit 2
+exit 0
