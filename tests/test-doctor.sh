@@ -88,6 +88,13 @@ DC="$dir/copy1"; o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q "^warn  a second claude-sabha copy at $dir/copy1 (this one is $ROOT)" || fail "a second copy must WARN (rc 0): rc=$rc: $o"
 echo "$o" | grep -q "copy1.*sabha.conf names SABHA_IMPL=$other, not $dir/impl" || fail "the copy's own config pointing elsewhere must be named: $o"
 [[ -d $dir/copy1 ]] || fail "doctor must never delete or move a copy"
+# #19: a copy at another commit is named as behind or ahead; the same commit says nothing
+git clone -q "$ROOT" "$dir/plug" && git -C "$dir/plug" reset -q --hard HEAD~1 || fail "cannot build a stale clone"
+DC="$dir/plug"; o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q "^warn  $dir/plug is at .*behind this copy" || fail "a plugin copy at an older commit must WARN as behind (rc 0): rc=$rc: $o"
+git clone -q "$ROOT" "$dir/same"
+DC="$dir/same"; o=$(D)
+echo "$o" | grep -q 'behind' && fail "a copy at the same commit is not behind: $o"
 DC="$ROOT"; o=$(D)
 echo "$o" | grep -q 'second claude-sabha copy' && fail "this copy is not a second copy: $o"
 DC="$dir/nothere"; o=$(D)
