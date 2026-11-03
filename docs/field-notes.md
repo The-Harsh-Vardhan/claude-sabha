@@ -5,8 +5,8 @@ nav_order: 10
 
 # How I use claude-sabha day to day
 
-These notes come from about three weeks of daily use (mid October to early November 2026) on a multi-repo product
-team: several repositories, reviews from several people, a PM who signs off the design.
+These notes come from most days between mid October and 3 November 2026 (the dispatcher got 308 briefs and 1126
+were marked done in that time) on a multi-repo product team: several repositories, reviews from several people, a PM who signs off the design.
 They say what worked, what broke, and what changed in this repo because of it. Each incident links to the fix when one
 exists. Nothing here is a benchmark. It is a log of one person's use.
 
@@ -59,11 +59,11 @@ A good brief is a short file. A message between sessions is only a nudge that na
 | When | What happened | Impact | What changed |
 | --- | --- | --- | --- |
 | 14 Oct | 16 Claude sessions ran at once and used all the RAM of a laptop | I closed the whole grid. Files had all the state, so nothing was lost | Plans for Pro and Max ([README, "Pick a plan"](../README.md#pick-a-plan)), a cap on work panes, headless runs ([`sabha-run`](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/5571e1e)) |
-| 17 Oct | Tests run outside the sandbox reached my real herdr. They opened 16 workspaces and 12 real sessions | I had to close them by hand | Hermetic tests with a fake herdr, a guard in `bin/sabha-herdr.sh` ([28635a9](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/28635a9), [e5d3290](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/e5d3290), [cd09a9a](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/cd09a9a)) |
+| 16 to 17 Oct | Tests run outside the sandbox reached my real herdr. They opened 16 workspaces and 12 real sessions | I had them closed by hand | Hermetic tests with a fake herdr, a guard in `bin/sabha-herdr.sh` ([e5d3290](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/e5d3290), [cd09a9a](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/cd09a9a)) |
 | 19 Oct | Scripts were committed without the exec bit. A fresh clone failed at the first quickstart step. Also, `git commit -- paths` takes the file mode from disk | New users could not start | [c317bc3](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/c317bc3), [0b0bca3](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/0b0bca3). Rule: commit with no path list after `update-index`, then check `git ls-tree` |
 | 19 Oct | I started roles with hand-typed `for` loops. No role restarted at the context limit. The loop later gave up after two fast exits (a Bun launch race) | No supervision, then no launch | Start roles only with `sabha-loop`. Fixes: [d919494](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/d919494), [d94df02](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/d94df02), [bb0c4c8](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/bb0c4c8), [cdb2daf](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/cdb2daf) |
 | 19 Oct | A pane sat on a permission prompt and I did not know | I had to hunt through the grid | The relay shows the prompt, word for word. I answer each one. A key is pressed only on my answer ([1f369c7](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/1f369c7), [47866f3](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/47866f3), [cbe0d8b](https://github.com/The-Harsh-Vardhan/claude-sabha/commit/cbe0d8b)) |
-| 27 and 31 Oct | **The relay does the work.** The relay read diffs, ran migrations and built pages while the dispatcher was up | A slow, unresponsive relay | Rule 2 in [RULES.md](../RULES.md). No code enforces it yet ([issue draft](../issues/02-relay-guard-hands-on-work.md)) |
+| 16 to 31 Oct | **The relay does the work.** The relay built pages, read diffs, ran migration steps and cleaned the workspace while the dispatcher was up | A slow, unresponsive relay | Rule 2 in [RULES.md](../RULES.md). No code enforces it yet ([issue draft](../issues/02-relay-guard-hands-on-work.md)) |
 | 28 Oct | After a reboot herdr restored old sessions: 13 duplicate panes | Duplicate roles, one of them a second dispatcher | README now explains the restore and how to turn it off. `sabha-check` prints DUPLICATE |
 | 29 Oct | The loop restarted the dispatcher at 30 percent. Thirteen helpers died | Half-done lanes, no output | The hold file ([#34](https://github.com/The-Harsh-Vardhan/claude-sabha/pull/34)) for short helpers. Detached, registered helpers for long ones ([#35](https://github.com/The-Harsh-Vardhan/claude-sabha/pull/35), open) |
 | 30 Oct | Workers sat idle for about three hours waiting for my answers. The next steps were local and reversible | A PR slipped about three hours | Rule: start the local work on the default, ask me in parallel. Only pushes and sends wait ([issue draft](../issues/09-idle-report-lists-unblocked-local-work.md)) |

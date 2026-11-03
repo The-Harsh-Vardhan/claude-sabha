@@ -7,8 +7,9 @@ labels: enhancement, headless, field-report
 
 Headless runs (`sabha-run`) are the right place for bounded work. In use, two writers in one worktree was the main
 risk. On 3 Nov a hotfix needed a builder and a tracer. The dispatcher had to say, by hand, that the two must not
-both write the worktree, and ran them one after the other. Another runner swapped files in a worktree for a
-red-green check and logged a "restored" line so nobody touched it meanwhile.
+both write the worktree, and ran them one after the other. Also on 3 Nov, an in-session builder swapped
+files in a worktree for a red-green check, and the dispatcher recorded "do not touch the worktree" until the builder
+logged that it had restored them.
 
 On 27 Oct a headless run also timed out and the work had to move to a pane. The rule that came out of it: before
 leaning on headless runs, have a `.done` watchdog, a permission preflight, and one worktree per run.
