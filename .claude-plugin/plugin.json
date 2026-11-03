@@ -1,6 +1,6 @@
 {
   "name": "claude-sabha",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other work through plain files, keep their progress in plain files, and restart fresh before their context fills up.",
   "author": {
     "name": "Harsh Vardhan"
