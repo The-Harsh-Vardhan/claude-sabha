@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
+  `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
+  read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never
+  sourced, never printed). `sabha-up.sh`, `sabha-loop` and the grid panes share one helper (`sabha_account_env` in
+  `bin/sabha-lib.sh`); a named account with no token is refused with a message naming the variable; `SABHA_STOP_<NAME>`
+  gives an account its own stop line. `sabha-up.sh --print` shows the variable, never a value. `bin/sabha-check` prints
+  one account line per role and warns on a missing token variable. See README, "Running roles on different Claude
+  accounts". No change when no account is configured.
+- `sabha-up.sh --chrome` (or `SABHA_CHROME=1`) starts a Claude role with `claude --chrome`; `SABHA_MODEL` replaces the
+  roster's model for one start.
+
 ## 2.0.1 - 2026-10-20
 
 Fix release; every fix release bumps the version so `claude plugin list` shows which copy runs.

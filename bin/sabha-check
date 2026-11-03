@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Read-only: for each roster role, every claude process started with that session name (pid, tty, start time),
-# marked DUPLICATE when more than one holds the name. The relay is listed too. Exits 1 when a role is duplicated, 2
-# when the process list cannot be read, else 0.
+# marked DUPLICATE when more than one holds the name. The relay is listed too. Once a role is on a named account
+# (SABHA_ACCOUNT_<Role>) it also prints "<Role> -> account NAME (token variable present|MISSING)" per role, "default
+# login" for the others; no value is shown. Exits 1 when a role is duplicated or a named account has no token
+# variable, 2 when the process list cannot be read, else 0.
 #   sabha-check
 #   sabha-check --explain   also asks herdr why each recorded pane shows its state (`herdr agent explain`, read-only;
 #                           it never starts a herdr server)
@@ -27,6 +29,21 @@ for name in "${NAMES[@]}"; do
   done <<<"$rows"
 done
 echo "(ps sees only claude -n/--name sessions; cross-check ListAgents)"
+# accounts: one line per role once any account is configured; names only, a token value is never read into the output
+acct_rows="" acct_bad=0 acct_any=0
+for name in "${NAMES[@]}"; do
+  sabha_role "$name" 2>/dev/null && [[ $R_AGENT != claude ]] && { acct_rows+="$name -> not a claude role ($R_AGENT)"$'\n'; continue; }
+  a=$(sabha_account "$name" 2>&1) || { acct_rows+="$name -> WARN $a"$'\n'; acct_bad=1 acct_any=1; continue; }
+  if [[ -z $a ]]; then acct_rows+="$name -> default login"$'\n'; continue; fi
+  acct_any=1
+  if sabha_account_has_token "$a"; then t=present; else t=MISSING; acct_bad=1; fi
+  acct_rows+="$name -> account $a (token variable $t)"$'\n'
+done
+if [[ -n ${SABHA_ACCOUNTS:-} ]] || (( acct_any )); then
+  printf '%s' "$acct_rows"
+  (( acct_bad )) && echo "WARN: a role names an account whose CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME> is not set (environment or $(sabha_env_file)); sabha-up and sabha-loop refuse to start it"
+  (( acct_bad )) && dup=1
+fi
 if (( explain )); then
   # shellcheck source=sabha-herdr.sh
   . "$(cd "$(dirname "$0")" && pwd)/sabha-herdr.sh"
