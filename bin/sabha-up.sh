@@ -12,7 +12,11 @@
 #   sabha-up.sh <Name>-N        a copy of that role (BuilderPrecise-2): same profile, its own inbox and status file
 #   --plan pro|max5|max20       (first argument) roster, panes, copies and labels from sabha.<plan>.conf beside
 #                               sabha.conf; SABHA_PANES names the roles that get a pane, the rest are on demand
-#   --force (first argument)    start even when a claude process already holds a role's name
+#   --force                     start even when a claude process already holds a role's name (before the role name)
+#   --chrome                    start the Claude role with Claude in Chrome (claude --chrome); SABHA_CHROME=1 does the same
+#   SABHA_MODEL=<model>         replace the roster's model for this start (and --print) only
+#   SABHA_ACCOUNT_<Role>=<NAME> in sabha.conf puts a role on a named Claude account: the launcher exports that account's
+#                               token as CLAUDE_CODE_OAUTH_TOKEN (README, "Running roles on different Claude accounts")
 # Run it from a plain terminal: osascript (iterm backend) is blocked inside a Claude sandbox.
 # Paths and names come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
 set -euo pipefail
@@ -34,10 +38,14 @@ sabha_theme sabha-up || exit 1
 PROJECT=${SABHA_PROJECT:-this project}
 OWNER=${SABHA_USER:-the user}
 
-FORCE=0
+FORCE=0 CHROME=0
 # SABHA_FORCE=1 is how a grid started with --force passes it through sabha-loop to the role's sabha-up.sh
 [[ ${SABHA_FORCE:-0} == 1 ]] && FORCE=1
-[[ ${1:-} == --force ]] && { FORCE=1; shift; }
+[[ ${SABHA_CHROME:-0} == 1 ]] && CHROME=1
+while [[ ${1:-} == --force || ${1:-} == --chrome ]]; do
+  [[ $1 == --force ]] && FORCE=1 || CHROME=1
+  shift
+done
 LOOP="$(dirname "$SELF")/sabha-loop"
 
 # refuses to start a role that a live claude process already holds; --force skips the check
@@ -56,6 +64,11 @@ guard() {
 role() {
   sabha_role "$1" || { echo "unknown role: $1" >&2; exit 1; }
   r=$R_ENTRY name=$R_NAME model=$R_MODEL effort=$R_EFFORT
+  if [[ -n ${SABHA_MODEL:-} ]]; then
+    # the model lands on a command line that is pasted into a shell
+    [[ $SABHA_MODEL != *[!A-Za-z0-9._-]* ]] || { echo "sabha-up: SABHA_MODEL holds a character that is not a letter, digit, . _ or -" >&2; exit 1; }
+    model=$SABHA_MODEL
+  fi
   to=$DISPATCHER
   [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   [[ $R_BASE == "$RELAY" ]] && to=$OWNER
@@ -78,11 +91,17 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   fi
   mcp=""; sabha_flag "$r" mcp || mcp=" --strict-mcp-config"
   remote=""; [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=" --remote-control"
-  echo "cd \"$SABHA_WS\" && claude -n $name --model $model --effort $effort$mcp$remote \"$prompt\""
+  chrome=""; (( CHROME )) && chrome=" --chrome"
+  # an account's token is never printed: the line reads it from its variable when it runs, and stops if that is unset
+  acct=$(sabha_account "$name") || exit 1
+  envp=""; [[ -n $acct ]] && envp="CLAUDE_CODE_OAUTH_TOKEN=\"\${CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_$acct:?}\" "
+  echo "cd \"$SABHA_WS\" && ${envp}claude -n $name --model $model --effort $effort$mcp$remote$chrome \"$prompt\""
   echo "pane: cd \"$SABHA_WS\" && '$LOOP' $name"
   exit 0
 fi
 
+# a single role starts on its own account (token, and the stop line SABHA_STOP_<NAME>); a missing token refuses it
+[[ $# -eq 1 ]] && { sabha_account_env "$1" || exit 1; }
 # SABHA_STOP: no session starts while a usage window is at the stop line (--print above only prints)
 if why=$(sabha_limits_stopped); then echo "sabha-up: $why" >&2; exit 3; fi
 
@@ -133,7 +152,10 @@ if [[ $# -eq 1 ]]; then
   # MCP servers each cost memory and the roles do not use them; "mcp" in the roster flags keeps them
   mcp=(--strict-mcp-config); sabha_flag "$r" mcp && mcp=()
   remote=(); [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=(--remote-control)
-  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} ${remote[@]+"${remote[@]}"} "$prompt"
+  chrome=(); (( CHROME )) && chrome=(--chrome)
+  # the agent keeps its own account's token and not the other accounts' variables
+  sabha_account_scrub
+  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} ${remote[@]+"${remote[@]}"} ${chrome[@]+"${chrome[@]}"} "$prompt"
 fi
 
 # two tabs: Build takes the pane roles in pane order, Gate takes those flagged "gate"; each is two rows of up to four.
@@ -155,6 +177,9 @@ pane_args=""; [[ -n ${SABHA_PLAN:-} ]] && pane_args="SABHA_PLAN=$SABHA_PLAN "
 # a spawned pane has no inherited env (herdr pane run, a fresh iTerm tab): pass the config path sabha_conf_read found,
 # or sabha-loop falls back to its own no-fallback search and fails with "no config"
 [[ -n ${SABHA_CONF:-} ]] && pane_args+="SABHA_CONF='$SABHA_CONF' "
+[[ -n ${SABHA_ENV_FILE:-} ]] && pane_args+="SABHA_ENV_FILE='$SABHA_ENV_FILE' "
+# a named account with no token would only fail inside its pane: refuse before any pane opens (a subshell: nothing is exported here)
+for n in "${build[@]}" ${gate[@]+"${gate[@]}"}; do (sabha_account_env "$n") || exit 1; done
 
 # herdr backend (the default): one workspace, Build as its first tab and Gate as a second; each tab is two rows of up
 # to four panes. fill_tab <root pane id> <name>...: columns by splitting right, the second row by splitting down, then
@@ -233,7 +258,7 @@ tab_script() {
 }
 # $SABHA_WS and $SABHA_CONF go into AppleScript text (tab_script) and a shell line it writes: a quote, $ or backtick
 # in either would break both
-[[ $SABHA_WS${SABHA_CONF:-} != *[\"\$\`]* ]] || { echo "sabha-up: config value holds a quote, \$ or backtick" >&2; exit 1; }
+[[ $SABHA_WS${SABHA_CONF:-}${SABHA_ENV_FILE:-} != *[\"\$\`]* ]] || { echo "sabha-up: config value holds a quote, \$ or backtick" >&2; exit 1; }
 echo "sabha-up: tab Build $(( (${#build[@]} + 1) / 2 ))x2: ${build[*]}"
 gate_tab=""
 if (( ${#gate[@]} )); then
