@@ -15,6 +15,7 @@
 # Windows fallback for the window closing; the process kill is portable).
 # Tests: SABHA_PS_FILE replaces the process list (see sabha-lib.sh); with --yes it needs SABHA_KILL (a stub for
 # kill) so a fake list is never signalled for real. SABHA_KILL_GRACE is the TERM-to-KILL wait (default 3 s).
+# SABHA_DOWN_PROGRESS is the seconds between the "waiting:" progress lines (default 10).
 set -uo pipefail
 
 # shellcheck source=sabha-lib.sh
@@ -125,6 +126,8 @@ done
 saved=" " unsaved=""
 if (( YES )); then
   end=$(( $(date +%s) + TIMEOUT ))
+  echo "waiting up to ${TIMEOUT}s for ${#pending[@]} save(s): --timeout S waits less, --kill-unsaved stops roles that never answer, Ctrl-C cancels (nothing is killed before the wait ends)"
+  last=$(date +%s) every=${SABHA_DOWN_PROGRESS:-10}
   while :; do
     saved=" " unsaved=""
     for i in "${!roles[@]}"; do
@@ -132,6 +135,10 @@ if (( YES )); then
     done
     [[ -z $unsaved ]] && { echo "all saves done"; break; }
     (( $(date +%s) >= end )) && { echo "timeout after ${TIMEOUT}s, no done from: $unsaved"; break; }
+    now=$(date +%s)
+    if (( now - last >= every )); then
+      last=$now; echo "waiting: saved:${saved% } | pending: ${unsaved% } | $(( end - now ))s left"
+    fi
     sleep 1
   done
   (( KILL_UNSAVED )) && saved=" ${roles[*]} "
