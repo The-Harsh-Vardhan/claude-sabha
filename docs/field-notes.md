@@ -5,8 +5,9 @@ nav_order: 10
 
 # How I use claude-sabha day to day
 
-These notes come from most days between mid October and 3 November 2026 (the dispatcher got 308 briefs and 1126
-were marked done in that time) on a multi-repo product team: several repositories, reviews from several people, a PM who signs off the design.
+These notes come from most days between mid October and 3 November 2026. In that time the dispatcher was sent
+308 briefs, and 1126 done markers were written across all 28 inboxes. The work was for a multi-repo product team:
+several repositories, reviews from several people, a PM who signs off the design.
 They say what worked, what broke, and what changed in this repo because of it. Each incident links to the fix when one
 exists. Nothing here is a benchmark. It is a log of one person's use.
 
