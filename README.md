@@ -14,8 +14,9 @@ made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
 ## Used in production work
 
-I have run this every day since mid October 2026 on real multi-repo work: briefs, reviews, hotfixes and pushes, with
-one relay, one dispatcher and a small grid of workers. Many rules and fixes in this repo come from things that went
+I have used this on most days since 14 October 2026 on real multi-repo work: briefs, reviews, hotfixes and pushes, with
+one relay, one dispatcher and a small grid of workers. In that time the dispatcher received over 300 briefs, and this
+repo has commits on 14 different days. Many rules and fixes in this repo come from things that went
 wrong there. [Field notes](docs/field-notes.md) has the setup, a real day, each incident and what changed because of it,
 and what is still rough.
 
