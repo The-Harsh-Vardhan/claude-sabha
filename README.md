@@ -12,6 +12,13 @@ work through plain files, keep their progress in plain files, and restart fresh 
 **[Themes](themes/README.md)** -
 made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
+## Used in production work
+
+I have run this every day since mid October 2026 on real multi-repo work: briefs, reviews, hotfixes and pushes, with
+one relay, one dispatcher and a small grid of workers. Many rules and fixes in this repo come from things that went
+wrong there. [Field notes](docs/field-notes.md) has the setup, a real day, each incident and what changed because of it,
+and what is still rough.
+
 ## Quick start
 
 1. Install the plugin. Inside Claude Code:
@@ -39,7 +46,10 @@ made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
 ![claude-sabha architecture](docs/diagrams/architecture.png)
 
-Status: 1.0.0, first public release. macOS is used daily; Windows (Git Bash) is beta (see
+Status: evolving. Latest release 2.0.1; main adds roles on different Claude accounts and a restart hold for in-session
+helpers (see [CHANGELOG.md](CHANGELOG.md), "Unreleased"). Next: durable helpers that outlive a dispatcher restart
+([PR #35](https://github.com/The-Harsh-Vardhan/claude-sabha/pull/35)), a loud alert when a pane's context file goes stale, and the open issues
+drafted in [issues/](issues). macOS is used daily; Windows (Git Bash) is beta (see
 [docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine; the full list is in [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Feedback for v2
