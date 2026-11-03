@@ -277,3 +277,88 @@ sabha_cost_log() {
   { mkdir -p "$SABHA_IMPL/status" && printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$ctx" "$3" \
       >>"$SABHA_IMPL/status/cost-log.tsv"; } 2>/dev/null || true
 }
+
+# --- accounts: roles on different Claude logins -------------------------------------------------------------------
+# SABHA_ACCOUNTS="HV AU" (optional) names the accounts; SABHA_ACCOUNT_<RoleId>=<NAME> in sabha.conf puts a role on
+# one (a copy Id-N follows its base role). A role with none uses the default login. The token of account NAME is the
+# variable CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>, looked up in the environment, then in SABHA_ENV_FILE (default
+# $SABHA_WS/.env). The value is held in a variable only: it is never printed, logged or written, and every message
+# names the variable, not what it holds.
+
+sabha_env_file() { echo "${SABHA_ENV_FILE-${SABHA_WS:-}/.env}"; }
+
+# _sabha_token_lookup <VAR>: sets _SABHA_TOKEN from the environment, else from the first "VAR=value" (optionally
+# "export VAR=value") line of the env file; false when it is empty or absent. The file is parsed for that one name,
+# never sourced, so nothing else in it runs or is read into a variable. Callers clear _SABHA_TOKEN when done.
+_sabha_token_lookup() {
+  local var=$1 file line val
+  _SABHA_TOKEN=${!var:-}
+  [[ -n $_SABHA_TOKEN ]] && return 0
+  file=$(sabha_env_file)
+  [[ -n $file && -r $file ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}
+    [[ $line =~ ^(export[[:space:]]+)?"$var"=(.*)$ ]] || continue
+    val=${BASH_REMATCH[2]}
+    case $val in \"*\") val=${val#\"}; val=${val%\"} ;; \'*\') val=${val#\'}; val=${val%\'} ;; esac
+    _SABHA_TOKEN=$val
+    [[ -n $val ]]; return
+  done <"$file"
+  return 1
+}
+
+# sabha_account_has_token <NAME>: true when the account's token variable is set (value never shown)
+sabha_account_has_token() {
+  local ok=1
+  _sabha_token_lookup "CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_$1" && ok=0
+  _SABHA_TOKEN=
+  return $ok
+}
+
+# sabha_account <Role>: prints the role's account NAME, or nothing for the default login (also for an agent that is
+# not claude: the token is Claude's). False, with a message, for a name that is not a name or not in SABHA_ACCOUNTS.
+# An unknown role prints nothing; the caller reports that itself.
+sabha_account() {
+  sabha_role "$1" 2>/dev/null || return 0
+  [[ $R_AGENT == claude ]] || return 0
+  local v=SABHA_ACCOUNT_$R_BASE a
+  a=${!v:-}
+  [[ -n $a ]] || return 0
+  # a token pasted here by mistake must not be echoed back: the value is shown only once it looks like a name
+  [[ $a =~ ^[A-Za-z0-9_]+$ ]] || { echo "sabha: $v is not an account name (letters, digits and _ only)" >&2; return 1; }
+  if [[ -n ${SABHA_ACCOUNTS:-} && " $SABHA_ACCOUNTS " != *" $a "* ]]; then
+    echo "sabha: $v names account $a, which is not in SABHA_ACCOUNTS ($SABHA_ACCOUNTS)" >&2; return 1
+  fi
+  echo "$a"
+}
+
+# sabha_account_env <Role>: puts this process on the role's account: exports CLAUDE_CODE_OAUTH_TOKEN and applies the
+# account's own stop line SABHA_STOP_<NAME>. A named account whose token is missing is refused (return 1, the variable's
+# name in the message), never replaced by another account. Once SABHA_ACCOUNTS is set, a role without an account gets
+# the default login: an inherited token is dropped. With no accounts configured it touches nothing.
+sabha_account_env() {
+  local acct var sv
+  acct=$(sabha_account "$1") || return 1
+  if [[ -z $acct ]]; then
+    [[ -n ${SABHA_ACCOUNTS:-} ]] && unset CLAUDE_CODE_OAUTH_TOKEN
+    return 0
+  fi
+  var=CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_$acct
+  if ! _sabha_token_lookup "$var"; then
+    _SABHA_TOKEN=
+    echo "sabha: $1 runs on account $acct, but $var is not set (environment or ${SABHA_ENV_FILE-${SABHA_WS:-}/.env}); not starting it" >&2
+    return 1
+  fi
+  export CLAUDE_CODE_OAUTH_TOKEN=$_SABHA_TOKEN
+  _SABHA_TOKEN=
+  sv=SABHA_STOP_$acct
+  [[ -n ${!sv:-} ]] && SABHA_STOP=${!sv}
+  return 0
+}
+
+# sabha_account_scrub: drops every CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_* variable, so a started agent holds its own
+# account's token only and cannot read the others' from its environment
+sabha_account_scrub() {
+  local v
+  for v in $(compgen -A variable CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_); do unset "$v"; done
+}

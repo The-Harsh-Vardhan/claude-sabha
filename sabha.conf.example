@@ -74,6 +74,16 @@ SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-de
 #SABHA_PUSH=off
 #SABHA_NTFY_TOPIC=
 #SABHA_NTFY_URL=https://ntfy.sh
+# Accounts: run roles on different Claude accounts (README, "Running roles on different Claude accounts"). Name the
+# accounts; get each token with `claude setup-token`; keep it as CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME> in the environment
+# or in SABHA_ENV_FILE (default $SABHA_WS/.env; empty = environment only; never commit it). SABHA_ACCOUNT_<RoleId> puts a
+# role on an account; a role without one uses the default login. A named account with no token refuses to start (the
+# message names the variable); `bin/sabha-check` lists every role's account. SABHA_STOP_<NAME> is that account's own stop
+# line (limits.txt is shared per kit; without it, SABHA_STOP applies to every account).
+#SABHA_ACCOUNTS="HV AU"
+#SABHA_ACCOUNT_BuilderHeavy=AU
+#SABHA_STOP_AU=95
+#SABHA_ENV_FILE=$SABHA_WS/.env
 # Keep the Mac awake while sabha runs (docs/keep-awake.md). auto (default): AC power -> lid, battery -> open, switched
 # live when the power source changes. open = no idle sleep while the herdr server lives, a closed lid still sleeps;
 # lid = open plus a closed lid keeps running (needs a sudo step you run); off = nothing. The pair below overrides

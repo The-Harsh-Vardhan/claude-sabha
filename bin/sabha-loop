@@ -15,6 +15,9 @@
 # A session that ends within SABHA_LOOP_RETRY_WINDOW (5) seconds is a launch failure (the Bun kqueue EINVAL race when an
 # agent is backgrounded with stdin reopened from /dev/tty): it is started again after 1 s, up to SABHA_LOOP_RETRIES (3)
 # times in a row, before it counts toward the two-failure stop.
+# A role on a named account (SABHA_ACCOUNT_<Role>, README "Running roles on different Claude accounts") runs with that
+# account's token and stops at SABHA_STOP_<NAME> when set; limits.txt is shared by the whole kit, so another account's
+# reading can hold this one back (use the per-account line, or start when the other panes are idle).
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=sabha-lib.sh
@@ -122,6 +125,9 @@ sabha_keep_awake || true
 name=$1 agent="" model=""
 for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent model _ <<<"$r"; break; }; done
 [[ -n $agent ]] || { echo "sabha-loop: unknown role: $name" >&2; exit 2; }
+# the role's Claude account (SABHA_ACCOUNT_<Role>): its token reaches every session this loop starts, and its own stop
+# line SABHA_STOP_<NAME> replaces SABHA_STOP; a missing token ends the loop at once instead of failing every restart
+sabha_account_env "$name" || exit 2
 kind=$(kind_of "$agent")
 lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
 LOOP=$SABHA_IMPL/status/loop; mkdir -p "$LOOP"

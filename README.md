@@ -199,6 +199,53 @@ percent or more and its handoff is newer than the last start: fresh session, sam
 context file older than two minutes is not trusted (the agent keeps running and a warning shows). Two failed restarts
 in a row stop the loop.
 
+## Running roles on different Claude accounts
+
+By default every role uses the one Claude login of the machine. To spread the load, put some roles on another account
+(for example a second seat, so the 5-hour and weekly windows are not shared):
+
+1. Per account, run `claude setup-token` in a terminal logged in to that account. It prints a long-lived OAuth token
+   once; copy it.
+2. Name the account (letters, digits and `_`, for example `AU`) and store the token as
+   `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`, in the environment of the shell that starts sabha or in an env file with
+   one `NAME=value` line per account. `SABHA_ENV_FILE` points at that file; the default is `.env` in `SABHA_WS`
+   (`SABHA_ENV_FILE=` empty means the environment only). The environment wins over the file. Keep the file out of
+   git and `chmod 600` it.
+3. In `sabha.conf`, list the accounts and give each role its account:
+
+       SABHA_ACCOUNTS="HV AU"
+       SABHA_ACCOUNT_BuilderHeavy=AU
+       SABHA_ACCOUNT_Reviewer=AU
+
+   A role without `SABHA_ACCOUNT_<RoleId>` uses the default login (`HV` above is just a name for it; leave it out
+   when you like). A copy `BuilderHeavy-2` follows `BuilderHeavy`. Once `SABHA_ACCOUNTS` is set, a role with no
+   account is started with no `CLAUDE_CODE_OAUTH_TOKEN`, so it cannot inherit another account's token from the shell.
+   With no account settings at all nothing changes.
+
+`bin/sabha-up.sh <Role>`, the panes of the grid (through `bin/sabha-loop`, so every restart keeps the account) and
+`bin/sabha-up.sh --chrome <Role>` all use the same lookup; no wrapper script is needed. The started agent holds its own
+account's token and none of the other accounts' variables.
+
+`bin/sabha-check` prints `<Role> -> account AU (token variable present|MISSING)`, or `default login`, per role, and
+warns (exit 1) when a named account has no token variable. A named account without a token is refused: sabha-up and
+sabha-loop stop with a message naming the variable and never fall back to another account. An account that is not in
+`SABHA_ACCOUNTS` or is not a plain name is refused the same way.
+
+Limits: `status/limits.txt` is one file per kit and holds whichever session wrote last, so one account's reading can
+hold another account's roles back (`SABHA_STOP`). Either start a role when the other accounts' panes are idle, or give
+each account its own line with `SABHA_STOP_<NAME>` (for example `SABHA_STOP_AU=95`); the role's account decides which
+line applies to its starts. Running sessions are never stopped.
+
+Chrome and model: `--chrome` (or `SABHA_CHROME=1`) starts the Claude role with `claude --chrome`; `SABHA_MODEL=<model>`
+replaces the roster's model for that start only.
+
+Security: the token value is held in a variable and handed to the agent's environment only. It is never printed or
+logged: not by `--print` (which shows `CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_AU:?}"`, read when the
+line runs), not in `status/`, the cost log or any error, which name the variable only. The env file is never sourced:
+the kit reads the one line for the one variable it needs (an optional `export `, a CR and one pair of quotes are
+stripped). Never commit the env file; `tests/test-accounts.sh` checks that no token value reaches an output or a log.
+A real multi-account session needs real tokens and was not run by the test suite.
+
 ## Tracker
 
 One task list for everything you ask the team to do, in three forms, chosen with `SABHA_TRACKER`:
