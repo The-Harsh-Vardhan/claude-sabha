@@ -12,6 +12,10 @@
   accounts". No change when no account is configured.
 - `sabha-up.sh --chrome` (or `SABHA_CHROME=1`) starts a Claude role with `claude --chrome`; `SABHA_MODEL` replaces the
   roster's model for one start.
+- sabha-loop: while `status/loop/<name>.hold` exists a Claude pane is not restarted below `SABHA_LOOP_HOLD_MAX` (45)
+  percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
+  before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
+  retry at the default 20 s interval.
 
 ## 2.0.1 - 2026-10-20
 

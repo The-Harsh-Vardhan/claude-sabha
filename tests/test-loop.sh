@@ -106,6 +106,14 @@ kill -0 "$lp" 2>/dev/null || fail "two quick failures within the retry window mu
 grep -q 'stopped: 2 sessions' "$log" && fail "retried launch failures counted toward the stop: $(cat "$log")"
 kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
 
+# 2c. 2b at the DEFAULT 20 s interval (the cases above run at 1 s and hid the bug): uptime is measured in 1 s steps, so
+# a pane that dies at once logs "launch failed within 0-2s, retry 1", never "ended after 20s" with no retry
+: >"$log"; rm -f "$dir/tries"
+SABHA_LOOP_INTERVAL=20 SABHA_LOOP_MIN_UP=60 SABHA_LOOP_CMD='echo x >>"'"$dir"'/tries"; [ $(wc -l <"'"$dir"'/tries") -ge 2 ] && { trap "exit 0" TERM; sleep 20 & wait; }; exit 1' bash "$BIN/sabha-loop" BuilderPrecise 2>/dev/null &
+lp=$!
+wait_for "$log" 'launch failed within [0-2]s, retry 1' 10 || { kill -TERM "$lp" 2>/dev/null; fail "default interval: quick death not retried within 10 s: $(cat "$log")"; }
+kill -TERM "$lp" 2>/dev/null; wait "$lp" 2>/dev/null
+
 # 3. SABHA_STOP: a window at 95% with the reset ahead starts nothing; --stop ends the loop
 : >"$log"
 printf 'five_hour 95 %s %s\n' $(( $(date +%s) + 3600 )) "$(date +%s)" >"$dir/status/limits.txt"
