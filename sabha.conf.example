@@ -52,6 +52,15 @@ SABHA_ROSTER="Relay:claude:opus:medium Dispatcher:claude:opus:medium Architect:c
 # MCP sets. Any other value = off, the behaviour before it. SABHA_PROFILE: auto (default), lite, standard or full.
 SABHA_EFFICIENCY=1
 #SABHA_PROFILE=auto
+# Heavy-job gate (bin/sabha-heavy): GO when load1 <= LOAD_FACTOR x cores, memory pressure green, fewer than HEAVY_MAX
+# slots held, SETTLE seconds since the last slot. acquire polls up to WAIT seconds; a slot without a heartbeat for TTL
+# seconds is stale; FREE_PCT is the memory_pressure -Q fallback (free percent under it = yellow).
+#SABHA_HEAVY_MAX=2
+#SABHA_HEAVY_LOAD_FACTOR=2
+#SABHA_HEAVY_SETTLE=45
+#SABHA_HEAVY_WAIT=900
+#SABHA_HEAVY_TTL=1800
+#SABHA_HEAVY_FREE_PCT=40
 # Copies: BuilderPrecise-1, BuilderPrecise-2 ... take BuilderPrecise's profile with their own inbox, status file and worktree; at most this many
 # per role (2 on Pro, 4 on Max).
 #SABHA_MAX_COPIES=2
