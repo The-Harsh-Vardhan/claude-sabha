@@ -100,6 +100,8 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   exit 0
 fi
 
+# roster drift is reported, never fixed here: a doc that disagrees may hold a decision not yet made (sabha roster --write)
+"${BASH:-bash}" "$SABHA_BIN/sabha" roster --check 2>/dev/null | sed -n 's/^FAIL  /sabha-up: roster drift: /p' >&2
 # a single role starts on its own account (token, and the stop line SABHA_STOP_<NAME>); a missing token refuses it
 [[ $# -eq 1 ]] && { sabha_account_env "$1" || exit 1; }
 # SABHA_STOP: no session starts while a usage window is at the stop line (--print above only prints)

@@ -286,13 +286,16 @@ from the scripts):
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
+| `SABHA_ROSTER_CLAIMS` | empty | `sabha roster --check`: notes or memory files (space separated, read only) whose `no <model>` lines are shown under a model conflict |
 
 ## Commands
 
 | Command | What |
 | --- | --- |
 | `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off] [--ws DIR] [--home DIR] [--name NAME]` | Sets up the project's sabha folder (`~/my-claude-sabha/<name>`) and its `sabha.conf` (plan, OS, the agent CLIs found, tracker, ntfy topic), and links it into the project. Asks for what it is not given on a terminal |
-| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only); exits 1 only on a FAIL |
+| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only), and roster drift (FAIL); exits 1 only on a FAIL |
+| `bin/sabha roster [--check\|--write]` | `SABHA_ROSTER` is the only roster source. `--check` prints a FAIL per `PROTOCOL-core.md` table cell or `protocol/<Name>.md` heading (`# Name (Model, effort)`) whose model or effort differs; the `no <model>` lines of the files in `SABHA_ROSTER_CLAIMS` (notes, memory) follow a model conflict as context. `--write` rewrites those cells and headings from the conf; a table row naming roles with different profiles is left for a hand split. `sabha-up.sh` prints the drift and never writes |
+| `bin/sabha stamp` | The current time from the clock, UTC then local, for briefs and status lines (no hand-typed times) |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the restart line first, then a `pane:` line |
 | `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
 | `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |

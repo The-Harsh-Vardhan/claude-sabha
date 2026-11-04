@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `sabha roster --check|--write` and `sabha stamp`: `SABHA_ROSTER` is the only roster source. The check lists every
+  `PROTOCOL-core.md` table cell and `protocol/<Name>.md` heading whose model or effort differs from the conf (with the
+  `no <model>` lines of `SABHA_ROSTER_CLAIMS` files as context); `sabha doctor` counts drift as FAIL, `sabha-up.sh`
+  prints it; `--write` rewrites those lines. `stamp` prints the clock time (UTC, then local) for briefs.
+
 - Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
   `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
   read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never
