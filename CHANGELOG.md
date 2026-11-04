@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Brief lifecycle: a sent brief is frozen; a change is an amendment file `NNN.K-<from>-<slug>.md`
+  (`sabha-brief --amend NNN`), which `sabha-run` lists in the run's prompt after the brief and never runs as a brief
+  of its own; an acked pane worker is nudged with the file name, and `sabha-watch` reports a brief edited after its
+  ack. `needs:` (`sabha-brief --needs`) holds a brief until the named briefs are done and closes it `BLOCKED` when a
+  need is unknown, itself, a cycle, cancelled or failed. `sabha-run` counts attempts at start (`NNN.attempts`),
+  retries only CLI or machine failures (`SABHA_RUN_ATTEMPTS`, default 1, `SABHA_RUN_BACKOFF`), and recovers a
+  headless run that died without a done instead of leaving its brief open. See docs/headless-runner.md.
 - Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
   `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
   read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never

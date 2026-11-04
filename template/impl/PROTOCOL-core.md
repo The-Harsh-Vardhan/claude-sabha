@@ -52,6 +52,11 @@ message says only `see inbox/<Name>/NNN`. Anything the user must decide or run g
 close an item by appending its id and `state: DONE` or `DROPPED`); `FOR-ME.md` and `FOR-ME.html` are generated and
 nobody edits them.
 
+A brief is frozen once sent: never edit it after its ack. A change is an amendment file `NNN.K-<from>-<slug>.md`
+(`bin/sabha-brief --amend NNN`) that names the lines it supersedes; the receiver reads the brief, then every amendment
+in K order. `needs: <NNN or Name/NNN ...>` in a brief's header makes the headless runner hold it until those briefs
+are done.
+
 ## Questions
 
 Ask the user in this shape, one question at a time: the question, why it matters, options A/B/C each with a

@@ -10,7 +10,7 @@ ack, done".
 
 ## Use the script
 
-`bin/sabha-brief <to> <from> <slug> "<task>" [--output TEXT] [--go TEXT] [--reply ack|done|none] [--body FILE]`
+`bin/sabha-brief <to> <from> <slug> "<task>" [--output TEXT] [--go TEXT] [--reply ack|done|none] [--needs IDS] [--amend NNN] [--body FILE]`
 
 It claims the next number (`NNN.claim`, noclobber, retries on a clash), writes `NNN-<from>-<slug>.md` with the header
 block, and prints the path. The body comes from `--body FILE` or stdin. `SABHA_IMPL` names the state folder; unset, it
@@ -21,6 +21,16 @@ uses the current directory. Do not hand-number briefs.
 `to`, `from` (lower case), `utc`, `task` (one line), `output`, `go`, `reply`, then a blank line and the body. Optional
 `supersedes: NNN` is not a script flag: put it at the top of the body only if the sender's convention needs it, or
 write a `NNN.cancel` instead to stop an earlier brief (section 5).
+
+`--needs "NNN Name/NNN"` writes `needs:`: the headless runner holds the brief until each named brief has a `.done`,
+and closes it `BLOCKED` when one can never be met (unknown, itself, a cycle, cancelled, ended BLOCKED).
+
+## Changing a brief: amend, never edit
+
+A sent brief is frozen; never edit it after its ack (the worker already read it, and `sabha-watch` reports the edit).
+`--amend NNN` writes the next amendment `NNN.K-<from>-<slug>.md` with `amends: NNN`; in the body, name each line or
+step it supersedes. A worker on the brief in a pane is nudged with the file name; a headless run cannot be told
+(the script warns): cancel and re-brief if it must see the change.
 
 ## What makes it good
 

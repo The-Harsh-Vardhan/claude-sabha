@@ -62,6 +62,10 @@ SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-de
 # One log per run (default $SABHA_IMPL/runs). SABHA_RUN_AUTO=1 makes each sabha-watch run end with a sabha-run pass.
 #SABHA_RUN_LOGS=$SABHA_IMPL/runs
 #SABHA_RUN_AUTO=1
+# Starts per brief (default 1 = no retry). Only a CLI or machine failure is retried, after SABHA_RUN_BACKOFF seconds
+# doubled per attempt; a timeout or the agent's own BLOCKED done is final (docs/headless-runner.md).
+#SABHA_RUN_ATTEMPTS=1
+#SABHA_RUN_BACKOFF=60
 # Pane supervisor (bin/sabha-loop <Name>) and usage alerts (bin/statusline-sabha.sh, bin/sabha-limits.sh).
 # Claude panes restart fresh at SABHA_LOOP_LIMIT percent context once the handoff is saved; a context file older
 # than SABHA_LOOP_STALE seconds only warns. SABHA_NOTIFY lists the usage percentages (5-hour and 7-day windows) that
