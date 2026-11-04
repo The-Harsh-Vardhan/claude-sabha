@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # Claude hook for the relay only (SABHA_RELAY_GUARD=1; sabha-up.sh passes it with --settings). The relay talks to the
 # user and writes briefs; everything else goes to the dispatcher. The hook JSON comes on stdin.
-#   sabha-relay-guard pre      PreToolUse: lets Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents (the
-#                              opening check) and ToolSearch (loads SendMessage) through; Write, Edit and MultiEdit only
-#                              under $SABHA_IMPL/inbox/ and the user's Claude memory dirs; Bash only for a short
-#                              read-only list. Anything else exits 2: "relay: brief the dispatcher".
-#   sabha-relay-guard prompt   UserPromptSubmit: a prompt holding the words "you do it" (any case) lifts the guard for that turn
-#   sabha-relay-guard stop     Stop: the turn is over, the guard is back
+#   sabha-relay-guard pre <Name>   PreToolUse: lets Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents (the
+#                                  opening check), ToolSearch (loads SendMessage) and Skill through, but no read of a
+#                                  secret file (.env, .env.*, .npmrc, *.pem, *.key, id_*); Write, Edit and MultiEdit only
+#                                  to the paths writable() names; Bash only for a short read-only list. Anything else
+#                                  exits 2: "relay: brief the dispatcher".
+#   sabha-relay-guard prompt       UserPromptSubmit: a prompt whose first line is "you do it" (any case, trailing . or !)
+#                                  lifts the guard for that turn, at most 10 minutes
+#   sabha-relay-guard stop|start   Stop / SessionStart: the guard is back
+# <Name> is the relay's role name; its own status files are status/<name in lower case>.md and -night-*.md.
 # Letting a call through only skips this hook's veto; the user's permission rules and deny list still apply.
 # Paths come from sabha.conf (SABHA_CONF, else ../sabha.conf beside this script).
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
-mode=${1:-}
+mode=${1:-} guard_role=${2:-}
 in=$(cat)
 deny() { echo "relay: brief the dispatcher (denied: $1)" >&2; exit 2; }
 # a broken setup must not open the gate: pre denies, prompt and stop do nothing
-broken() { [[ $mode == pre ]] && deny "$1"; exit 0; }
+broken() { [[ $mode == pre ]] && deny "$1; to turn the guard off set SABHA_RELAY_GUARD=0 in sabha.conf and restart the relay"; exit 0; }
 # pre allows only through allow(): a conf that runs "exit 0" must not open the gate
 allow() { exit 100; }
 # the decision runs in a subshell below: a crash in it (an unbound variable in the conf, a conf that exits) ends the
@@ -33,34 +36,81 @@ mark=$SABHA_IMPL/status/.relay-override
 
 case $mode in
   prompt)
-    if jq -r '.prompt // ""' <<<"$in" | grep -qiw 'you do it'; then mkdir -p "$SABHA_IMPL/status" && : >"$mark"
+    # the first line only, so a pasted brief or a quote holding the phrase does not lift the guard
+    first=$(jq -r '.prompt // ""' <<<"$in" | head -n 1 | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    if [[ $first =~ ^you\ do\ it[.!]*$ ]]; then mkdir -p "$SABHA_IMPL/status" && : >"$mark"
     else rm -f "$mark"; fi
     exit 0 ;;
-  stop) rm -f "$mark"; exit 0 ;;
+  stop|start) rm -f "$mark"; exit 0 ;;
   pre) ;;
-  *) echo "usage: sabha-relay-guard pre|prompt|stop" >&2; exit 2 ;;
+  *) echo "usage: sabha-relay-guard pre <Name>|prompt|stop|start" >&2; exit 2 ;;
 esac
-[[ -e $mark ]] && allow
+# a marker left by a crash or an interrupted turn (no Stop) expires after 10 minutes
+[[ -n $(find "$mark" -mmin -10 2>/dev/null) ]] && allow
 
-# writable <path>: an absolute path with no .. segment, under the inbox or the relay's own project memory dir. Claude
-# names that dir after the relay's cwd (SABHA_WS) with every non-alphanumeric character as "-"; memory is flat, so
-# nothing nested. ponytail: a symlinked SABHA_WS is named by its real path, so memory writes are denied (brief them)
+# canon <path>: the path with every existing directory resolved (cd -P), so a symlinked dir cannot point a write
+# elsewhere; parts that do not exist yet are kept as they are (the caller has refused any . or .. part)
+canon() {
+  local d=$1 rest=
+  while [[ ! -d $d ]]; do rest=/${d##*/}$rest; d=${d%/*}; [[ -n $d ]] || d=/; done
+  d=$(CDPATH='' cd -P -- "$d" 2>/dev/null && pwd -P) || return 1
+  printf '%s%s' "${d%/}" "$rest"
+}
+
+# in_dir <path> <dir> <glob>: the path is directly in dir (not deeper) and its name matches glob
+# shellcheck disable=SC2254  # $3 is a glob on purpose
+in_dir() { [[ ${1%/*} == "$2" ]] || return 1; case ${1##*/} in $3) return 0 ;; esac; return 1; }
+
+# writable <path>: an absolute path with no . or .. part and not a symlink, resolved, that is under the inbox; the
+# relay's own status/<name>.md or status/<name>-night-*.md; for-me.items; a file in the relay's own project memory dir
+# (flat); or a file matching one of SABHA_RELAY_WRITE (space-separated absolute paths, a glob only in the last part,
+# one directory deep). Claude names the memory dir after the relay's cwd (SABHA_WS) with every non-alphanumeric
+# character as "-". ponytail: a symlinked SABHA_WS is named by its real path, so memory writes are denied (brief them)
 writable() {
-  local p=$1 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude} slug mem
-  [[ $p == /* && $p != *'/../'* && $p != *'/..' ]] || return 1
-  case $p in
-    "$SABHA_IMPL"/inbox/*) return 0 ;;
-  esac
+  local p=$1 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude} slug mem impl lower pat d
+  [[ $p == /* && $p != *'/../'* && $p != *'/..' && $p != *'/./'* && $p != *'/.' ]] || return 1
+  [[ -L $p ]] && return 1
+  p=$(canon "$p") || return 1
+  # every hook sources the conf, so a write to it (or any *.conf) is code in the next hook
+  [[ ${p##*/} == *.conf || $p == "$(canon "$CONF")" ]] && return 1
+  impl=$(canon "$SABHA_IMPL") || return 1
+  case $p in "$impl"/inbox/?*) return 0 ;; esac
+  [[ $p == "$impl/for-me.items" ]] && return 0
+  if [[ $guard_role =~ ^[A-Za-z0-9_]+$ ]]; then
+    lower=$(tr '[:upper:]' '[:lower:]' <<<"$guard_role")
+    [[ $p == "$impl/status/$lower.md" ]] && return 0
+    in_dir "$p" "$impl/status" "$lower-night-*.md" && return 0
+  fi
+  set -f
+  for pat in ${SABHA_RELAY_WRITE:-}; do
+    d=${pat%/*}
+    [[ $pat == /* && $d != *[*?[]* ]] || continue
+    d=$(canon "$d") || continue
+    in_dir "$p" "$d" "${pat##*/}" && { set +f; return 0; }
+  done
+  set +f
   [[ -n ${SABHA_WS:-} ]] || return 1
   slug=$(printf %s "$SABHA_WS" | sed 's/[^A-Za-z0-9]/-/g')
-  mem=$cfg/projects/$slug/memory/
+  mem=$(canon "$cfg/projects/$slug/memory")/ || return 1
   [[ $p == "$mem"* && -n ${p#"$mem"} && ${p#"$mem"} != */* ]]
 }
 
-# read_only <command>: every segment between ; & | is on the list. Expansions and grouping (zsh as well as bash), any
-# redirect but the whole words 2>&1, 2>/dev/null and >/dev/null, and a leading VAR=value are refused, so chaining
-# cannot smuggle a write in. A command over 2000 characters is refused.
-# ponytail: a quoted ; or | splits a segment and denies a harmless command; the relay then briefs it instead
+# secret <path>...: one of the paths names a file the relay never reads (.env, .env.*, .npmrc, *.pem, *.key, id_*)
+secret() {
+  local n r
+  for n in "$@"; do
+    r=${n##*[/:]}
+    case $r in .env|.env.*|.npmrc|*.pem|*.key|id_*) return 0 ;; esac
+  done
+  return 1
+}
+
+# read_only <command>: every segment between ; & | is on the list and every word is plain: letters, digits and
+# . _ / = : @ , + - only. No quote, so a quoted '--output=x' cannot hide from the git check; no glob, so no .e* to reach
+# a secret. Expansions and grouping (zsh as well as bash), any redirect but the whole words 2>&1, 2>/dev/null and
+# >/dev/null, a word starting with = and a word naming a secret file are refused, so chaining cannot smuggle a write
+# in. A command over 2000 characters is refused.
+# ponytail: a grep pattern with a space or a quote is refused; the relay then briefs it instead
 read_only() {
   local c=$1 seg i t sub segs w
   # a read-only one-liner never needs more; the cap comes first because the pattern work below is super-linear on
@@ -82,7 +132,10 @@ read_only() {
   for seg in ${segs[@]+"${segs[@]}"}; do
     read -r -a w <<<"$seg"
     (( ${#w[@]} )) || continue
-    for t in "${w[@]}"; do [[ $t == =* ]] && return 1; done
+    for t in "${w[@]}"; do
+      [[ $t == =* || ! $t =~ ^[A-Za-z0-9._/=:@,+-]+$ ]] && return 1
+      secret "$t" && return 1
+    done
     case ${w[0]} in
       ls|cat|head|tail|wc|grep|stat|du|date|pwd|cd|echo|true) continue ;;
       git) ;;
@@ -103,11 +156,18 @@ read_only() {
 
 tool=$(jq -r '.tool_name // ""' <<<"$in" 2>/dev/null)
 case $tool in
-  Read|Grep|Glob|SendMessage|AskUserQuestion|ListAgents|ToolSearch) allow ;;
+  Read|Grep|Glob)
+    for k in file_path path glob; do
+      v=$(jq -r --arg k "$k" '.tool_input[$k] // "" | strings' <<<"$in" 2>/dev/null)
+      # by the name given and, for a symlink, the name it points to
+      [[ -n $v ]] && secret "$v" "$(realpath -- "$v" 2>/dev/null)" && deny "$tool of a secret file"
+    done
+    allow ;;
+  SendMessage|AskUserQuestion|ListAgents|ToolSearch|Skill) allow ;;
   Write|Edit|MultiEdit)
     path=$(jq -er '.tool_input.file_path | strings' <<<"$in" 2>/dev/null) || deny "$tool without a file_path"
     writable "$path" && allow
-    deny "$tool outside inbox/ and memory" ;;
+    deny "$tool outside inbox/, the relay's status file, for-me.items, memory and SABHA_RELAY_WRITE" ;;
   Bash)
     cmd=$(jq -er '.tool_input.command | strings | select(contains("\u0000") | not)' <<<"$in" 2>/dev/null) || deny "Bash without a plain command"
     [[ -n $cmd ]] && read_only "$cmd" && allow

@@ -86,7 +86,9 @@ role() {
     # printf turns \\ into \, so the JSON keeps \" around the path
     h='{"type":"command","command":"\\"%s\\" %s"}'
     # built outside the array assignment: bash 3.2 brace-expands a $(...) inside arr=(...)
-    js=$(printf "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"*\",\"hooks\":[$h]}],\"UserPromptSubmit\":[{\"hooks\":[$h]}],\"Stop\":[{\"hooks\":[$h]}]}}" "$g" pre "$g" prompt "$g" stop)
+    [[ $name =~ ^[A-Za-z0-9_]+$ ]] || { echo "sabha-up: SABHA_RELAY_GUARD needs a relay name of letters, digits and _" >&2; exit 1; }
+    # pre gets the relay's name (its own status files); SessionStart clears an override a crashed session left
+    js=$(printf "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"*\",\"hooks\":[$h]}],\"UserPromptSubmit\":[{\"hooks\":[$h]}],\"Stop\":[{\"hooks\":[$h]}],\"SessionStart\":[{\"hooks\":[$h]}]}}" "$g" "pre $name" "$g" prompt "$g" stop "$g" start)
     guard_set=(--settings "$js")
   fi
   prompt="You are $who in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"

@@ -121,6 +121,18 @@ Also not covered: a timeout above 600 s and a killed hook giving the pane prompt
 but UNVERIFIED by a live run; prompts the hook never sees (a sandboxed command's network request, protected paths)
 stay in the pane.
 
+## 5. The relay guard (`bin/sabha-relay-guard`, `SABHA_RELAY_GUARD=1`)
+
+Claude hooks that `sabha-up.sh` gives the relay only (README, "Opt-in workflow flags"). Write and Edit pass only for
+`inbox/`, the relay's own `status/<name>.md` and `status/<name>-night-*.md`, `for-me.items`, its flat project memory
+dir and the paths in `SABHA_RELAY_WRITE` (absolute, a glob in the last part only, one directory deep); a `.conf` and
+the conf itself never. Paths are resolved (a symlinked dir or file does not lead out). Read, Grep, Glob and Bash refuse
+`.env`, `.env.*`, `.npmrc`, `*.pem`, `*.key` and `id_*` by name, and Bash words are plain (no quote, glob or
+expansion). A prompt whose first line is "you do it" lifts the guard for that turn, 10 minutes at most; SessionStart
+and Stop clear it. Escape: with no conf or a broken one the guard denies every call, Read too; set
+`SABHA_RELAY_GUARD=0` in `sabha.conf` and restart the relay (the deny message says so). Gaps: `grep -r` over a
+directory still reads a secret file inside it, and a symlink named in a Bash word is not resolved; keep the deny list.
+
 ## The deny list (`share/claude-settings.json`)
 
 Optional Claude Code permission rules for every session, the human's included: no `git push`, `git remote add|set-url`,

@@ -16,7 +16,8 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
-- `SABHA_RELAY_GUARD=1` (default off): `bin/sabha-relay-guard`, PreToolUse, UserPromptSubmit and Stop hooks that
+- `SABHA_RELAY_GUARD=1` (default off in `sabha-up.sh`; `sabha.conf.example` sets it to 1, so a new conf has it on):
+  `bin/sabha-relay-guard`, PreToolUse, UserPromptSubmit and Stop hooks that
   `sabha-up.sh` passes to the relay only (`--settings`). The relay reads, writes briefs and memory, asks and messages;
   anything else is denied with "relay: brief the dispatcher". "you do it" in the user's prompt lifts it for one turn.
   The guard fails closed (a crash, an unbound variable or `exit` in the conf, empty or garbage input and a missing field
@@ -25,12 +26,18 @@
   "you do it" is a whole-phrase match, and memory writes are limited to the relay's own project memory dir. `sabha
   doctor` warns when the guard is on and `disableAllHooks` is set. A discard (`2>&1`, `2>/dev/null`, `>/dev/null`) passes
   only as a whole word (`echo hi2>&1x` is refused), and a Bash command over 2000 characters is refused before any
-  pattern work (a hook timeout does not block, so the cap is the control). Tests: `tests/test-relay-guard.sh`,
+  pattern work (a hook timeout does not block, so the cap is the control). Fix pass (gate 115): the relay may also
+  write its own `status/<name>.md` and `status/<name>-night-*.md` (so the 300k restart can fire), `for-me.items` and
+  the paths in `SABHA_RELAY_WRITE`; paths are resolved; quotes and globs in a Bash word are refused (a quoted
+  `'--output=x'` passed); secret files (`.env*`, `.npmrc`, `*.pem`, `*.key`, `id_*`) are not read; Skill is allowed;
+  the override needs "you do it" as the first line, expires after 10 minutes and is cleared at SessionStart; a missing
+  or broken conf names the escape (`SABHA_RELAY_GUARD=0`, restart). Tests: `tests/test-relay-guard.sh`,
   `tests/test-doctor.sh`.
 - The relay is code-guarded: `hooks/sabha-guard.sh` no longer exempts the relay, so no role pushes, publishes or posts
   (the human does). `sabha-loop` warns the relay at `SABHA_RELAY_WARN_K` (250k tokens: a log line and a nudge to write
   the handoff) and restarts it fresh at `SABHA_RELAY_STOP_K` (300k) once the handoff is saved, as percent of
-  `SABHA_RELAY_WINDOW_K` (1000k). `sabha.conf.example` turns `SABHA_RELAY_GUARD` on and ships a `SABHA_PROMPT_Relay`
+  `SABHA_RELAY_WINDOW_K` (1000k); for the relay this replaces any `SABHA_LOOP_LIMIT` the user set.
+  `sabha.conf.example` turns `SABHA_RELAY_GUARD` on and ships a `SABHA_PROMPT_Relay`
   with no pushes and no pane restarts. Tests: `tests/test-hooks.sh`, `bin/sabha-loop --self-test`.
 
 ## 2.0.1 - 2026-10-20

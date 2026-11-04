@@ -143,7 +143,8 @@ for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent model 
 # line SABHA_STOP_<NAME> replaces SABHA_STOP; a missing token ends the loop at once instead of failing every restart
 sabha_account_env "$name" || exit 2
 kind=$(kind_of "$agent")
-# the relay is the dearest session: warn at SABHA_RELAY_WARN_K (250k tokens), restart at SABHA_RELAY_STOP_K (300k)
+# the relay is the dearest session: warn at SABHA_RELAY_WARN_K (250k tokens), restart at SABHA_RELAY_STOP_K (300k);
+# this replaces SABHA_LOOP_LIMIT for the relay, even one the user set
 relay_warn=""
 if [[ $name == "$RELAY" && $kind == claude ]]; then
   SABHA_LOOP_LIMIT=$(k_pct "${SABHA_RELAY_STOP_K:-300}") relay_warn=$(k_pct "${SABHA_RELAY_WARN_K:-250}")

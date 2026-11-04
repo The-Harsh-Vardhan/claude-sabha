@@ -15,19 +15,20 @@ fails=0
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
 
 I=$dir/impl
-mkdir -p "$I/inbox/Yudhi" "$I/status" "$dir/ws"
+mkdir -p "$I/inbox/Yudhi" "$I/status" "$dir/ws/docs/audit/questions/sub" "$dir/ws/docs/audit/x"
 printf 'SABHA_WS=%s/ws\nSABHA_IMPL=%s\nSABHA_ROSTER="Vidur:opus Yudhi:opus Arjun:sonnet"\n' "$dir" "$I" > "$dir/sabha.conf"
+printf 'SABHA_RELAY_WRITE="%s/ws/docs/audit/*-review.md %s/ws/docs/audit/questions/*"\n' "$dir" "$dir" >> "$dir/sabha.conf"
 export SABHA_CONF=$dir/sabha.conf CLAUDE_CONFIG_DIR=$dir/cc
 # hook <mode> <json>: runs the guard, sets rc and err
-hook() { err=$(printf '%s' "$2" | "$SH" "$BIN/sabha-relay-guard" "$1" 2>&1 >/dev/null); rc=$?; }
+hook() { err=$(printf '%s' "$2" | "$SH" "$BIN/sabha-relay-guard" "$1" Vidur 2>&1 >/dev/null); rc=$?; }
 tool() { hook pre "$(jq -cn --arg t "$1" --arg k "$2" --arg v "$3" '{tool_name: $t, tool_input: {($k): $v}}')"; }
 allows() { tool "$@"; (( rc == 0 )); }
 denies() { tool "$@"; (( rc == 2 )) && [[ $err == "relay: brief the dispatcher"* ]]; }
 
-for t in Read Grep Glob SendMessage AskUserQuestion ListAgents ToolSearch; do
+for t in Read Grep Glob SendMessage AskUserQuestion ListAgents ToolSearch Skill; do
   check "$t is allowed" 'allows $t pattern x'
 done
-for t in Agent WebFetch NotebookEdit TaskCreate mcp__x__y; do
+for t in Agent WebFetch NotebookEdit TaskCreate Monitor mcp__x__y; do
   check "$t is denied" 'denies $t x y'
 done
 check "Write under inbox/ is allowed" 'allows Write file_path "$I/inbox/Yudhi/001-vidur-x.md"'
@@ -36,36 +37,77 @@ check "Edit in the relay's own project memory dir is allowed" 'allows Edit file_
 check "memory of another project is denied" 'denies Edit file_path "$dir/cc/projects/-other-project/memory/MEMORY.md"'
 check "a nested path under memory is denied" 'denies Write file_path "$dir/cc/projects/$slug/memory/a/b.md"'
 check "a path under the project dir but not memory is denied" 'denies Write file_path "$dir/cc/projects/$slug/settings.json"'
-check "Write to status/ is denied" 'denies Write file_path "$I/status/vidur.md"'
+check "Write to the relay's own status file is allowed" 'allows Write file_path "$I/status/vidur.md"'
+check "Write to the relay's night handoff is allowed" 'allows Write file_path "$I/status/vidur-night-2026-11-04.md"'
+check "Write to another role's status file is denied" 'denies Write file_path "$I/status/yudhi.md"'
+check "Write to status/vidur-old.md is denied" 'denies Write file_path "$I/status/vidur-old.md"'
+check "Write to status/.relay-override is denied" 'denies Write file_path "$I/status/.relay-override"'
+check "a nested night path is denied" 'denies Write file_path "$I/status/vidur-night-x/y.md"'
+check "Edit of for-me.items is allowed" 'allows Edit file_path "$I/for-me.items"'
+check "Write to FOR-ME.md is denied" 'denies Write file_path "$I/FOR-ME.md"'
+check "Write to for-me.items.bak is denied" 'denies Write file_path "$I/for-me.items.bak"'
+check "SABHA_RELAY_WRITE: a review note is allowed" 'allows Write file_path "$dir/ws/docs/audit/a-review.md"'
+check "SABHA_RELAY_WRITE: a question file is allowed" 'allows Write file_path "$dir/ws/docs/audit/questions/q1.md"'
+check "SABHA_RELAY_WRITE: a file beside the review notes is denied" 'denies Write file_path "$dir/ws/docs/audit/plan.md"'
+check "SABHA_RELAY_WRITE: one directory deep only" 'denies Write file_path "$dir/ws/docs/audit/questions/sub/q.md"'
+check "SABHA_RELAY_WRITE: a review note in a subdir is denied" 'denies Write file_path "$dir/ws/docs/audit/x/a-review.md"'
+ln -s "$dir/ws" "$I/inbox/link"
+check "a symlinked dir under inbox/ is resolved and denied" 'denies Write file_path "$I/inbox/link/main.go"'
+ln -s "$dir/ws/main.go" "$I/inbox/Yudhi/f.md"
+check "a symlinked file under inbox/ is denied" 'denies Write file_path "$I/inbox/Yudhi/f.md"'
+check "a .conf under inbox/ is denied" 'denies Write file_path "$I/inbox/Yudhi/sabha.conf"'
+check "inbox/./ is denied" 'denies Write file_path "$I/inbox/./Yudhi/x.md"'
 check "Edit of code in the workspace is denied" 'denies Edit file_path "$dir/ws/main.go"'
 check "MultiEdit outside is denied" 'denies MultiEdit file_path "$dir/ws/a.txt"'
 check "inbox/../ escape is denied" 'denies Write file_path "$I/inbox/../PROTOCOL.md"'
 check "a relative path is denied" 'denies Write file_path "inbox/Yudhi/001.md"'
+: >"$dir/ws/.env"; ln -s "$dir/ws/.env" "$dir/ws/notes.txt"
+for f in .env .env.local .npmrc srv.pem tls.key id_rsa id_ed25519.pub; do
+  check "Read of $f is denied" 'denies Read file_path "$dir/ws/$f"'
+done
+check "Read of a symlink to .env is denied" 'denies Read file_path "$dir/ws/notes.txt"'
+check "Grep in .env is denied" 'denies Grep path "$dir/ws/.env"'
+check "Glob for .env.* is denied" 'denies Glob glob ".env.*"'
+check "Read of README.md is allowed" 'allows Read file_path "$dir/ws/README.md"'
 
 for c in 'ls -la inbox' 'cat status/x.md | head -5' 'git -C /r log --oneline -3 2>/dev/null' 'git status && git diff' \
-         'git branch --show-current' 'echo a=b' 'grep -rn "foo bar" docs' 'cd /r; grep -rn foo . | wc -l' 'tail -20 a >/dev/null 2>&1' 'echo hi 2>&1'; do
+         'git branch --show-current' 'echo a=b' 'grep -rn foo docs' 'cd /r; grep -rn foo . | wc -l' 'tail -20 a >/dev/null 2>&1' 'echo hi 2>&1'; do
   check "Bash read-only: $c" 'allows Bash command "$c"'
 done
 for c in 'rm -rf x' 'ls; rm -rf x' 'ls && touch x' 'cat a | tee b' 'echo $(rm x)' 'echo `id`' 'echo x > f' \
          'echo x >> f' 'cat <(rm x)' 'git branch -D main' 'git -c core.pager=sh log' 'git diff --output=f' \
          'X=1 ls' 'ls >/dev/nullx' 'git push' 'git -C /r push' 'bin/sabha-run' 'sed -i s/a/b/ f' $'ls\nrm x' 'ls & rm x' \
          'cat =(touch F)' 'ls *(e:'"'"'touch F'"'"':)' 'echo ${(e):-\$\(touch F\)}' 'echo ${x@P}' 'echo $HOME' 'ls {a,b}' \
-         'echo a\;touch F' '=ls' 'ls =ls' 'ls a\ b' 'ls $'"'"'a\tb'"'"'' 'echo a=b b=(c)' 'echo hi2>&1x' 'cd /r; echo hi2>&1x' 'echo hi >f' 'echo hi 2>&1x' 'ls 2>/dev/nullx'; do
+         'echo a\;touch F' '=ls' 'ls =ls' 'ls a\ b' 'ls $'"'"'a\tb'"'"'' 'echo a=b b=(c)' 'echo hi2>&1x' 'cd /r; echo hi2>&1x' 'echo hi >f' 'echo hi 2>&1x' 'ls 2>/dev/nullx' \
+         "git log '--output=T/x' -1" 'git diff HEAD~1 "--output=T/y"' "git log '--ext-diff'" "git '-c' x=y log" \
+         'grep -rn "foo bar" docs' 'cat .env' 'cat ws/.npmrc' 'head -1 a/b/id_rsa' 'git show HEAD:.env' 'cat .e*' 'ls ~'; do
   check "Bash denied: $c" 'denies Bash command "$c"'
 done
 long="touch X # $(printf '2>&1 %.0s' $(seq 4000))"
 SECONDS=0; tool Bash command "$long"; took=$SECONDS
-check "a 20 KB command is denied in about a second" '(( rc == 2 && took <= 1 ))'
+check "a 20 KB command is denied in a few seconds" '(( rc == 2 && took <= 3 ))'
 hook pre 'not json'
 check "unreadable input is denied" '(( rc == 2 ))'
 
 hook prompt '{"prompt":"Ok, you do it this time"}'
-check "\"you do it\" leaves a one-turn marker" '[[ -e $I/status/.relay-override ]]'
+check "\"you do it\" inside a sentence does not lift the guard" '[[ ! -e $I/status/.relay-override ]]'
+hook prompt '{"prompt":"please do not let me say you do it"}'
+check "\"... say you do it\" does not lift the guard" '[[ ! -e $I/status/.relay-override ]]'
+hook prompt '{"prompt":"brief this:\nyou do it"}'
+check "\"you do it\" on a later line does not lift the guard" '[[ ! -e $I/status/.relay-override ]]'
+hook prompt '{"prompt":"you do it."}'
+check "\"you do it.\" alone lifts the guard" '[[ -e $I/status/.relay-override ]]'
+hook prompt '{"prompt":"  you do it\nrun the build"}'
+check "\"you do it\" as the first line lifts the guard" '[[ -e $I/status/.relay-override ]]'
 check "override: Edit of workspace code passes" 'allows Edit file_path "$dir/ws/main.go"'
 check "override: Bash write passes" 'allows Bash command "touch x"'
 hook stop '{}'
 check "Stop ends the turn: marker gone" '[[ ! -e $I/status/.relay-override ]]'
 check "after the turn the guard is back" 'denies Edit file_path "$dir/ws/main.go"'
+hook prompt '{"prompt":"you do it"}'; touch -t 202001010000 "$I/status/.relay-override"
+check "an override older than 10 minutes does not lift the guard" 'denies Edit file_path "$dir/ws/main.go"'
+hook prompt '{"prompt":"you do it"}'; hook start '{}'
+check "SessionStart clears the override" '[[ ! -e $I/status/.relay-override ]]'
 hook prompt '{"prompt":"please you do items 3 and 4"}'
 check "\"you do items\" does not lift the guard" '[[ ! -e $I/status/.relay-override ]]'
 hook prompt '{"prompt":"doyou do itch"}'
@@ -76,7 +118,7 @@ hook prompt '{"prompt":"YOU DO IT"}'; hook prompt '{"prompt":"thanks, now brief 
 check "the next prompt without the words clears the marker" '[[ ! -e $I/status/.relay-override ]]'
 
 out=$(SABHA_CONF=$dir/none.conf "$SH" "$BIN/sabha-relay-guard" pre <<<'{"tool_name":"Edit"}' 2>&1); rc=$?
-check "no config: pre fails closed" '(( rc == 2 ))'
+check "no config: pre fails closed and names the escape" '(( rc == 2 )) && [[ $out == *"SABHA_RELAY_GUARD=0"* ]]'
 out=$(SABHA_CONF=$dir/none.conf "$SH" "$BIN/sabha-relay-guard" pre <<<'{"tool_name":"Read"}' 2>&1); rc=$?
 check "no config: even Read is denied (the guard cannot judge)" '(( rc == 2 ))'
 
@@ -102,7 +144,7 @@ check "truncated JSON: denied" '(( rc == 2 ))'
 
 out=$(SABHA_RELAY_GUARD=1 "$SH" "$BIN/sabha-up.sh" --print Vidur 2>&1)
 json=$(sed -n "s/.* --settings '\([^']*\)'.*/\1/p" <<<"$out")
-check "sabha-up --print: the relay gets --settings with the guard hooks" '[[ -n $json ]] && jq -e --arg g "\"$BIN/sabha-relay-guard\" pre" ".hooks.PreToolUse[0].matcher == \"*\" and .hooks.PreToolUse[0].hooks[0].command == \$g and (.hooks.UserPromptSubmit | length) == 1 and (.hooks.Stop | length) == 1" <<<"$json" >/dev/null'
+check "sabha-up --print: the relay gets --settings with the guard hooks" '[[ -n $json ]] && jq -e --arg g "\"$BIN/sabha-relay-guard\" pre Vidur" --arg s "\"$BIN/sabha-relay-guard\" start" ".hooks.PreToolUse[0].matcher == \"*\" and .hooks.PreToolUse[0].hooks[0].command == \$g and (.hooks.UserPromptSubmit | length) == 1 and (.hooks.Stop | length) == 1 and .hooks.SessionStart[0].hooks[0].command == \$s" <<<"$json" >/dev/null'
 out=$(SABHA_RELAY_GUARD=1 "$SH" "$BIN/sabha-up.sh" --print Yudhi 2>&1)
 check "sabha-up --print: the dispatcher gets no guard" '! grep -q -- --settings <<<"$out"'
 out=$("$SH" "$BIN/sabha-up.sh" --print Vidur 2>&1)

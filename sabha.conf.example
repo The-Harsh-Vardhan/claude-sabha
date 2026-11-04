@@ -64,10 +64,16 @@ SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-de
 # One log per run (default $SABHA_IMPL/runs). SABHA_RUN_AUTO=1 makes each sabha-watch run end with a sabha-run pass.
 #SABHA_RUN_LOGS=$SABHA_IMPL/runs
 #SABHA_RUN_AUTO=1
-# 1 = the relay may only read, brief (inbox/, memory) and ask; bin/sabha-relay-guard denies the rest. "you do it" = one turn.
+# 1 = the relay may only read, brief (inbox/, memory) and ask; bin/sabha-relay-guard denies the rest. "you do it" as the
+# first line of a prompt = one turn. On here; sabha-up.sh defaults to 0 when the conf does not set it. If the guard
+# locks you out (a broken conf denies every call), set 0 here and restart the relay.
 SABHA_RELAY_GUARD=1
+# More files the guarded relay may write besides inbox/, its status/<name>.md, for-me.items and memory: absolute
+# paths, space-separated, a glob in the last part only, one directory deep.
+#SABHA_RELAY_WRITE="$SABHA_WS/docs/reviews/*-review.md $SABHA_WS/docs/questions/*"
 # The relay's sabha-loop warns (log and a nudge to write the handoff) at SABHA_RELAY_WARN_K thousand tokens and restarts
-# it fresh at SABHA_RELAY_STOP_K once the handoff is saved; SABHA_RELAY_WINDOW_K is its context window size.
+# it fresh at SABHA_RELAY_STOP_K once the handoff is saved; SABHA_RELAY_WINDOW_K is its context window size. For the
+# relay these replace SABHA_LOOP_LIMIT, even one you set.
 #SABHA_RELAY_WARN_K=250
 #SABHA_RELAY_STOP_K=300
 #SABHA_RELAY_WINDOW_K=1000
