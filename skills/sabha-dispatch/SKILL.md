@@ -38,6 +38,12 @@ If a worker is busy, above 30 percent context or down: brief a copy (`BuilderPre
 file and worktree; needs `SABHA_MAX_COPIES` to allow it, README) or run the piece as a subagent with that role's
 model. Start a copy with `sabha-up.sh BuilderPrecise-2`. Run independent briefs side by side (rule 4).
 
+## After a restart
+
+Write `Session: <Name> [<ref>] started <utc>` to your status file first, so others can address you. Send to the newest
+row of each role by its exact name plus id; `bin/sabha-check --agents FILE` names it when `-old` or duplicate rows
+appear, and the old row is marked retired with its id in your status file.
+
 ## Questions and irreversible steps
 
 - Answer a worker's question when the spec or protocol already does; otherwise forward it to the relay marked for
