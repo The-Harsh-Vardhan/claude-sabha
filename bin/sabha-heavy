@@ -80,11 +80,11 @@ verdict() {
 }
 
 lock() {
-  local _
+  local _ t
   for _ in $(seq 1 100); do
     mkdir "$DIR/.lock" 2>/dev/null && return 0
-    # a lock left by a killed call
-    (( $(date +%s) - $(mtime "$DIR/.lock") > 60 )) && rmdir "$DIR/.lock" 2>/dev/null
+    # a lock left by a killed call; no mtime (gone, or stat failed) is never stale, else two callers hold it
+    t=$(mtime "$DIR/.lock"); (( t > 0 && $(date +%s) - t > 60 )) && rmdir "$DIR/.lock" 2>/dev/null
     sleep 0.1
   done
   echo "sabha-heavy: $DIR/.lock is held" >&2; return 1

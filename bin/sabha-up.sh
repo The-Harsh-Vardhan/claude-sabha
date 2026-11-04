@@ -180,7 +180,7 @@ for n in ${PANES[@]+"${PANES[@]}"}; do
   if sabha_flag "$R_ENTRY" gate; then gate+=("$n"); else build+=("$n"); fi
 done
 # the profile's pane cap (SABHA_EFFICIENCY, no SABHA_PANES): the first panes in roster order open, the rest are on demand
-all=("${build[@]}" ${gate[@]+"${gate[@]}"})
+all=(${build[@]+"${build[@]}"} ${gate[@]+"${gate[@]}"})
 if (( PANE_MAX > 0 && ${#all[@]} > PANE_MAX )); then
   echo "sabha-up: profile $(sabha_profile) opens $PANE_MAX panes; not opened: ${all[*]:PANE_MAX}"
   build=() gate=()
