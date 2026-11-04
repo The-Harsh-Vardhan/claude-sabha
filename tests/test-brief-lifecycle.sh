@@ -136,28 +136,70 @@ check "a live run.lock is left alone" '[[ ! -e $I/Lazy1/001.done && -e $I/Lazy1/
 reset; brief Lazy1 001; printf 'utc: x\nsession: Lazy1 [ab12]\n' > "$I/Lazy1/001.ack"
 run --wait Lazy1
 check "a pane ack is never touched" '[[ ! -e $I/Lazy1/001.done && -e $I/Lazy1/001.ack && ! -s $CALLS ]]'
+reset; brief Lazy1 001; printf 'utc: x\nsession: Lazy1 [headless]\n' > "$I/Lazy1/001.ack"
+echo "111 ttys001  Tue Oct 13 09:00:01 2026     claude -n Lazy1 --model haiku" > "$dir/ps.txt"
+run --wait Lazy1
+: > "$dir/ps.txt"
+check "a headless ack with a live claude -n pane is left to the pane" '[[ -e $I/Lazy1/001.ack && ! -e $I/Lazy1/001.retry && ! -e $I/Lazy1/001.done && ! -s $CALLS ]]'
+reset; brief Lazy1 001; printf 'utc: x\nsession: Lazy1 [headless]\n' > "$I/Lazy1/001.ack"
+run --wait Lazy1
+check "an ack from before attempts were counted (no .attempts) used its one attempt: closed BLOCKED" 'grep -q "result: BLOCKED headless run died" "$I/Lazy1/001.done" && [[ ! -e $I/Lazy1/001.retry && ! -s $CALLS ]]'
+reset; brief Lazy1 001; printf 'utc: x\nsession: Lazy1 [headless]\n' > "$I/Lazy1/001.ack"
+SABHA_RUN_ATTEMPTS=2 SABHA_RUN_BACKOFF=0 run --wait Lazy1
+check "with no .attempts and 2 allowed, it runs once more and counts both" 'grep -q "result: ok" "$I/Lazy1/001.done" && (( $(grep -c . "$I/Lazy1/001.attempts") == 2 ))'
+
+# --- backoff series: 60, 120, 240, 480, 960, then flat (cap 16x)
+for k in 1 2 3 4 5 6 7; do
+  reset; brief Lazy1 001; printf 'utc: x\nsession: Lazy1 [headless]\n' > "$I/Lazy1/001.ack"
+  for _ in $(seq 1 "$k"); do echo x; done > "$I/Lazy1/001.attempts"
+  now=$(date +%s)
+  SABHA_RUN_ATTEMPTS=10 SABHA_RUN_BACKOFF=60 run --wait Lazy1
+  got=$(( $(sed -n 's/^after: *//p' "$I/Lazy1/001.retry") - now ))
+  want=$(( 60 << (k > 5 ? 4 : k - 1) ))
+  check "backoff after $k attempt(s) is ${want}s" '(( got >= want && got <= want + 2 ))'
+done
+
+# --- 4-digit brief numbers
+reset; brief Lazy1 1000 1001; brief Lazy1 1001
+run --print Lazy1
+check "1000+: a 4-digit brief runs and a 4-digit need holds it" 'grep -q "Lazy1 1000: waiting on 1001" <<<"$out" && grep -q "Lazy1/1001-yudhi-task.md" <<<"$out"'
+done_with Lazy1 1001 ok
+run --wait Lazy1
+check "1000+: runs once its need is done" 'grep -q "result: ok" "$I/Lazy1/1000.done"'
+reset; mkdir -p "$I/Lazy1"; : > "$I/Lazy1/999.claim"
+p=$(SABHA_IMPL=$dir/impl "$SH" "$BIN/sabha-brief" Lazy1 Yudhi big "x" </dev/null)
+check "1000+: sabha-brief numbers past 999" '[[ $p == */1000-yudhi-big.md ]]'
+
+# --- needs: result case and globbing
+reset; brief Lazy1 001 002; brief Lazy1 002; done_with Lazy1 002 "Blocked no access"
+run --wait Lazy1
+check "needs: a lower-case Blocked need still blocks" 'grep -q "needs: 002 ended BLOCKED" "$I/Lazy1/001.done"'
+reset; brief Lazy1 001 "00*"; : > "$dir/ws/002"
+(cd "$dir/ws" && "$SH" "$BIN/sabha-run" --wait Lazy1 >/dev/null 2>&1)
+check "needs: a glob in an id is not expanded" 'grep -q "needs: bad id 00\*" "$I/Lazy1/001.done"'
 
 # --- sabha-brief --amend and --needs
 reset; export SABHA_IMPL=$dir/impl
 printf '#!/bin/sh\necho "$1|$2" >>"%s/nudges"\n' "$dir" > "$dir/fake-nudge"; chmod +x "$dir/fake-nudge"
 export SABHA_NUDGE_BIN=$dir/fake-nudge; rm -f "$dir/nudges"
-p=$("$BIN/sabha-brief" Lazy1 Yudhi base "do it" --needs "Lazy2/004 005" </dev/null)
+p=$("$SH" "$BIN/sabha-brief" Lazy1 Yudhi base "do it" --needs "Lazy2/004 005" </dev/null)
 check "--needs writes the header line" 'grep -q -x "needs: Lazy2/004 005" "$p"'
-a1=$("$BIN/sabha-brief" Lazy1 Yudhi fix "change step 2" --amend 001 </dev/null)
-a2=$("$BIN/sabha-brief" Lazy1 Yudhi more "change step 3" --amend 001 </dev/null)
+check "--needs refuses a bad id at write time" '! "$SH" "$BIN/sabha-brief" Lazy1 Yudhi bad "x" --needs "../x" </dev/null 2>/dev/null && [[ ! -e $I/Lazy1/002.claim ]]'
+a1=$("$SH" "$BIN/sabha-brief" Lazy1 Yudhi fix "change step 2" --amend 001 </dev/null)
+a2=$("$SH" "$BIN/sabha-brief" Lazy1 Yudhi more "change step 3" --amend 001 </dev/null)
 check "--amend numbers 001.1 then 001.2 and writes amends:" '[[ $a1 == */001.1-yudhi-fix.md && $a2 == */001.2-yudhi-more.md ]] && grep -q -x "amends: 001" "$a2"'
 check "an unacked brief gets no nudge" '[[ ! -e $dir/nudges ]]'
-p2=$("$BIN/sabha-brief" Lazy1 Yudhi next "x" </dev/null)
+p2=$("$SH" "$BIN/sabha-brief" Lazy1 Yudhi next "x" </dev/null)
 check "the next plain brief number skips past the amendments" '[[ $p2 == */002-yudhi-next.md ]]'
 printf 'utc: x\nsession: Lazy1 [ab12]\n' > "$I/Lazy1/001.ack"
-a3=$("$BIN/sabha-brief" Lazy1 Yudhi pane "x" --amend 001 </dev/null)
+a3=$("$SH" "$BIN/sabha-brief" Lazy1 Yudhi pane "x" --amend 001 </dev/null)
 for _ in $(seq 1 50); do [[ -s $dir/nudges ]] && break; sleep 0.1; done
 check "an acked pane brief: the worker is nudged with the new file" 'grep -q -x "Lazy1|see inbox/Lazy1/001.3-yudhi-pane.md (amends 001)" "$dir/nudges"'
 printf 'utc: x\nsession: Lazy1 [headless]\n' > "$I/Lazy1/002.ack"
-err=$("$BIN/sabha-brief" Lazy1 Yudhi hl "x" --amend 002 </dev/null 2>&1 >/dev/null); sleep 0.3
+err=$("$SH" "$BIN/sabha-brief" Lazy1 Yudhi hl "x" --amend 002 </dev/null 2>&1 >/dev/null); sleep 0.3
 check "an acked headless brief: a warning, no nudge" 'grep -q "headless run holds 002" <<<"$err" && (( $(wc -l < "$dir/nudges") == 1 ))'
 : > "$I/Lazy1/002.done"
-check "--amend refuses a closed brief and a missing one" '! "$BIN/sabha-brief" Lazy1 Yudhi x "x" --amend 002 </dev/null 2>/dev/null && ! "$BIN/sabha-brief" Lazy1 Yudhi x "x" --amend 050 </dev/null 2>/dev/null'
+check "--amend refuses a closed brief and a missing one" '! "$SH" "$BIN/sabha-brief" Lazy1 Yudhi x "x" --amend 002 </dev/null 2>/dev/null && ! "$SH" "$BIN/sabha-brief" Lazy1 Yudhi x "x" --amend 050 </dev/null 2>/dev/null'
 
 # --- sabha-watch: amendments are not unacked briefs; an edit after the ack is reported
 reset; mkdir -p "$I/Lazy1"
@@ -169,10 +211,10 @@ check "watch: an amendment is not an unacked brief" 'grep -q "^unacked briefs: n
 check "watch: a brief edited after its ack is reported" 'grep -q "edited after ack .*inbox/Lazy1/001" <<<"$w"'
 
 # --- hooks: an amendment is listed while its brief is open, and closes with it
-ob=$(HK_IMPL=$dir/impl HK_ROLE=Lazy1 sh -c '. "$1/hooks/lib.sh"; hk_open_briefs all' _ "$BIN/..")
+ob=$(HK_IMPL=$dir/impl HK_ROLE=Lazy1 "$SH" -c '. "$1/hooks/lib.sh"; hk_open_briefs all' _ "$BIN/..")
 check "hooks: the open brief lists its amendment" 'grep -q -x "001.1-yudhi-fix.md" <<<"$ob"'
 : > "$I/Lazy1/001.done"
-ob=$(HK_IMPL=$dir/impl HK_ROLE=Lazy1 sh -c '. "$1/hooks/lib.sh"; hk_open_briefs all' _ "$BIN/..")
+ob=$(HK_IMPL=$dir/impl HK_ROLE=Lazy1 "$SH" -c '. "$1/hooks/lib.sh"; hk_open_briefs all' _ "$BIN/..")
 check "hooks: a closed brief takes its amendments with it" '[[ -z $ob ]]'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi

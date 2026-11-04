@@ -28,6 +28,13 @@ for v in "$to" "$from" "$slug"; do
   [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "sabha-brief: bad name '$v' (letters, digits, - _)" >&2; exit 2; }
 done
 [[ $task != *$'\n'* && $output != *$'\n'* && $go != *$'\n'* && $needs != *$'\n'* ]] || { echo "sabha-brief: header values are one line" >&2; exit 2; }
+# the runner closes a brief with a bad need BLOCKED; refuse it here, before a number is claimed
+re='^([A-Za-z0-9_-]+/)?[0-9]{3,}$'
+set -f
+for id in ${needs//,/ }; do
+  [[ $id =~ $re ]] || { echo "sabha-brief: bad needs id '$id' (NNN or Name/NNN)" >&2; exit 2; }
+done
+set +f
 [[ -z $body || -f $body ]] || { echo "sabha-brief: no such body file $body" >&2; exit 2; }
 dir=${SABHA_IMPL:-.}/inbox/$to
 mkdir -p "$dir" || exit 1

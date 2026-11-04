@@ -117,21 +117,25 @@ brief_file() {
 # 2 = can never start (WHY). An id is NNN (same inbox) or Name/NNN. Unlike claude-queue, an unknown id, the brief
 # itself, a cycle, or a need that ended BLOCKED or CANCELLED blocks: none is ever taken as met.
 needs_check() {
-  local top=$1/$2 cur f id nd nn r rc=0 i=0 seen=" " todo
+  local top=$1/$2 cur f id nd nn r rc=0 i=0 seen=" " todo ids
   local re='^([A-Za-z0-9_-]+/)?[0-9]{3,}$'
   WHY="" todo=("$top")
   while (( i < ${#todo[@]} )); do
     cur=${todo[i]}; i=$(( i + 1 ))
     f=$(brief_file "$cur") || continue
-    # shellcheck disable=SC2013  # ids are words, split on purpose
-    for id in $(awk 'NF == 0 { exit } sub(/^needs:[ \t]*/, "") { gsub(/,/, " "); print }' "$f"); do
+    # ids are words, split on purpose; set -f so a * or ? in an id is never matched against files in the cwd
+    set -f
+    # shellcheck disable=SC2207
+    ids=($(awk 'NF == 0 { exit } sub(/^needs:[ \t]*/, "") { gsub(/,/, " "); print }' "$f"))
+    set +f
+    for id in ${ids[@]+"${ids[@]}"}; do
       if ! [[ $id =~ $re ]]; then [[ $cur == "$top" ]] && { WHY="bad id $id"; return 2; }; continue; fi
       if [[ $id == */* ]]; then nd=$SABHA_IMPL/inbox/${id%/*} nn=${id##*/}; else nd=${cur%/*} nn=$id; fi
       if [[ $nd/$nn == "$top" ]]; then
         WHY="a cycle through $id"; [[ $cur == "$top" ]] && WHY="it needs itself"; return 2
       fi
       if [[ -e $nd/$nn.done ]]; then
-        r=$(sed -n 's/^result: *\([A-Z]*\).*/\1/p' "$nd/$nn.done" | head -1)
+        r=$(sed -n 's/^result: *\([A-Za-z]*\).*/\1/p' "$nd/$nn.done" | head -1 | tr '[:lower:]' '[:upper:]')
         [[ $cur == "$top" && ( $r == BLOCKED || $r == CANCELLED ) ]] && { WHY="$id ended $r"; return 2; }
         continue
       fi
@@ -146,6 +150,9 @@ needs_check() {
   return $rc
 }
 
+# holds <Name>: true when a live claude -n <Name> (a pane or a hand start) owns the role
+holds() { awk -v n="$1" '$1 == n { f = 1 } END { exit !f }' <<<"$procs"; }
+
 # orphan <Name> <NNN>: an acked brief whose headless run died (no .done, no live run.lock) is retried or closed;
 # true when it went back to the queue. A pane's ack is never touched.
 orphan() {
@@ -153,6 +160,10 @@ orphan() {
   (( PRINT )) && return 1
   grep -q '\[headless\]' "$d/$2.ack" 2>/dev/null || return 1
   live_lock "$d/run.lock" && return 1
+  # a worker resumed by hand in a pane on a brief a headless run acked: the brief is the pane's now
+  holds "$1" && return 1
+  # an ack written before attempts were counted had its one start; without this line it would run again
+  [[ -e $d/$2.attempts ]] || echo "unknown (acked before attempts were counted)" >"$d/$2.attempts"
   retry_or_block "$d" "$2" "headless run died without a done" && return 0
   printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run died without a done (no live run.lock)\ncontext: 0\n' \
     "$(utc)" "$1" >"$d/$2.done"
@@ -188,7 +199,8 @@ if [[ ${1:-} == --child ]]; then
   dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
   # the child writes its own pid before anything else, so its EXIT trap can never run before the lock names it;
   # the pass waits for this line as its proof that the run started
-  echo $$ >|"$dir/run.lock"
+  # temp file + mv: live_lock must never read the lock empty (truncated, not yet written) and remove it
+  echo $$ >"$dir/run.lock.$$" && mv -f "$dir/run.lock.$$" "$dir/run.lock"
   trap 'rm -f "$dir/run.lock"' EXIT
   role_cmd "$name" "$brief"
   { echo "sabha-run: $(utc) start $name $n, timeout ${TIMEOUT}s"; echo "sabha-run: cd $SABHA_WS && ${CMD[*]}"; } >>"$log"
@@ -259,7 +271,7 @@ for name in "${want[@]}"; do
   served "$name" "$named" || { (( named )) && echo "sabha-run: $name: the relay is never run headless"; continue; }
   brief=$(due "$name") || continue
   dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
-  if awk -v n="$name" '$1 == n { f = 1 } END { exit !f }' <<<"$procs"; then
+  if holds "$name"; then
     echo "sabha-run: $name $n: a live claude -n $name holds the role; left to it"; continue
   fi
   if live_lock "$dir/run.lock"; then echo "sabha-run: $name $n: a run is already on $name (run.lock)"; continue; fi
