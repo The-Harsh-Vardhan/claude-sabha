@@ -172,7 +172,9 @@ kill <pid>
 ```
 
 `FOR-ME.md` and `FOR-ME.html` are the board `sabha-for-me` generates from `for-me.items` and the
-status files. Nobody edits them.
+status files. Nobody edits them. `sabha-item` re-renders them after each append (`SABHA_FORME_REGEN=0` turns that
+off; a failed render only warns), and `sabha-watch` prints a `STALE BOARD` line with both times when `for-me.items` is
+newer than `FOR-ME.md` by more than `SABHA_FORME_STALE_SECS` (default 300, 0 = off).
 
 ## 8. Status files
 

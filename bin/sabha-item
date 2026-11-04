@@ -6,10 +6,17 @@
 #                                                                    cmd: last) come from stdin, one per line; prints the id
 #   sabha-item close <id> [DONE|DROPPED]                             appends the closing block (default DONE)
 # Files: $SABHA_IMPL/for-me.items (default: ./for-me.items), claims in status/item-ids/<id>.
+# After each append it re-renders FOR-ME.md with sabha-for-me (SABHA_FORME_REGEN=0 turns that off); a failed render
+# only warns, the append stands.
 set -u
 IMPL=${SABHA_IMPL:-.}
 F=$IMPL/for-me.items
 die() { echo "sabha-item: $*" >&2; exit "${2:-1}"; }
+regen() {
+  [[ ${SABHA_FORME_REGEN:-1} == 1 ]] || return 0
+  python3 -I "$(cd "$(dirname "$0")" && pwd)/sabha-for-me" >/dev/null 2>&1 ||
+    echo "sabha-item: warning: item written, but FOR-ME.md was not re-rendered (run bin/sabha-for-me)" >&2
+}
 utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 [[ $# -ge 1 ]] || { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 cmd=$1; shift
@@ -40,6 +47,7 @@ case $cmd in
     [[ -z $ask ]] || block+="ask: $ask"$'\n'
     [[ -z $body ]] || block+="$body"$'\n'
     printf '%s' "$block" >>"$F" || die "cannot write $F"
+    regen
     echo "$n"
     ;;
   close)
@@ -49,6 +57,7 @@ case $cmd in
     case $st in DONE|DROPPED) ;; *) die "state must be DONE or DROPPED" 2 ;; esac
     grep -qx "id: $id" "$F" 2>/dev/null || die "no item $id in $F"
     printf -- '---\nid: %s\nutc: %s\nstate: %s\n' "$id" "$(utc)" "$st" >>"$F" || die "cannot write $F"
+    regen
     ;;
   *) die "unknown command $cmd (add, close)" 2 ;;
 esac
