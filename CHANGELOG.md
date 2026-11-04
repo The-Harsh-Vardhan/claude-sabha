@@ -3,8 +3,11 @@
 ## Unreleased
 
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
-  of each `status/<role>.md` and moves the rest to `status/.bak/<role>-<utc>.md` with a RESTORE line (also in
-  `.bak/RESTORE.txt`); never deletes; dry run by default, `--apply` writes, `--keep N`. Test: `tests/test-rotate.sh`.
+  of each `status/<role>.md` (an entry header counts only at file start or after a blank or `---` line); the full
+  original is copied and verified to `status/.bak/<role>-<utc>-<pid>.md` first, then the file is rewritten in place
+  (inode, mode, owner kept); a file changed mid-run is skipped. `.bak/RESTORE.txt` gets one quoted line that puts the
+  full copy back. `--apply` only at a quiet moment with no role writing (Vidur picks it, Q-049). Never deletes; dry
+  run by default, `--keep N`. Test: `tests/test-rotate.sh`.
 - Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
   `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
   read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never
