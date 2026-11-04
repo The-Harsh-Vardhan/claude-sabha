@@ -61,6 +61,12 @@ SABHA_EFFICIENCY=1
 #SABHA_HEAVY_WAIT=900
 #SABHA_HEAVY_TTL=1800
 #SABHA_HEAVY_FREE_PCT=40
+# Starter: with the flag on, `sabha-up.sh --print <Name>` prints the sabha-loop line; --print --raw prints the bare
+# claude line. MCP per role: SABHA_MCP_<Name> = full, none, or set names (a,b), each set a JSON file in the shape
+# `claude --mcp-config` reads. The relay and the dispatcher default to full, every other role to none (the roster flag
+# "mcp" still means full). A brief header "mcp: full" gives that one headless run (bin/sabha-run) the full set.
+#SABHA_MCP_BuilderPrecise=aikido
+#SABHA_MCP_FILE_aikido=$SABHA_IMPL/mcp/aikido.json
 # Copies: BuilderPrecise-1, BuilderPrecise-2 ... take BuilderPrecise's profile with their own inbox, status file and worktree; at most this many
 # per role (2 on Pro, 4 on Max).
 #SABHA_MAX_COPIES=2

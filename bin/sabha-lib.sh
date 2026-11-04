@@ -190,6 +190,32 @@ sabha_profile_values() {
   case $1 in lite) echo "2 1 1" ;; full) echo "7 3 3" ;; *) echo "4 2 2" ;; esac
 }
 
+# sabha_mcp_args [brief file]: after sabha_role, sets MCP_PRE (--mcp-config <files>) and MCP_POST (--strict-mcp-config or
+# nothing) for the claude command. The roster flag "mcp" = the user's full set, no flag = none. With SABHA_EFFICIENCY on:
+# SABHA_MCP_<Name> (full, none, or set names: a,b, each the JSON file SABHA_MCP_FILE_<set>) wins, the relay and the
+# dispatcher default to full, and a brief header "mcp: full" gives that one headless run the full set.
+sabha_mcp_args() {
+  local v=SABHA_MCP_$R_BASE want='' s f
+  MCP_PRE=() MCP_POST=(--strict-mcp-config)
+  if sabha_efficiency; then
+    want=${!v:-}
+    [[ -z $want && ( $R_BASE == "$RELAY" || $R_BASE == "$DISPATCHER" ) ]] && want=full
+    [[ -n ${1:-} && -f $1 ]] && sed -n '1,/^$/p' "$1" | grep -qi '^mcp:[[:space:]]*full[[:space:]]*$' && want=full
+  fi
+  [[ -z $want ]] && { if sabha_flag "$R_ENTRY" mcp; then want=full; else want=none; fi; }
+  case $want in
+    full) MCP_POST=() ;;
+    none) ;;
+    *)
+      for s in ${want//,/ }; do
+        f=SABHA_MCP_FILE_$s
+        [[ -n ${!f:-} ]] || { echo "sabha: $v names the MCP set $s, but SABHA_MCP_FILE_$s is not set" >&2; return 1; }
+        MCP_PRE+=("${!f}")
+      done
+      MCP_PRE=(--mcp-config "${MCP_PRE[@]}") ;;
+  esac
+}
+
 # sabha_theme [caller]: a theme is a skin over the role ids and never renames a role (ROLES, NAMES, PANES and every file
 # name stay Relay, BuilderHeavy, ...). bin/sabha-theme resolve (SABHA_THEME: a theme or a preset, default plain) gives the
 # 20 resolved rows; this sets SABHA_NAME_<RoleId>, SABHA_COLOR_<RoleId>, SABHA_ICON_<RoleId> (a stem under icons/) and

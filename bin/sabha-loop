@@ -145,7 +145,9 @@ ctx=$SABHA_IMPL/status/context/$lower.txt handoff=$SABHA_IMPL/status/$lower.md i
 stop=$LOOP/$lower.stop; rm -f "$stop"; hold=$LOOP/$lower.hold
 interval=${SABHA_LOOP_INTERVAL:-20} min_up=${SABHA_LOOP_MIN_UP:-60}
 if [[ -n ${SABHA_LOOP_CMD:-} ]]; then cmd=(bash -c "$SABHA_LOOP_CMD")
-else cmd=("$BIN/sabha-up.sh" "$name"); fi   # a non-claude role: sabha-up.sh starts it through herdr and waits (UNTESTED live)
+else cmd=("$BIN/sabha-up.sh" "$name"); fi
+# sabha-up.sh warns about a hand-started pane unless it runs under this loop
+export SABHA_LOOP_ACTIVE="$name"   # a non-claude role: sabha-up.sh starts it through herdr and waits (UNTESTED live)
 
 # a background child gets /dev/null as stdin; the agent needs the keyboard (headless tests have no terminal).
 # Hand it the pane's own pty, never a reopened /dev/tty: Bun's kqueue rejects /dev/tty with EINVAL on macOS
