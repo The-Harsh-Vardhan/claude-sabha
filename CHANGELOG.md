@@ -3,7 +3,8 @@
 ## Unreleased
 
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
-  of each `status/<role>.md` (an entry header counts only at file start or after a blank or `---` line); the full
+  of each `status/<role>.md` (`UPDATE <n> (`, `UPDATE <n> <Mon>`, `Idle: by design (` count anywhere; looser
+  headers only at file start or after a blank or `---` line); the full
   original is copied and verified to `status/.bak/<role>-<utc>-<pid>.md` first, then the file is rewritten in place
   (inode, mode, owner kept); a file changed mid-run is skipped. `.bak/RESTORE.txt` gets one quoted line that puts the
   full copy back. `--apply` only at a quiet moment with no role writing (Vidur picks it, Q-049). Never deletes; dry

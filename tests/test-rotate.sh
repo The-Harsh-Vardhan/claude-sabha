@@ -67,11 +67,25 @@ ok "file arg, --keep, bad flags"
 
 { for i in 1 2 3 4; do echo "UPDATE $i"; echo; done; } >"$dir/busy.md"
 cp "$dir/busy.md" "$dir/busy.orig"
-o=$(SABHA_ROTATE_TEST_HOOK='echo late >>"$f"' R --keep 1 --apply "$dir/busy.md" 2>&1) && fail "changed file rc 0"
-echo "$o" | grep -q 'changed while rotating, skipped' || fail "skip message: $o"
+P=$dir/pause; mkdir -p "$P"
+SABHA_ROTATE_PAUSE_DIR=$P R --keep 1 --apply "$dir/busy.md" >"$dir/busy.out" 2>&1 &
+pid=$!
+for _ in $(seq 100); do [[ -e $P/ready ]] && break; sleep 0.1; done
+[[ -e $P/ready ]] || fail "pause hook never ready"
+echo late >>"$dir/busy.md"; touch "$P/go"
+wait $pid && fail "changed file rc 0"
+grep -q 'changed while rotating, skipped' "$dir/busy.out" || fail "skip message: $(cat "$dir/busy.out")"
 { cat "$dir/busy.orig"; echo late; } | cmp -s - "$dir/busy.md" || fail "changed file was rewritten"
 [[ $(ls "$dir/.bak" | grep -c busy) -eq 0 ]] || fail "archive left for skipped file"
 ok "file changed between copy and write is skipped"
+
+{ echo "Current: x"; for i in 5 4 3 2 1; do echo "UPDATE $i (y): no blank"; done; } >"$dir/tight.md"
+R --keep 2 --apply "$dir/tight.md" >/dev/null || fail "tight apply"
+[[ $(wc -l <"$dir/tight.md") -eq 3 ]] && grep -q '^UPDATE 4 ' "$dir/tight.md" && ! grep -q '^UPDATE 3 ' "$dir/tight.md" ||
+  fail "consecutive UPDATE <n> ( not cut"
+{ echo "Current: x"; for i in 5 4 3; do echo "UPDATE $i Oct ~01:50 IST: no blank"; echo "Idle: by design ($i)"; done; } >"$dir/tight2.md"
+o=$(R --keep 2 "$dir/tight2.md") && echo "$o" | grep -q 'move 4 entries' || fail "UPDATE <n> <Mon> / Idle: by design ( not counted: $o"
+ok "consecutive structured headers count without a blank"
 
 for d in "$dir/with space" "$dir/it's"; do
   mkdir -p "$d"; { for i in 1 2 3 4; do echo "UPDATE $i"; echo; done; } >"$d/r o.md"; cp "$d/r o.md" "$d/orig"
