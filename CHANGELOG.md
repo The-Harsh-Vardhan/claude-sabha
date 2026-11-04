@@ -32,7 +32,10 @@
   `'--output=x'` passed); secret files (`.env*`, `.npmrc`, `*.pem`, `*.key`, `id_*`) are not read; Skill is allowed;
   the override needs "you do it" as the first line, expires after 10 minutes and is cleared at SessionStart; a missing
   or broken conf names the escape (`SABHA_RELAY_GUARD=0`, restart). Tests: `tests/test-relay-guard.sh`,
-  `tests/test-doctor.sh`.
+  `tests/test-doctor.sh`. Second fix pass (gate 116): more secret names (`.envrc`, `*.env*`, `.netrc`, `credentials`,
+  `.aws/`), no recursive grep (Bash `-r`/`-R`/`-d`/`--include`, a directory operand; the Grep tool over a directory
+  needs a glob like `**/*.md`), git refuses `-C`, `-O<file>` and `--no-index`, and the conf runs in its own bash so a
+  conf exiting 100 denies instead of allowing; `HEAD~1` passes as a word.
 - The relay is code-guarded: `hooks/sabha-guard.sh` no longer exempts the relay, so no role pushes, publishes or posts
   (the human does). `sabha-loop` warns the relay at `SABHA_RELAY_WARN_K` (250k tokens: a log line and a nudge to write
   the handoff) and restarts it fresh at `SABHA_RELAY_STOP_K` (300k) once the handoff is saved, as percent of

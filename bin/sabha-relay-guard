@@ -3,7 +3,7 @@
 # user and writes briefs; everything else goes to the dispatcher. The hook JSON comes on stdin.
 #   sabha-relay-guard pre <Name>   PreToolUse: lets Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents (the
 #                                  opening check), ToolSearch (loads SendMessage) and Skill through, but no read of a
-#                                  secret file (.env, .env.*, .npmrc, *.pem, *.key, id_*); Write, Edit and MultiEdit only
+#                                  secret file (secret() names them) and no recursive read; Write, Edit and MultiEdit only
 #                                  to the paths writable() names; Bash only for a short read-only list. Anything else
 #                                  exits 2: "relay: brief the dispatcher".
 #   sabha-relay-guard prompt       UserPromptSubmit: a prompt whose first line is "you do it" (any case, trailing . or !)
@@ -25,11 +25,16 @@ allow() { exit 100; }
 # subshell with a status other than 0 or 2, and the wrapper turns that into a deny
 guard() {
 CONF=${SABHA_CONF:-$BIN/../sabha.conf}
-# no set -u while the conf runs: an unbound reference in it must not kill the guard with a non-blocking exit 1
-set +u
-# shellcheck source=/dev/null
-[[ -f $CONF ]] && . "$CONF"
-set -u
+# the conf runs in its own bash and hands back only the values the guard reads, so its exit code, traps and $$ cannot
+# steer the decision; a conf that does not finish cleanly (exit 100 included) is a broken setup. No set -u in there:
+# an unbound reference in the conf is not fatal
+if [[ -f $CONF ]]; then
+  # shellcheck disable=SC2016  # expanded by the inner bash
+  vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_IMPL:-}" "${SABHA_RELAY_WRITE:-}" "${SABHA_WS:-}" ok' _ "$CONF") ||
+    broken "the conf did not finish cleanly"
+  [[ $vals == *$'\n'ok ]] || broken "the conf did not finish cleanly"
+  { IFS= read -r SABHA_IMPL; IFS= read -r SABHA_RELAY_WRITE; IFS= read -r SABHA_WS; } <<<"$vals"
+fi
 [[ -n ${SABHA_IMPL:-} ]] || broken "the guard found no SABHA_IMPL"
 command -v jq >/dev/null || broken "the guard needs jq"
 mark=$SABHA_IMPL/status/.relay-override
@@ -95,19 +100,26 @@ writable() {
   [[ $p == "$mem"* && -n ${p#"$mem"} && ${p#"$mem"} != */* ]]
 }
 
-# secret <path>...: one of the paths names a file the relay never reads (.env, .env.*, .npmrc, *.pem, *.key, id_*)
+# secret <path>...: one of the paths names a file the relay never reads: .env*, *.env*, .npmrc, .netrc, credentials,
+# anything under .aws, *.pem, *.key, id_*. By name only (the last part after / : or =); the workspace CLAUDE.md lists
+# .testsigma-github.env and the like, which *.env* covers. A [ or { in the name is refused too, so .e[n]v cannot hide
 secret() {
   local n r
   for n in "$@"; do
-    r=${n##*[/:]}
-    case $r in .env|.env.*|.npmrc|*.pem|*.key|id_*) return 0 ;; esac
+    case /$n in */.aws|*/.aws/*|*'['*|*'{'*) return 0 ;; esac
+    r=${n##*[/:=]}
+    case $r in .env*|*.env*|.npmrc|.netrc|credentials|*.pem|*.key|id_*) return 0 ;; esac
   done
   return 1
 }
 
+# narrow_glob <glob>: a Grep tool glob that only reaches files by extension (*.md, docs/**/*.go), so a search over a
+# directory cannot read a secret file inside it
+narrow_glob() { [[ $1 =~ ^[A-Za-z0-9_./*-]*\*\.[A-Za-z0-9]+$ ]] && ! secret "$1"; }
+
 # read_only <command>: every segment between ; & | is on the list and every word is plain: letters, digits and
-# . _ / = : @ , + - only. No quote, so a quoted '--output=x' cannot hide from the git check; no glob, so no .e* to reach
-# a secret. Expansions and grouping (zsh as well as bash), any redirect but the whole words 2>&1, 2>/dev/null and
+# . _ / = : @ , + - only (and a trailing ~<n> after a letter or digit). No quote, so a quoted '--output=x' cannot
+# hide from the git check; no glob, so no .e* to reach a secret. Expansions and grouping (zsh as well as bash), any redirect but the whole words 2>&1, 2>/dev/null and
 # >/dev/null, a word starting with = and a word naming a secret file are refused, so chaining cannot smuggle a write
 # in. A command over 2000 characters is refused.
 # ponytail: a grep pattern with a space or a quote is refused; the relay then briefs it instead
@@ -133,17 +145,32 @@ read_only() {
     read -r -a w <<<"$seg"
     (( ${#w[@]} )) || continue
     for t in "${w[@]}"; do
-      [[ $t == =* || ! $t =~ ^[A-Za-z0-9._/=:@,+-]+$ ]] && return 1
+      # a revision may end in ~<n> (HEAD~1): after a letter or digit it is no tilde expansion, even in zsh
+      [[ $t == =* || ! $t =~ ^([A-Za-z0-9._/=:@,+-]*[A-Za-z0-9]~[0-9]+|[A-Za-z0-9._/=:@,+-]+)$ ]] && return 1
       secret "$t" && return 1
     done
     case ${w[0]} in
-      ls|cat|head|tail|wc|grep|stat|du|date|pwd|cd|echo|true) continue ;;
+      ls|cat|head|tail|wc|stat|du|date|pwd|cd|echo|true) continue ;;
+      grep)
+        # a named file only: a recursive grep reads every file under the directory, secrets included. Any short
+        # option word holding r, R or d is refused (-rn, -d recurse), so is a directory operand (best effort: the
+        # hook's cwd, not a cd earlier in the line)
+        for t in "${w[@]:1}"; do
+          case $t in
+            --recursive|--dereference-recursive|--directories*|--include*|--exclude*|--devices*|.|..|*/) return 1 ;;
+            --*) ;;
+            -*[rRd]*) return 1 ;;
+          esac
+          [[ -d $t ]] && return 1
+        done
+        continue ;;
       git) ;;
       *) return 1 ;;
     esac
-    # git: -c, --output and --ext-diff can run or write something, so they never pass
-    for t in "${w[@]}"; do case $t in -c|--output*|--ext-diff|--exec*) return 1 ;; esac; done
-    i=1; [[ ${w[1]:-} == -C ]] && i=3
+    # git: -c, --output and --ext-diff can run or write something; -O<file> and --no-index read any file; so they
+    # never pass. A global option before the subcommand (-C <dir>, --git-dir) is not a subcommand and is refused
+    for t in "${w[@]}"; do case $t in -c|-O*|--no-index|--output*|--ext-diff|--exec*) return 1 ;; esac; done
+    i=1
     sub=${w[i]:-}
     case $sub in
       status|log|diff|show|rev-parse) ;;
@@ -162,6 +189,18 @@ case $tool in
       # by the name given and, for a symlink, the name it points to
       [[ -n $v ]] && secret "$v" "$(realpath -- "$v" 2>/dev/null)" && deny "$tool of a secret file"
     done
+    if [[ $tool == Grep ]]; then
+      # Grep over a directory (no path = the cwd) reads every file in it: only with a narrow glob such as *.md
+      v=$(jq -r '.tool_input.path // "" | strings' <<<"$in" 2>/dev/null)
+      if [[ $v != /* ]]; then
+        c=$(jq -r '.cwd // "" | strings' <<<"$in" 2>/dev/null)
+        if [[ $c == /* ]]; then v=$c/$v; else v=/; fi
+      fi
+      if [[ $v == / || -d $v ]]; then
+        narrow_glob "$(jq -r '.tool_input.glob // "" | strings' <<<"$in" 2>/dev/null)" ||
+          deny "Grep over a directory without a narrow glob (*.md); name a file or brief it"
+      fi
+    fi
     allow ;;
   SendMessage|AskUserQuestion|ListAgents|ToolSearch|Skill) allow ;;
   Write|Edit|MultiEdit)

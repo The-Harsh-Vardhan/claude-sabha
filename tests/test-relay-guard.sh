@@ -25,7 +25,7 @@ tool() { hook pre "$(jq -cn --arg t "$1" --arg k "$2" --arg v "$3" '{tool_name: 
 allows() { tool "$@"; (( rc == 0 )); }
 denies() { tool "$@"; (( rc == 2 )) && [[ $err == "relay: brief the dispatcher"* ]]; }
 
-for t in Read Grep Glob SendMessage AskUserQuestion ListAgents ToolSearch Skill; do
+for t in Read Glob SendMessage AskUserQuestion ListAgents ToolSearch Skill; do
   check "$t is allowed" 'allows $t pattern x'
 done
 for t in Agent WebFetch NotebookEdit TaskCreate Monitor mcp__x__y; do
@@ -68,10 +68,26 @@ done
 check "Read of a symlink to .env is denied" 'denies Read file_path "$dir/ws/notes.txt"'
 check "Grep in .env is denied" 'denies Grep path "$dir/ws/.env"'
 check "Glob for .env.* is denied" 'denies Glob glob ".env.*"'
+mkdir -p "$dir/ws/.aws"
+for f in .envrc .testsigma-github.env .testsigma-client.env .lab-agent.env .netrc credentials .aws/config; do
+  check "Read of $f is denied" 'denies Read file_path "$dir/ws/$f"'
+done
+: >"$dir/ws/a.md"
+check "Grep of a named file is allowed" 'allows Grep path "$dir/ws/a.md"'
+check "Grep over a directory without a glob is denied" 'denies Grep path "$dir/ws"'
+check "Grep with no path (the cwd) is denied" 'denies Grep pattern x'
+gr() { hook pre "$(jq -cn --arg p "$1" --arg g "$2" '{tool_name: "Grep", tool_input: {pattern: "x", path: $p, glob: $g}}')"; }
+check "Grep over a directory with glob **/*.md is allowed" 'gr "$dir/ws" "**/*.md"; (( rc == 0 ))'
+for g in '*' '.env*' '*.env' '*.e[n]v' '{.env,a}' '!*.md' '*.pem'; do
+  check "Grep over a directory with glob $g is denied" 'gr "$dir/ws" "$g"; (( rc == 2 ))'
+done
+check "Grep with a relative path and the hook cwd is judged as that dir" 'hook pre "$(jq -cn --arg c "$dir" '"'"'{tool_name: "Grep", cwd: $c, tool_input: {pattern: "x", path: "ws"}}'"'"')"; (( rc == 2 ))'
+check "Glob for .envrc is denied" 'denies Glob glob "**/.envrc"'
 check "Read of README.md is allowed" 'allows Read file_path "$dir/ws/README.md"'
 
-for c in 'ls -la inbox' 'cat status/x.md | head -5' 'git -C /r log --oneline -3 2>/dev/null' 'git status && git diff' \
-         'git branch --show-current' 'echo a=b' 'grep -rn foo docs' 'cd /r; grep -rn foo . | wc -l' 'tail -20 a >/dev/null 2>&1' 'echo hi 2>&1'; do
+for c in 'ls -la inbox' 'cat status/x.md | head -5' 'git log --oneline -3 2>/dev/null' 'git status && git diff' \
+         'git branch --show-current' 'echo a=b' 'grep x docs/a.md' 'grep -n -i foo a.md | wc -l' 'git log -1' 'git diff HEAD~1' \
+         'git log -p -1' 'tail -20 a >/dev/null 2>&1' 'echo hi 2>&1'; do
   check "Bash read-only: $c" 'allows Bash command "$c"'
 done
 for c in 'rm -rf x' 'ls; rm -rf x' 'ls && touch x' 'cat a | tee b' 'echo $(rm x)' 'echo `id`' 'echo x > f' \
@@ -80,7 +96,12 @@ for c in 'rm -rf x' 'ls; rm -rf x' 'ls && touch x' 'cat a | tee b' 'echo $(rm x)
          'cat =(touch F)' 'ls *(e:'"'"'touch F'"'"':)' 'echo ${(e):-\$\(touch F\)}' 'echo ${x@P}' 'echo $HOME' 'ls {a,b}' \
          'echo a\;touch F' '=ls' 'ls =ls' 'ls a\ b' 'ls $'"'"'a\tb'"'"'' 'echo a=b b=(c)' 'echo hi2>&1x' 'cd /r; echo hi2>&1x' 'echo hi >f' 'echo hi 2>&1x' 'ls 2>/dev/nullx' \
          "git log '--output=T/x' -1" 'git diff HEAD~1 "--output=T/y"' "git log '--ext-diff'" "git '-c' x=y log" \
-         'grep -rn "foo bar" docs' 'cat .env' 'cat ws/.npmrc' 'head -1 a/b/id_rsa' 'git show HEAD:.env' 'cat .e*' 'ls ~'; do
+         'grep -rn "foo bar" docs' 'cat .env' 'cat ws/.npmrc' 'head -1 a/b/id_rsa' 'git show HEAD:.env' 'cat .e*' 'ls ~' \
+         'grep -r x .' 'grep -rh S .' 'grep -R x docs' 'grep -hr x a.md' 'grep --recursive x a.md' 'grep -d recurse x a.md' \
+         'grep --directories=recurse x a.md' 'grep --include=a.md x a.md' 'grep x .' 'grep x docs/' 'cat .envrc' \
+         'cat .testsigma-github.env' 'cat ws/.lab-agent.env' 'cat .netrc' 'cat .aws/credentials' 'cat --file=.envrc' \
+         'git diff --no-index /dev/null .envrc' 'git diff --no-index /dev/null a.md' 'git log -O/etc/passwd' \
+         'git diff -O a.md' 'ls ~1' 'ls a~b' 'git log HEAD~1x' 'git -C /tmp log' 'git -C /r push' 'git --git-dir=/r log'; do
   check "Bash denied: $c" 'denies Bash command "$c"'
 done
 long="touch X # $(printf '2>&1 %.0s' $(seq 4000))"
@@ -129,6 +150,12 @@ badconf 'SABHA_X=$NOPE_UNSET_VAR'
 check "conf with an unbound variable: pre denies (rc 2)" '(( rc == 2 )) && [[ $out == *"brief the dispatcher"* ]]'
 badconf 'exit 3'
 check "conf that exits: pre denies (rc 2)" '(( rc == 2 )) && [[ $out == *"brief the dispatcher"* ]]'
+badconf 'exit 100' '{"tool_name":"Bash","tool_input":{"command":"rm -rf x"}}'
+check "conf that exits 100 (the allow code): pre denies" '(( rc == 2 ))'
+badconf 'exit 0' '{"tool_name":"Read","tool_input":{"file_path":"/x"}}'
+check "conf that exits 0 early: pre denies (no values came back)" '(( rc == 2 ))'
+badconf "trap 'exit 100' EXIT" '{"tool_name":"Bash","tool_input":{"command":"rm -rf x"}}'
+check "conf with an exit-100 trap: pre denies" '(( rc == 2 ))'
 badconf 'false' '{"tool_name":"Read","tool_input":{"file_path":"/x"}}'
 check "conf with a failing command still lets Read through" '(( rc == 0 ))'
 hook pre ''

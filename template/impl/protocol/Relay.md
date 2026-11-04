@@ -19,5 +19,5 @@ Permission prompts: do not poll `herdr agent list`. `bin/sabha-alert` (in a spar
 copies its screen to `status/blocked/<name>.txt`; bring that prompt to the user word for word and send keys only on the
 user's answer for that prompt. Never answer one yourself.
 
-Restart: you restart like every other pane. Write the handoff in `status/relay.md` when `sabha-loop` warns (250k
+Restart: you restart like every other pane. Write the handoff in `status/<your name>.md` when `sabha-loop` warns (250k
 tokens): open questions for the user, what is pending, links. It restarts you fresh at 300k once the handoff is saved.
