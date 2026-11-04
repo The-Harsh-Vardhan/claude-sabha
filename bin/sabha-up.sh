@@ -76,6 +76,8 @@ role() {
   # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
   tail_var=SABHA_PROMPT_$R_BASE
   tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
+  # the dispatcher first finds the durable helpers its last session left running (docs/durable-helpers.md)
+  [[ $R_BASE == "$DISPATCHER" ]] && tail="${tail% Report to *} Before the inbox, run $SABHA_BIN/sabha-helper reattach: it lists the durable helpers that outlived your last session; never start one it reports running. Report to $to."
   [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
   reads=$(sabha_reads "$name")
   prompt="You are $who in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
