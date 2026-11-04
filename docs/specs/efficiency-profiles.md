@@ -1,9 +1,10 @@
 # Efficiency profiles for sabha
 
-Status: SPEC ONLY. Nothing here is built. Written 4 Nov 2026 for Harsh, on brief 356 (Vidur to Yudhishthira,
-`Arcus-Dev/docs/pdf-report-2.0/impl/inbox/Yudhishthira/356-vidur-sabha-efficiency-apply.md`), which carries Harsh's
+Status: BUILT on branch `feat/efficiency-profiles` (4 Nov 2026), except where marked below in "As built". Originally
+spec only. Written 4 Nov 2026 for the user, on brief 356 (Vidur to Yudhishthira,
+`$SABHA_IMPL/inbox/Yudhishthira/356-vidur-sabha-efficiency-apply.md`), which carries the user's
 answers Q1-Q6 and Q8 ("spec now, behind a flag"). Marks used below: [VERIFIED] = I ran or read it this session;
-[UNVERIFIED] = reasoned or assumed, check before building; [PROPOSAL] = a number or name I chose, Harsh may change it.
+[UNVERIFIED] = reasoned or assumed, check before building; [PROPOSAL] = a number or name I chose, the user may change it.
 
 ## 0. Read this first: the base problem
 
@@ -17,7 +18,7 @@ not quoted because they differ between the two.
 
 ## 1. What this changes, in one table
 
-| # | Change | Harsh's answer | Where it lives |
+| # | Change | The user's answer | Where it lives |
 | --- | --- | --- | --- |
 | 1 | Profiles Lite / Standard / Full from cores and RAM | Q1, Q2 | `bin/sabha-lib.sh`, `sabha.conf.example` |
 | 2 | Dispatcher load gate, max heavy jobs at once | Q3, Q4 | new `bin/sabha-heavy`, dispatcher protocol file |
@@ -46,7 +47,7 @@ SABHA_EFFICIENCY=1      # default on; any other value is off
 
 ### 3.1 Profiles (Q1, Q2)
 
-Harsh, Q1: five sessions - one relay, one dispatcher, three worker panes, long-lived tasks; the rest headless and
+The user, Q1: five sessions - one relay, one dispatcher, three worker panes, long-lived tasks; the rest headless and
 managed by the dispatcher. Q2: the three panes are Bhishma, Arjun (code), Karna (testing). That is `Standard`.
 
 Selection. Read hardware once: cores = `hw.ncpu`, RAM = `hw.memsize` (bytes). Each gives a tier; the profile is the
@@ -56,20 +57,20 @@ lower tier of the two (the scarcer resource decides).
 | --- | --- | --- | --- |
 | Cores | under 8 | 8 to 11 | 12 or more |
 | RAM | under 12 GB | 12 GB to under 32 GB | 32 GB or more |
-| Status of the row | PROPOSAL | Harsh's Mac [VERIFIED: hw.ncpu 10, hw.memsize 17179869184 = 16 GB, M1 Pro per brief] | PROPOSAL |
+| Status of the row | PROPOSAL | the user's Mac [VERIFIED: hw.ncpu 10, hw.memsize 17179869184 = 16 GB, M1 Pro per brief] | PROPOSAL |
 | Sessions at once (relay + dispatcher + panes) | 3 | 5 | 8 |
 | Worker panes | 1: Arjun | 3: Bhishma, Arjun, Karna | 6: Bhishma, Arjun, Bhima, Sahadev, Karna, Nakul |
 | Heavy jobs at once (3.2) | 1 | 2 | 3 |
 | Headless runs at once (`SABHA_RUN_MAX`) | 1 | 2 | 3 |
 | Every other role | headless, short-lived, started by the dispatcher | same | same, plus gate critics as today |
 
-Standard's panes and the 2-heavy cap are Harsh's decisions. Everything in the Lite and Full columns is a PROPOSAL.
+Standard's panes and the 2-heavy cap are the user's decisions. Everything in the Lite and Full columns is a PROPOSAL.
 
 Basis for the proposals [UNVERIFIED reasoning, one hard data point]:
 - Memory. The only measured fact in the repo is `docs/headless-runner.md`: "Sixteen idle panes exhausted a 32 GB
   Mac", about 2 GB per interactive session all-in (the claude process, its MCP servers, the child tools it started).
   That divides by 16 and is an upper-bound guess, not a measurement. Budget: leave about 7 GB for macOS, the browser,
-  Docker and the dev servers; the rest divided by 2 GB: 16 GB gives about 4 to 5 sessions (Standard: 5, Harsh's
+  Docker and the dev servers; the rest divided by 2 GB: 16 GB gives about 4 to 5 sessions (Standard: 5, the user's
   number agrees); 8 GB gives 0 to 1, so Lite's 3 is already tight and Lite is meant for an 8 to 12 GB machine with
   one pane's worth of headroom; 32 GB gives 12, taken down to 8 to keep room for Docker e2e.
 - Cores. One heavy job (a Gradle or webpack build, a Playwright run, a Docker e2e) saturates 4 to 5 cores while it
@@ -87,13 +88,13 @@ What a profile actually sets, when the flag is on and the user did not set it:
   profile layer; the implementation picks one, see open question Q-B.
 - `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX` from the table.
 
-Bhima's arcus work goes to Bhishma or a headless session (Harsh, Q2) - that is a dispatcher routing rule, stated in
+Bhima's backend work goes to Bhishma or a headless session (the user, Q2) - that is a dispatcher routing rule, stated in
 the dispatcher's protocol file (section 8), not code.
 
 ### 3.2 Dispatcher load gate (Q3, Q4)
 
 Rule: before the dispatcher starts a heavy job it runs the gate. A heavy job is a dev server, a build, a Playwright
-or browser test run, or a Docker e2e (Harsh's list). The gate says GO only when all hold:
+or browser test run, or a Docker e2e (the user's list). The gate says GO only when all hold:
 1. load1 <= 2 x cores (20 on this Mac);
 2. memory pressure is green (normal);
 3. fewer than `SABHA_HEAVY_MAX` slots are held (2 on Standard).
@@ -143,7 +144,7 @@ sabha-heavy status                   # one line: "load 103.1/10 red | mem yellow
 Exit 75 (EX_TEMPFAIL) with the reason on stdout, so the dispatcher can paste it to the relay. It never bypasses
 itself; a human override is `SABHA_HEAVY_FORCE=1` on that one call, which logs `FORCED by <who>` in the slot file.
 
-The slot counter (Harsh's "2 heavy jobs" needs a place to live):
+The slot counter (the user's "2 heavy jobs" needs a place to live):
 - Directory `$SABHA_IMPL/status/heavy/` (beside `status/loop/`; the dispatcher already writes under `status/`).
   One file per held slot: `<label>.slot`, ASCII, `key: value` lines like the inbox files: `pid`, `epoch`,
   `host_session`, `label`, `forced` (optional).
@@ -172,7 +173,7 @@ context once the handoff file is newer than the last start [VERIFIED, header of 
 copy]. On `origin/main` the grid already runs it in every pane (`bin/sabha-up.sh`: "each pane runs sabha-loop, which
 starts sabha-up.sh <Name>") [VERIFIED at 91e5488]. The gap is the single-role path: `sabha-up.sh --print <Name>`
 prints the raw `claude ...` line first and the `pane: ... sabha-loop <Name>` line second [VERIFIED at 91e5488], so a
-user (or Vidur composing "restart lines" for Harsh) copies the raw line and the pane runs with no supervisor.
+user (or Vidur composing "restart lines" for the user) copies the raw line and the pane runs with no supervisor.
 
 With the flag on:
 - `sabha-up.sh --print <Name>` prints the `sabha-loop` line as the primary line. The raw `claude` line is printed only
@@ -186,14 +187,14 @@ With the flag on:
 
 ### 3.5 Per-role MCP sets (Q6)
 
-Harsh: full stack only on Relay, Dispatcher and the test agent when needed; everything else restricted as much as
+The user: full stack only on Relay, Dispatcher and the test agent when needed; everything else restricted as much as
 possible; Bhishma and Arjun `--strict-mcp-config` with the minimum; Karna full only if a test needs it.
 
 Today [VERIFIED, `bin/sabha-up.sh` and `bin/sabha-run`]: the roster flag `mcp` keeps the user's MCP servers; a role
 without it gets `--strict-mcp-config` and therefore no MCP server at all (no `--mcp-config` is ever passed). In this
 workspace's `sabha.conf` only Yudhishthira, Sanjaya and Shakuni carry `mcp`; Vidur, Bhishma, Arjun and Karna do not.
 So the gap is not "Bhishma and Arjun have too much" - they already get none when started by `sabha-up.sh` - it is
-that (a) the Relay (Vidur) gets none although Harsh wants it full, (b) Arjun gets none although the Aikido rule needs
+that (a) the Relay (Vidur) gets none although the user wants it full, (b) Arjun gets none although the Aikido rule needs
 one, and (c) a hand-typed restart line (the 355 lines) can carry the full stack.
 
 The MCP servers that exist in this setup, from config actually read [VERIFIED unless marked]:
@@ -203,10 +204,10 @@ The MCP servers that exist in this setup, from config actually read [VERIFIED un
 | `GitKraken` | `~/.claude.json` top-level `mcpServers` (the only user-level server in that file) | `mcp__GitKraken__git_*`, `pull_request_*`, `issues_*`, `gitlens_*` |
 | `aikido-mcp` | plugin `aikido@claude-plugins-official` 1.2.11, `.mcp.json`: `npx -y @aikidosec/mcp@1.0.28` | `mcp__plugin_aikido_aikido-mcp__aikido_scan_paths`, `aikido_oss_dependency_scan`, `aikido_issues_list`, `aikido_full_scan`, ... |
 | `plugin-authoring` | the `cc-plugin-plugin-authoring` plugin (visible as the `plugin-authoring` server in this session; its config file was not read) | `mcp__plugin-authoring__scan_secrets` |
-| claude.ai connectors (Slack, Jira, Drive, ...) | account level, not in any file I read; named only in Harsh's memory notes [UNVERIFIED that they are MCP servers in a CLI session] | not listed |
+| claude.ai connectors (Slack, Jira, Drive, ...) | account level, not in any file I read; named only in the user's memory notes [UNVERIFIED that they are MCP servers in a CLI session] | not listed |
 
-Not found: no `.mcp.json` at the workspace root (`Arcus-Dev/.mcp.json` does not exist), no `mcpServers` in
-`Arcus-Dev/.claude/settings.json` or `~/.claude/settings.json`, and no Playwright server in any file I read.
+Not found: no `.mcp.json` at the workspace root (`<workspace>/.mcp.json` does not exist), no `mcpServers` in
+`<workspace>/.claude/settings.json` or `~/.claude/settings.json`, and no Playwright server in any file I read.
 The `ts`/Playwright runs go through Bash and `claude --chrome`, not MCP [UNVERIFIED]. Plugins `burn-meter`,
 `context-lens`, `statuspane`, `agent-flow` are enabled in `~/.claude/settings.json`; whether they register MCP
 servers was not checked.
@@ -215,8 +216,8 @@ Candidate minimum per role (a PROPOSAL built only from the servers above):
 
 | Role | Set | Why |
 | --- | --- | --- |
-| Relay (Vidur) | full (flag `mcp`) | Harsh, Q6; talks to Harsh and the connectors |
-| Dispatcher (Yudhishthira) | full (flag `mcp`, as today) | Harsh, Q6 |
+| Relay (Vidur) | full (flag `mcp`) | the user, Q6; talks to the user and the connectors |
+| Dispatcher (Yudhishthira) | full (flag `mcp`, as today) | the user, Q6 |
 | Bhishma (design) | none (`--strict-mcp-config`, no `--mcp-config`) | writes design papers and decisions as files; no commits ("helpers stage, Vidur commits", memory note); Aikido is run by whoever commits |
 | Arjun (code) | `aikido-mcp` only | the Aikido rule: `aikido_scan_paths` before every commit, and Arjun commits locally in worktrees (Arjun.md "commit on the feature branch at each green milestone"). `GitKraken` is not needed: `git` goes through Bash |
 | Karna (tests) | none by default; full only when a brief says a test needs it | Karna.md: builds, suites, e2e, the stack; "Test, Docker and Chrome runs cost no tokens"; none of it is MCP in what I read |
@@ -235,7 +236,7 @@ Mechanism (flag on):
 - Karna "full only if a test needs it": a brief header `mcp: full` (new, optional; documented in
   `docs/inbox-protocol.md`). Karna's standing pane stays `none`. A brief carrying `mcp: full` is run by
   `bin/sabha-run` headless with the full stack (`sabha-run` reads the header), so a pane never carries the stack
-  "just in case". This is a design choice that Harsh did not state; see open question Q-E.
+  "just in case". This is a design choice that the user did not state; see open question Q-E.
 - The one place all this is resolved: a function `sabha_mcp_args <Name> <brief-or-empty>` in `bin/sabha-lib.sh`,
   used by both `sabha-up.sh` (print and start paths) and `sabha-run` (`role_cmd`), which today duplicate the
   `sabha_flag "$r" mcp` test in three places [VERIFIED: `--print`, start path, and `role_cmd`].
@@ -243,7 +244,7 @@ Mechanism (flag on):
 ### 3.6 Load indicator contract (for the separate mod)
 
 `sabha-heavy status` is the only command the mod needs: `load <load1>/<cores> <green|amber|red> | mem <green|yellow|red> | slots <n>/<max>`.
-Colour: green when load1 <= cores, amber when <= 2 x cores, red above (Harsh, via brief 356 Task 4), so red is exactly
+Colour: green when load1 <= cores, amber when <= 2 x cores, red above (the user, via brief 356 Task 4), so red is exactly
 the gate's "wait" threshold. Whether the mod's own sandbox can run `sysctl` is UNVERIFIED (this agent's could not);
 if not, the mod uses the `uptime` fallback that `sabha-heavy status` already has. Not in scope here beyond this.
 
@@ -251,14 +252,14 @@ if not, the mod uses the `uptime` fallback that `sabha-heavy status` already has
 
 | Question | Choice | Why |
 | --- | --- | --- |
-| Flag count | One: `SABHA_EFFICIENCY` | Harsh, Q8: "behind a flag"; knobs below it are values, not switches |
-| Default | On, library default `1` | Harsh: "default on"; existing `sabha.conf` files without the line get it on |
+| Flag count | One: `SABHA_EFFICIENCY` | the user, Q8: "behind a flag"; knobs below it are values, not switches |
+| Default | On, library default `1` | the user: "default on"; existing `sabha.conf` files without the line get it on |
 | Profile source | Hardware tiers, lower tier wins; `SABHA_PROFILE` overrides | the scarcer of cores and RAM is the real limit |
 | Gate form | A script (`sabha-heavy`), not prose in the protocol | a model forgets a prose rule; an exit code does not (the "dispatcher forgets" failure this fixes) |
 | Counter | files plus `mkdir` lock, pid plus heartbeat plus TTL | no daemon exists in the kit; closes the runner's admitted race |
 | Memory signal | `kern.memorystatus_vm_pressure_level` | only source of the real colour; `memory_pressure -Q` gives a percent |
 | Gate failure to read | WAIT, never GO | a blind GO is how the box reached load 103 |
-| Starter | `sabha-loop` primary line; raw line behind `--raw` | Harsh, Q5 |
+| Starter | `sabha-loop` primary line; raw line behind `--raw` | the user, Q5 |
 | MCP | named sets via `--mcp-config`, resolved in one lib function | one place instead of three |
 | Karna full stack | per brief (`mcp: full`) via headless run | keeps the standing pane light |
 
@@ -308,7 +309,7 @@ brief header `mcp:` are ignored. Proof: A1.
 | `SABHA_EFFICIENCY` | `1` | the one flag |
 | `SABHA_PROFILE` | `auto` | `lite`, `standard`, `full` |
 | `SABHA_HEAVY_MAX` | from profile (1 / 2 / 3) | heavy jobs at once |
-| `SABHA_HEAVY_LOAD_FACTOR` | `2` | wait when load1 > factor x cores (Harsh) |
+| `SABHA_HEAVY_LOAD_FACTOR` | `2` | wait when load1 > factor x cores (the user) |
 | `SABHA_HEAVY_WAIT` | `900` | seconds `acquire` polls before it gives up (exit 75) [PROPOSAL] |
 | `SABHA_HEAVY_TTL` | `1800` | seconds without a heartbeat before a slot is stale [PROPOSAL] |
 | `SABHA_HEAVY_SETTLE` | `45` | seconds between two acquisitions [PROPOSAL] |
@@ -334,8 +335,8 @@ brief header `mcp:` are ignored. Proof: A1.
 | `README.md`, `CHANGELOG.md` | one row in the table of `bin/` files; a changelog entry |
 | `tests/test-profile.sh`, `tests/test-heavy.sh` | NEW (A2 to A5, A8) |
 | `tests/test-grid.sh`, `tests/test-run.sh` | add flag-off and flag-on cases (A1, A6, A7) |
-| `Arcus-Dev/docs/pdf-report-2.0/impl/protocol/Yudhishthira.md` (workspace, not this repo) | the dispatcher paragraph: run `sabha-heavy` before every heavy job, route Bhima's arcus work to Bhishma or a headless run, tell the relay the verdict line |
-| `Arcus-Dev/.sabha/...` or the live `sabha.conf` (workspace) | `SABHA_EFFICIENCY=1`, the three panes, `SABHA_MCP_Arjun=aikido`, the `mcp` flag on Vidur, `.sabha/mcp/aikido.json` |
+| `$SABHA_IMPL/protocol/Yudhishthira.md` (workspace, not this repo) | the dispatcher paragraph: run `sabha-heavy` before every heavy job, route Bhima's backend work to Bhishma or a headless run, tell the relay the verdict line |
+| `<workspace>/.sabha/...` or the live `sabha.conf` (workspace) | `SABHA_EFFICIENCY=1`, the three panes, `SABHA_MCP_Arjun=aikido`, the `mcp` flag on Vidur, `.sabha/mcp/aikido.json` |
 
 Not touched: `bin/sabha-for-me`, `bin/sabha-down.sh`, the Windows scripts (`sabha-up.ps1`, `sabha-up.cmd`; the gate and
 profiles are macOS and Linux only, as `sabha-run` is, and Windows keeps today's behaviour with the flag effectively
@@ -350,7 +351,7 @@ off [UNVERIFIED: `sabha-up.ps1` was not read]).
   old one ("a row without one is claude" per `sabha.conf.example`). Is the live grid started from the plugin copy or
   from `~/Work/claude-sabha`? Both need the change or only one? Not verified which one `sabha-up.sh` runs today.
 - Q-C Headless count. Do the 2 headless runs of Standard count toward the "5 sessions"? This spec says no (5 is
-  standing sessions; headless are short-lived and capped separately). Harsh's wording ("the rest ... headless
+  standing sessions; headless are short-lived and capped separately). the user's wording ("the rest ... headless
   sessions managed by the dispatcher") allows either.
 - Q-D Telling the relay. Status-file top block plus a nudge (this spec) or a real brief to `inbox/<Relay>/` for every
   wait? A brief is heavier but durable.
@@ -358,7 +359,7 @@ off [UNVERIFIED: `sabha-up.ps1` was not read]).
   with the full set? The first keeps one fewer standing session; the second keeps Karna's context between tests.
 - Q-F Arjun and Aikido. Is `aikido-mcp` alone the minimum for Arjun, or should Arjun not commit at all (Vidur commits and
   scans) so that Arjun gets `none`? The Aikido rule says "before every commit"; who commits decides it.
-- Q-G Lite and Full numbers (3 / 5 / 8 sessions, 1 / 2 / 3 heavy jobs, the tier cut-offs). All PROPOSAL. Does Harsh
+- Q-G Lite and Full numbers (3 / 5 / 8 sessions, 1 / 2 / 3 heavy jobs, the tier cut-offs). All PROPOSAL. Does the user
   want to set them or wait for the A9 measurement?
 - Q-H Thresholds. SETTLE 45 s, TTL 1800 s, WAIT 900 s and FREE_PCT 40 are mine. Keep, or change?
 - Q-I Does the plugin-contributed `aikido-mcp` load under `--strict-mcp-config`? Decides whether the named-set file is
@@ -366,3 +367,17 @@ off [UNVERIFIED: `sabha-up.ps1` was not read]).
 - Q-J The gate runs inside the dispatcher's sandbox, where `sysctl` was denied for this agent. Is the dispatcher
   sandboxed the same way? If so the `uptime` fallback is the main path, not the fallback, and core count needs a
   sandbox-safe read.
+
+## As built (4 Nov 2026)
+
+- Profiles set `PANE_MAX` (the grid opens the first panes in roster order and names the rest) instead of writing
+  `SABHA_PANES`; a user who wants specific roles sets `SABHA_PANES`, which always wins (Q-B).
+- MCP: a named set is `--mcp-config <files>` placed before `--model`, because the option takes several values and
+  would swallow the prompt; `--strict-mcp-config` stays where it was. With the flag on, the relay and the dispatcher
+  default to full (Q6), without a roster flag.
+- `sabha-heavy`: `--self-test` not built (tests/test-heavy.sh covers A3-A5); `sabha-check` and `sabha-watch` do not
+  print the gate yet.
+- Independent helpers (the user's question of 4 Nov) are PR #35 (`bin/sabha-helper`, `sabha-run --detach`), not this
+  branch; slots in `status/heavy/` and helpers in `status/helpers/` are separate directories.
+- Read on this Mac inside the Claude sandbox, 4 Nov 20:00: `HEAVY WAIT: load1 84.74 > 20 (10 cores)` - sysctl
+  readable there, so Q-J is answered for this session's sandbox.
