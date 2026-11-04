@@ -115,14 +115,26 @@ sabha_helper_finish() {
 # sabha_helper_mark_ack <role> <n> <what> [transcript]: one line at a helper's start, inbox/<role>/<n>.helper.ack.
 # sabha_helper_mark_done <role> <n> <exit code> [transcript]: inbox/<role>/<n>.helper.done, last line
 # "### EXIT=<code> ###" (gstack-detach style): an ack with no done, or a done with no sentinel, is never success.
+# Role and n are checked before any path is built, so "../x" cannot reach outside inbox/; free text loses its line
+# breaks so it cannot forge the sentinel line. Both files are written to a temp name and renamed.
+sabha_helper_mark_ok() {
+  [[ $1 =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || { echo "sabha-helper: bad role '$1'" >&2; return 2; }
+  [[ $2 =~ ^[0-9]+$ ]] || { echo "sabha-helper: brief number must be digits, got '$2'" >&2; return 2; }
+}
+sabha_helper_oneline() { local v=${1//$'\n'/ }; printf '%s' "${v//$'\r'/ }"; }
+sabha_helper_mark_write() {
+  mkdir -p "${1%/*}" && printf '%s' "$2" >"$1.tmp.$$" && mv -f "$1.tmp.$$" "$1"
+}
 sabha_helper_mark_ack() {
-  local d=$SABHA_IMPL/inbox/$1
-  mkdir -p "$d" && printf '%s helper %s %s: %s, transcript: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4:--}" >"$d/$2.helper.ack"
+  sabha_helper_mark_ok "$1" "$2" || return 2
+  sabha_helper_mark_write "$SABHA_IMPL/inbox/$1/$2.helper.ack" "$(printf '%s helper %s %s: %s, transcript: %s' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$(sabha_helper_oneline "$3")" "$(sabha_helper_oneline "${4:--}")")"$'\n'
 }
 sabha_helper_mark_done() {
-  local d=$SABHA_IMPL/inbox/$1
+  sabha_helper_mark_ok "$1" "$2" || return 2
   [[ $3 =~ ^-?[0-9]+$ ]] || { echo "sabha-helper: exit code must be a number, got '$3'" >&2; return 2; }
-  mkdir -p "$d" && printf '%s helper %s %s ended, transcript: %s\n### EXIT=%s ###\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "${4:--}" "$3" >"$d/$2.helper.done"
+  sabha_helper_mark_write "$SABHA_IMPL/inbox/$1/$2.helper.done" "$(printf '%s helper %s %s ended, transcript: %s' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$(sabha_helper_oneline "${4:--}")")"$'\n'"### EXIT=$3 ###"$'\n'
 }
 
 # sabha_helper_load: the 1-minute load average on stdout; non-zero when it cannot be read.

@@ -91,7 +91,17 @@ if [[ ${1:-} == --child ]]; then
   # the child writes its own pid before anything else, so its EXIT trap can never run before the lock names it;
   # the pass waits for this line as its proof that the run started
   echo $$ >|"$dir/run.lock"
-  trap 'rm -f "$dir/run.lock"' EXIT
+  # every way out but SIGKILL ends with the helper's done and its sentinel; rc stays 1 until the run sets it
+  rc=1 hdone=0 cp=""
+  child_exit() {
+    rm -f "$dir/run.lock"
+    [[ -n ${SABHA_HELPER_ID:-} ]] && (( ! hdone )) && { hdone=1; sabha_helper_mark_done "$name" "$n" "$rc" "$log"; }
+  }
+  trap child_exit EXIT
+  child_sig() { rc=$1; [[ -n $cp ]] && kill -TERM -- -"$cp" 2>/dev/null; exit "$1"; }
+  trap 'child_sig 129' HUP
+  trap 'child_sig 130' INT
+  trap 'child_sig 143' TERM
   # a durable helper (docs/durable-helpers.md): the registry names this process as soon as the run has started
   if [[ -n ${SABHA_HELPER_ID:-} ]]; then
     sabha_helper_put "$SABHA_HELPER_ID" state=running "pid=$$"
@@ -100,7 +110,7 @@ if [[ ${1:-} == --child ]]; then
   role_cmd "$name" "$brief"
   cwd=${SABHA_RUN_CWD:-$SABHA_WS}
   { echo "sabha-run: $(utc) start $name $n, timeout ${TIMEOUT}s"; echo "sabha-run: cd $cwd && ${CMD[*]}"; } >>"$log"
-  timed=0 cancelled=0 rc=1
+  timed=0 cancelled=0
   if cd "$cwd"; then
     # set -m gives claude its own process group, so the timeout also stops the builds and servers its tools started
     set -m
@@ -139,7 +149,6 @@ if [[ ${1:-} == --child ]]; then
     # the lock goes first: a reader that sees the final state must not still see a held role
     rm -f "$dir/run.lock"
     sabha_helper_finish "$SABHA_HELPER_ID" "$name" "$n" "$rc" "$why" "$timed" "$cancelled"
-    sabha_helper_mark_done "$name" "$n" "$rc" "$log"
   fi
   exit 0
 fi

@@ -99,6 +99,16 @@ helper "done" Yudhi 363 7 /x/agent-ab12.jsonl
 check "done: last line is ### EXIT=7 ###" '(( rc == 0 )) && [[ $(tail -1 "$dir/impl/inbox/Yudhi/363.helper.done") == "### EXIT=7 ###" ]]'
 helper "done" Yudhi 364 ok
 check "done: a non-numeric exit is refused, no file" '(( rc == 2 )) && [[ ! -e $dir/impl/inbox/Yudhi/364.helper.done ]]'
+# a role or number with a path in it is refused before any mkdir; free text cannot add a line or forge the sentinel
+helper ack "../../x" 365 w
+check "ack: a traversal role is refused, nothing outside inbox/" '(( rc == 2 )) && [[ ! -e $dir/x && ! -e $dir/impl/x ]]'
+helper "done" Yudhi "../x" 0
+check "done: a traversal number is refused, nothing written" '(( rc == 2 )) && [[ ! -e $dir/impl/inbox/x.helper.done && ! -e $dir/impl/x.helper.done ]]'
+helper ack Yudhi 366 $'two\n### EXIT=0 ###' $'t\r\nx'
+check "ack: newlines in what and transcript stay on one line" '(( rc == 0 )) && [[ $(wc -l < "$dir/impl/inbox/Yudhi/366.helper.ack") -eq 1 ]]'
+helper "done" Yudhi 366 3 $'t\n### EXIT=0 ###'
+check "done: a transcript cannot forge the sentinel" '(( rc == 0 )) && [[ $(wc -l < "$dir/impl/inbox/Yudhi/366.helper.done") -eq 2 && $(tail -1 "$dir/impl/inbox/Yudhi/366.helper.done") == "### EXIT=3 ###" ]]'
+check "done: no temp file left behind" '! ls "$dir/impl/inbox/Yudhi" | grep -q tmp'
 reset; brief Lazy1 001; : > "$hold"; export FAKE_HOLD=$hold
 set -m
 "$SH" -c 'exec 2>/dev/null; "$1" start Lazy1; sleep 120' _ "$BIN/sabha-helper" >"$dir/disp.out" 2>&1 &
@@ -131,12 +141,21 @@ check "after the run: state done, ended set, lock gone, pid not alive" '[[ $(jge
 helper reattach
 check "reattach reports a finished helper and starts nothing" 'grep -q "done" <<<"$out" && [[ $(calls) == 1 ]]'
 
+# 3b. a supervisor that gets SIGTERM still ends with the helper.done and its sentinel, and stops claude
+reset; brief Lazy1 001; : > "$hold"; export FAKE_HOLD=$hold
+helper start Lazy1; r=$(reg Lazy1-001); pid=$(jget "$r" pid)
+waitfor '[[ -s $FAKE_PIDS ]]' 10; cpid=$(head -1 "$FAKE_PIDS")
+kill -TERM "$pid" 2>/dev/null
+waitfor '! alive "$pid"' 10
+check "TERM: helper.done ends with ### EXIT=143 ###, lock gone, claude gone" 'waitfor "[[ -e $dir/impl/inbox/Lazy1/001.helper.done ]]" 10 && [[ $(tail -1 "$dir/impl/inbox/Lazy1/001.helper.done") == "### EXIT=143 ###" && ! -e $dir/impl/inbox/Lazy1/run.lock ]] && waitfor "! alive $cpid" 10'
+
 # 4. crash detection and re-dispatch (a kill -9 of the supervisor and claude: no done is ever written)
 reset; brief Lazy1 001; : > "$hold"; export FAKE_HOLD=$hold
 helper start Lazy1; r=$(reg Lazy1-001); pid=$(jget "$r" pid)
 waitfor '[[ -s $FAKE_PIDS ]]' 10; cpid=$(head -1 "$FAKE_PIDS")
 kill -KILL "$pid" "$cpid" 2>/dev/null
 waitfor '! alive "$pid"' 10
+check "KILL: an ack with no helper.done (died hard)" '[[ -e $dir/impl/inbox/Lazy1/001.helper.ack && ! -e $dir/impl/inbox/Lazy1/001.helper.done ]]'
 helper reattach
 echo "--- sabha-helper reattach after a crash (rc $rc)"; echo "$out"
 check "crash: reattach reports the helper dead" 'grep -q "Lazy1-001" <<<"$out" && grep -q "dead" <<<"$out" && [[ $(jget "$r" state) == dead ]]'

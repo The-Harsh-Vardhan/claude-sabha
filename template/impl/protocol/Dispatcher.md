@@ -16,8 +16,9 @@ Job:
 
 Helpers (any subagent you start): before it starts run `bin/sabha-helper ack <Role> <n> "<what>" [transcript]`; when it
 returns run `bin/sabha-helper done <Role> <n> <exit> [transcript]` (0 = success). The done ends with
-`### EXIT=<code> ###`; an ack with no done means the helper died (for example with a dispatcher restart), never that
-it succeeded. `sabha-run --detach` helpers write the pair themselves.
+`### EXIT=<code> ###`; an ack with no done means the helper died hard (SIGKILL, a dispatcher restart), never that
+it succeeded. `sabha-run --detach` helpers write the pair themselves, on TERM, INT and HUP too (exit 143, 130, 129);
+only SIGKILL leaves an ack with no done.
 
 Never: implement, or write a `go:` line for an irreversible step unless the relay's brief carries the user's word and
 the reviewer's ACCEPT exists.
