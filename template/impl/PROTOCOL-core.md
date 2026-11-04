@@ -64,7 +64,9 @@ and marks the rest for the user.
 
 `status/<name>.md`, top block only, written by its own role: line 1 is `Current: <task>` (or
 `Idle: by design (<reason>)`, or `Blocked: <reason>`), then the handoff. Copy the old file to
-`status/.bak/<name>-<utc>.md` before a full rewrite. Handoff shape:
+`status/.bak/<name>-<utc>.md` before a full rewrite. `bin/sabha-rotate` (dry run by default, `--apply` to write)
+trims a grown file to the top block plus the newest 10 entries after a full copy there; run `--apply` only while no
+role writes. Handoff shape:
 
 ```
 Continue this work in a fresh context (previous session at NN%).
