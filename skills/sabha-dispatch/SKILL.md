@@ -13,6 +13,7 @@ PROTOCOL-core "Roster", "Messages and budget".
 1. Read `inbox/<Dispatcher>/`; write `NNN.ack` first (section 3), before any work.
 2. Split the brief into pieces. Each piece is its own brief: `bin/sabha-brief <Worker> <dispatcher> <slug> "<task>"
    --output ... --body FILE` (it claims the number). Load `sabha-brief-writing`.
+   Refuse to send a brief that opens a UI or a login without its "Preflight (step 0)" section (`sabha-brief-writing`).
 3. Nudge each worker with one line: `see inbox/<Worker>/NNN`.
 4. Track. A brief with an ack and no `.done` is open; one with neither is unacked. `bin/sabha-watch` lists unacked
    briefs, the restart lines and open items. Resume any brief that has an ack and no done.

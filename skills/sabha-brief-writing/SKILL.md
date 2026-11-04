@@ -33,6 +33,15 @@ write a `NNN.cancel` instead to stop an earlier brief (section 5).
    `sabha-run` receiver cannot take a message, so use `done` for those (section 3).
 6. Say that a connected service is read or written only if the user named it (RULES.md rule 6).
 
+## Preflight (step 0) for a UI or a login
+
+A brief that opens a UI, or an API behind a login, starts with a "Preflight (step 0)" section: one read-only pass of
+`bin/sabha-preflight` before any build, server swap or export, its report written to the brief's output folder. It
+checks (1) a credential or session source exists (never read), (2) one cheap status call is accepted (401 session,
+402/403 account blocked), (3) the env files the worktree needs exist, or the brief names the allowed way to create
+them, (4) the port is free or its owner is named, (5) permission to start or stop the dev server, (6) headless is
+possible. On any FAIL the worker stops and reports every failure in one message, each with its human action.
+
 ## Go line and gate line
 
 An irreversible step (fold, push, PR, tag, release, migration, kill, restart, `rm -rf`, `docker compose down`, SQL
