@@ -54,6 +54,9 @@ SABHA_ROSTER="Relay:claude:opus:medium Dispatcher:claude:opus:medium Architect:c
 # A role id is one word (Ved Vyasa is Keeper). SABHA_PROMPT_<Name> replaces the
 # opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
 SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
+# SABHA_READS_<Name> replaces what the role reads first (the protocol core, its role file, its status file): for a role
+# that keeps its own role card and memory files. The tail (inbox, or SABHA_PROMPT_<Name>) still follows.
+#SABHA_READS_Architect="$SABHA_IMPL/architect/ROLE.md, then every file in $SABHA_IMPL/architect/MEMORY/"
 # Headless runner (bin/sabha-run, docs/headless-runner.md). Which roles it serves: lazy (default), all, or names.
 #SABHA_RUN_ROLES=lazy
 # At most this many runs at once (default 2); a run is stopped after SABHA_RUN_TIMEOUT seconds (default 3600).

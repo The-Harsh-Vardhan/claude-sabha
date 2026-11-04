@@ -220,7 +220,9 @@ sabha_role() {
 # character's voice, and the job comes first (Q9).
 sabha_reads() {
   # a copy Thor-1 shares Thor's card; a dash is not legal in a variable name
-  local lower card=$1 base=${1%-[0-9]*} voice tail= docs=${SABHA_DOCS:-$SABHA_IMPL}
+  local lower card=$1 base=${1%-[0-9]*} voice tail= docs=${SABHA_DOCS:-$SABHA_IMPL} own=SABHA_READS_${1%-[0-9]*}
+  # a role that keeps its own role card and memory (an Architect with ROLE.md) reads those, not the protocol files
+  [[ -n ${!own:-} ]] && { echo "${!own}"; return 0; }
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
   # a copy keeps the card of its base role unless the project has a card under the copy's own name
   [[ ! -f $docs/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=$base
