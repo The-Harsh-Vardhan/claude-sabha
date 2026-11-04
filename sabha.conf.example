@@ -46,6 +46,12 @@ SABHA_ROSTER="Relay:claude:opus:medium Dispatcher:claude:opus:medium Architect:c
 # every other profile is on demand: a subagent of the dispatcher with its own model and effort, or sabha-up.sh <Name>.
 # When unset, the flags above decide.
 #SABHA_PANES="Relay Dispatcher BuilderHeavy BuilderPrecise Writer"
+# Efficiency (docs/specs/efficiency-profiles.md). 1 (default) = on: a profile from cores and RAM (the lower tier wins)
+# caps the panes when SABHA_PANES is unset (lite 2, standard 4, full 7: the first panes in roster order) and sets the
+# defaults of SABHA_RUN_MAX and SABHA_HEAVY_MAX (lite 1, standard 2, full 3); --print gives the sabha-loop line; per-role
+# MCP sets. Any other value = off, the behaviour before it. SABHA_PROFILE: auto (default), lite, standard or full.
+SABHA_EFFICIENCY=1
+#SABHA_PROFILE=auto
 # Copies: BuilderPrecise-1, BuilderPrecise-2 ... take BuilderPrecise's profile with their own inbox, status file and worktree; at most this many
 # per role (2 on Pro, 4 on Max).
 #SABHA_MAX_COPIES=2

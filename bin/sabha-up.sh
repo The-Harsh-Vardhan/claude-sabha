@@ -166,6 +166,16 @@ for n in ${PANES[@]+"${PANES[@]}"}; do
   [[ -z ${SABHA_PANES:-} ]] && sabha_flag "$R_ENTRY" lazy && continue
   if sabha_flag "$R_ENTRY" gate; then gate+=("$n"); else build+=("$n"); fi
 done
+# the profile's pane cap (SABHA_EFFICIENCY, no SABHA_PANES): the first panes in roster order open, the rest are on demand
+all=("${build[@]}" ${gate[@]+"${gate[@]}"})
+if (( PANE_MAX > 0 && ${#all[@]} > PANE_MAX )); then
+  echo "sabha-up: profile $(sabha_profile) opens $PANE_MAX panes; not opened: ${all[*]:PANE_MAX}"
+  build=() gate=()
+  for n in "${all[@]:0:PANE_MAX}"; do
+    sabha_role "$n"
+    if sabha_flag "$R_ENTRY" gate; then gate+=("$n"); else build+=("$n"); fi
+  done
+fi
 (( ${#build[@]} >= 1 && ${#build[@]} <= 8 && ${#gate[@]} <= 8 )) ||
   { echo "sabha-up: each tab holds up to 8 panes (Build has ${#build[@]}, Gate has ${#gate[@]})" >&2; exit 1; }
 # on-demand roles have no pane, so only the panes are checked (the relay too when SABHA_PANES lists it)
