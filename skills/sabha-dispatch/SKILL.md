@@ -44,4 +44,6 @@ model. Start a copy with `sabha-up.sh BuilderPrecise-2`. Run independent briefs 
   the user, with the default the worker is using.
 - Never implement. Never write a `go:` for an irreversible step unless the relay's brief carries the user's word and
   the gate passes (`bin/sabha-gate --brief`); see `sabha-gate-review`.
+- Refused (an approved external write or kill denied to you or a helper): stop, do not retry; write a pack and queue it
+  `BLOCKED-HARSH` as docs/delegated-writes.md says.
 - To stop a brief, write `inbox/<To>/NNN.cancel` (`utc:`, `reason:`); it beats any message (section 5).
