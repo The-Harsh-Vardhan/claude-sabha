@@ -42,6 +42,9 @@ checks (1) a credential or session source exists (never read), (2) one cheap sta
 them, (4) the port is free or its owner is named, (5) permission to start or stop the dev server, (6) headless is
 possible. On any FAIL the worker stops and reports every failure in one message, each with its human action.
 
+Browsers are headless by default. A brief that needs a window says `headed: yes` and why; a login that needs the
+human runs once through `bin/sabha-login-helper`, which closes the browser and exits on success or timeout.
+
 ## Go line and gate line
 
 An irreversible step (fold, push, PR, tag, release, migration, kill, restart, `rm -rf`, `docker compose down`, SQL
