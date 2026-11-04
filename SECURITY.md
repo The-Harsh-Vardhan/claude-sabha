@@ -144,7 +144,12 @@ and Stop clear it. Escape: with no conf or a broken one the guard denies every c
 matched by name only, so a secret under another name is still read; `git log -p`, `--all`, `git diff` and `git show`
 print committed history, so a secret that was ever committed is readable; the directory-operand check for `grep` and
 a relative symlink in a Bash word are judged from the hook's cwd, not a `cd` earlier in the same line (the recursion
-flags are the control); paths outside the workspace (`/etc/hosts`) are not refused, since the relay reads other repos.
+flags are the control); a secret reached through a symlinked parent directory in a Bash word (`lnk/file` with `lnk` ->
+`.aws`) passes, since only a word that is itself a symlink is resolved; the `grep` pattern word is a guess (the first
+plain word, unless `-e` or `--regexp` is seen), so an option argument such as `-A 3` takes the pattern's place and the
+real pattern is then checked as an operand, which can only deny more; a Grep or Glob glob is tried against a fixed list
+of sample secret names (`.env`, `.env.local`, `x.env`, `x.pem`, `id_rsa` and the like), so a glob that matches only an
+unlisted variant passes; paths outside the workspace (`/etc/hosts`) are not refused, since the relay reads other repos.
 The guard prevents accidents in a trusted session and is not a sandbox: a read gap found from here on is documented as
 a limit unless it opens a push, a post, a delete or a write. Keep the deny list.
 
