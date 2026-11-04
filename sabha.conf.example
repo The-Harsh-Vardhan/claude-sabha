@@ -53,6 +53,8 @@ SABHA_ROSTER="Relay:claude:opus:medium Dispatcher:claude:opus:medium Architect:c
 #SABHA_LABEL_Architect="Architect"
 # A role id is one word (Ved Vyasa is Keeper). SABHA_PROMPT_<Name> replaces the
 # opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
+# The relay briefs and asks; it never pushes, posts or restarts panes (sabha-loop restarts them, the human pushes).
+SABHA_PROMPT_Relay="then inbox/Relay/ (ack any brief without an ack; resume any with an ack and no done), and continue from the status file's top block. You are the relay: turn each request into a brief for the dispatcher, or run the one command the user wrote in this message. Never push, post or publish, never run a queued push, never restart, type into or press keys in a pane: queue the exact command in for-me.items for the user. Write your handoff to status/relay.md when sabha-loop warns (250k tokens); it restarts you fresh at 300k. Report to the user."
 SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
 # Headless runner (bin/sabha-run, docs/headless-runner.md). Which roles it serves: lazy (default), all, or names.
 #SABHA_RUN_ROLES=lazy
@@ -62,6 +64,19 @@ SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-de
 # One log per run (default $SABHA_IMPL/runs). SABHA_RUN_AUTO=1 makes each sabha-watch run end with a sabha-run pass.
 #SABHA_RUN_LOGS=$SABHA_IMPL/runs
 #SABHA_RUN_AUTO=1
+# 1 = the relay may only read, brief (inbox/, memory) and ask; bin/sabha-relay-guard denies the rest. "you do it" as the
+# first line of a prompt = one turn. On here; sabha-up.sh defaults to 0 when the conf does not set it. If the guard
+# locks you out (a broken conf denies every call), set 0 here and restart the relay.
+SABHA_RELAY_GUARD=1
+# More files the guarded relay may write besides inbox/, its status/<name>.md, for-me.items and memory: absolute
+# paths, space-separated, a glob in the last part only, one directory deep.
+#SABHA_RELAY_WRITE="$SABHA_WS/docs/reviews/*-review.md $SABHA_WS/docs/questions/*"
+# The relay's sabha-loop warns (log and a nudge to write the handoff) at SABHA_RELAY_WARN_K thousand tokens and restarts
+# it fresh at SABHA_RELAY_STOP_K once the handoff is saved; SABHA_RELAY_WINDOW_K is its context window size. For the
+# relay these replace SABHA_LOOP_LIMIT, even one you set.
+#SABHA_RELAY_WARN_K=250
+#SABHA_RELAY_STOP_K=300
+#SABHA_RELAY_WINDOW_K=1000
 # Pane supervisor (bin/sabha-loop <Name>) and usage alerts (bin/statusline-sabha.sh, bin/sabha-limits.sh).
 # Claude panes restart fresh at SABHA_LOOP_LIMIT percent context once the handoff is saved; a context file older
 # than SABHA_LOOP_STALE seconds only warns. SABHA_NOTIFY lists the usage percentages (5-hour and 7-day windows) that

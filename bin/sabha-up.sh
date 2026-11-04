@@ -78,6 +78,19 @@ role() {
   tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
   [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
   reads=$(sabha_reads "$name")
+  # SABHA_RELAY_GUARD=1: the relay's tools go through bin/sabha-relay-guard (hooks in --settings, on top of the user's)
+  guard_set=()
+  if [[ ${SABHA_RELAY_GUARD:-0} == 1 && $R_BASE == "$RELAY" ]]; then
+    local g=$SABHA_BIN/sabha-relay-guard h js
+    [[ $g != *[\"\\\'\$\`]* ]] || { echo "sabha-up: SABHA_RELAY_GUARD needs a sabha path with no quote, backslash, \$ or backtick" >&2; exit 1; }
+    # printf turns \\ into \, so the JSON keeps \" around the path
+    h='{"type":"command","command":"\\"%s\\" %s"}'
+    # built outside the array assignment: bash 3.2 brace-expands a $(...) inside arr=(...)
+    [[ $name =~ ^[A-Za-z0-9_]+$ ]] || { echo "sabha-up: SABHA_RELAY_GUARD needs a relay name of letters, digits and _" >&2; exit 1; }
+    # pre gets the relay's name (its own status files); SessionStart clears an override a crashed session left
+    js=$(printf "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"*\",\"hooks\":[$h]}],\"UserPromptSubmit\":[{\"hooks\":[$h]}],\"Stop\":[{\"hooks\":[$h]}],\"SessionStart\":[{\"hooks\":[$h]}]}}" "$g" "pre $name" "$g" prompt "$g" stop "$g" start)
+    guard_set=(--settings "$js")
+  fi
   prompt="You are $who in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
 }
 
@@ -94,8 +107,9 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   chrome=""; (( CHROME )) && chrome=" --chrome"
   # an account's token is never printed: the line reads it from its variable when it runs, and stops if that is unset
   acct=$(sabha_account "$name") || exit 1
+  al=""; (( ${#guard_set[@]} )) && al=" --settings '${guard_set[1]}'"
   envp=""; [[ -n $acct ]] && envp="CLAUDE_CODE_OAUTH_TOKEN=\"\${CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_$acct:?}\" "
-  echo "cd \"$SABHA_WS\" && ${envp}claude -n $name --model $model --effort $effort$mcp$remote$chrome \"$prompt\""
+  echo "cd \"$SABHA_WS\" && ${envp}claude -n $name --model $model --effort $effort$mcp$remote$chrome$al \"$prompt\""
   echo "pane: cd \"$SABHA_WS\" && '$LOOP' $name"
   exit 0
 fi
@@ -155,7 +169,7 @@ if [[ $# -eq 1 ]]; then
   chrome=(); (( CHROME )) && chrome=(--chrome)
   # the agent keeps its own account's token and not the other accounts' variables
   sabha_account_scrub
-  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} ${remote[@]+"${remote[@]}"} ${chrome[@]+"${chrome[@]}"} "$prompt"
+  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} ${remote[@]+"${remote[@]}"} ${chrome[@]+"${chrome[@]}"} ${guard_set[@]+"${guard_set[@]}"} "$prompt"
 fi
 
 # two tabs: Build takes the pane roles in pane order, Gate takes those flagged "gate"; each is two rows of up to four.
