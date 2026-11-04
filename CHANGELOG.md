@@ -35,7 +35,12 @@
   `tests/test-doctor.sh`. Second fix pass (gate 116): more secret names (`.envrc`, `*.env*`, `.netrc`, `credentials`,
   `.aws/`), no recursive grep (Bash `-r`/`-R`/`-d`/`--include`, a directory operand; the Grep tool over a directory
   needs a glob like `**/*.md`), git refuses `-C`, `-O<file>` and `--no-index`, and the conf runs in its own bash so a
-  conf exiting 100 denies instead of allowing; `HEAD~1` passes as a word.
+  conf exiting 100 denies instead of allowing; `HEAD~1` passes as a word. Third pass (gate 117): names match in any
+  case (`cat .ENV` on APFS), the env names are `.env`, `.env.*`, `*.env`, `.envrc` (`.environment` reads again), more
+  names (`.pgpass`, `.git-credentials`, `kubeconfig`, `credentials*`, `creds`, `.git/config`, `.docker/config.json`),
+  a `[` or `{` only refuses a Grep/Glob glob that could match a secret (`[id]` route files read), a Bash word naming a
+  symlink is judged by its target, `grep -f`/`--file` refused, the grep pattern word may name a directory, and
+  `git -C <dir>` passes when the dir's real path is inside `SABHA_WS` (the workspace session start uses it).
 - The relay is code-guarded: `hooks/sabha-guard.sh` no longer exempts the relay, so no role pushes, publishes or posts
   (the human does). `sabha-loop` warns the relay at `SABHA_RELAY_WARN_K` (250k tokens: a log line and a nudge to write
   the handoff) and restarts it fresh at `SABHA_RELAY_STOP_K` (300k) once the handoff is saved, as percent of

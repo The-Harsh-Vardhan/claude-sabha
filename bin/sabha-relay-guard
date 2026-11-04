@@ -100,22 +100,42 @@ writable() {
   [[ $p == "$mem"* && -n ${p#"$mem"} && ${p#"$mem"} != */* ]]
 }
 
-# secret <path>...: one of the paths names a file the relay never reads: .env*, *.env*, .npmrc, .netrc, credentials,
-# anything under .aws, *.pem, *.key, id_*. By name only (the last part after / : or =); the workspace CLAUDE.md lists
-# .testsigma-github.env and the like, which *.env* covers. A [ or { in the name is refused too, so .e[n]v cannot hide
+# secret <path>...: one of the paths names a file the relay never reads: .env, .env.*, *.env, .envrc, .npmrc, .netrc,
+# .pgpass, .git-credentials, kubeconfig, credentials*, creds, *.pem, *.key, id_*, anything under .aws, .git/config and
+# .docker/config.json. By name only (the last part after / : or =) and in any case (APFS is case-insensitive, so .ENV
+# opens .env); the workspace CLAUDE.md lists .testsigma-github.env and the like, which *.env covers
 secret() {
-  local n r
+  local n hit=1
+  shopt -s nocasematch
   for n in "$@"; do
-    case /$n in */.aws|*/.aws/*|*'['*|*'{'*) return 0 ;; esac
-    r=${n##*[/:=]}
-    case $r in .env*|*.env*|.npmrc|.netrc|credentials|*.pem|*.key|id_*) return 0 ;; esac
+    case /$n in */.aws|*/.aws/*|*/.git/config|*/.docker/config.json) hit=0; break ;; esac
+    case ${n##*[/:=]} in
+      .env|.env.*|*.env|.envrc|.npmrc|.netrc|.pgpass|.git-credentials|kubeconfig|credentials*|creds|*.pem|*.key|id_*)
+        hit=0; break ;;
+    esac
   done
-  return 1
+  shopt -u nocasematch
+  return $hit
+}
+
+# glob_secret <glob>: a Grep or Glob tool glob whose last part could match a secret name (.e[n]v, *, .en?): a brace
+# is refused outright, any other glob is tried against sample secret names. A literal path ([id].tsx) is no glob
+# shellcheck disable=SC2254  # $g is a glob on purpose
+glob_secret() {
+  local g=${1##*/} s hit=1
+  [[ $g == *'{'* ]] && return 0
+  secret "$1" && return 0
+  shopt -s nocasematch
+  for s in .env .env.local x.env .envrc .npmrc .netrc .pgpass .git-credentials kubeconfig credentials creds x.pem x.key id_rsa; do
+    case $s in $g) hit=0; break ;; esac
+  done
+  shopt -u nocasematch
+  return $hit
 }
 
 # narrow_glob <glob>: a Grep tool glob that only reaches files by extension (*.md, docs/**/*.go), so a search over a
 # directory cannot read a secret file inside it
-narrow_glob() { [[ $1 =~ ^[A-Za-z0-9_./*-]*\*\.[A-Za-z0-9]+$ ]] && ! secret "$1"; }
+narrow_glob() { [[ $1 =~ ^[A-Za-z0-9_./*-]*\*\.[A-Za-z0-9]+$ ]] && ! glob_secret "$1"; }
 
 # read_only <command>: every segment between ; & | is on the list and every word is plain: letters, digits and
 # . _ / = : @ , + - only (and a trailing ~<n> after a letter or digit). No quote, so a quoted '--output=x' cannot
@@ -124,7 +144,7 @@ narrow_glob() { [[ $1 =~ ^[A-Za-z0-9_./*-]*\*\.[A-Za-z0-9]+$ ]] && ! secret "$1"
 # in. A command over 2000 characters is refused.
 # ponytail: a grep pattern with a space or a quote is refused; the relay then briefs it instead
 read_only() {
-  local c=$1 seg i t sub segs w
+  local c=$1 seg i t sub segs w pat d ws cded=0
   # a read-only one-liner never needs more; the cap comes first because the pattern work below is super-linear on
   # bash 3.2 (20 KB took over 50 s), and a hook that times out is not a block
   (( ${#c} <= 2000 )) || return 1
@@ -148,19 +168,27 @@ read_only() {
       # a revision may end in ~<n> (HEAD~1): after a letter or digit it is no tilde expansion, even in zsh
       [[ $t == =* || ! $t =~ ^([A-Za-z0-9._/=:@,+-]*[A-Za-z0-9]~[0-9]+|[A-Za-z0-9._/=:@,+-]+)$ ]] && return 1
       secret "$t" && return 1
+      # a word naming an existing symlink is judged by its target too (lnk -> .env)
+      [[ -L $t ]] && { secret "$(realpath -- "$t" 2>/dev/null)" "$(readlink -- "$t")" && return 1; }
     done
     case ${w[0]} in
-      ls|cat|head|tail|wc|stat|du|date|pwd|cd|echo|true) continue ;;
+      cd) cded=1; continue ;;
+      ls|cat|head|tail|wc|stat|du|date|pwd|echo|true) continue ;;
       grep)
         # a named file only: a recursive grep reads every file under the directory, secrets included. Any short
         # option word holding r, R or d is refused (-rn, -d recurse), so is a directory operand (best effort: the
-        # hook's cwd, not a cd earlier in the line)
+        # hook's cwd, not a cd earlier in the line). The pattern (the first plain word, unless an -e gives it) may
+        # name a directory. -f and --file read the pattern from a file, so any file, and are refused
+        pat=1
+        for t in "${w[@]:1}"; do case $t in --regexp*|-[!-]*e*) pat=0 ;; esac; done
         for t in "${w[@]:1}"; do
           case $t in
-            --recursive|--dereference-recursive|--directories*|--include*|--exclude*|--devices*|.|..|*/) return 1 ;;
-            --*) ;;
-            -*[rRd]*) return 1 ;;
+            --recursive|--dereference-recursive|--directories*|--include*|--exclude*|--devices*|--file*|.|..|*/) return 1 ;;
+            --*) continue ;;
+            -*[rRdf]*) return 1 ;;
+            -*) continue ;;
           esac
+          (( pat )) && { pat=0; continue; }
           [[ -d $t ]] && return 1
         done
         continue ;;
@@ -168,9 +196,18 @@ read_only() {
       *) return 1 ;;
     esac
     # git: -c, --output and --ext-diff can run or write something; -O<file> and --no-index read any file; so they
-    # never pass. A global option before the subcommand (-C <dir>, --git-dir) is not a subcommand and is refused
+    # never pass. Of the global options only -C <dir> passes, for a dir whose real path is inside SABHA_WS and with no
+    # cd earlier in the line (the hook cannot follow it); --git-dir and the rest are refused
     for t in "${w[@]}"; do case $t in -c|-O*|--no-index|--output*|--ext-diff|--exec*) return 1 ;; esac; done
     i=1
+    if [[ ${w[1]:-} == -C ]]; then
+      t=${w[2]:-}
+      [[ $t == /* ]] || (( ! cded )) || return 1
+      [[ -n ${SABHA_WS:-} && -n $t && -d $t ]] || return 1
+      d=$(realpath -- "$t" 2>/dev/null) && ws=$(realpath -- "$SABHA_WS" 2>/dev/null) || return 1
+      [[ $d == "$ws" || $d == "$ws"/* ]] || return 1
+      i=3
+    fi
     sub=${w[i]:-}
     case $sub in
       status|log|diff|show|rev-parse) ;;
@@ -184,11 +221,13 @@ read_only() {
 tool=$(jq -r '.tool_name // ""' <<<"$in" 2>/dev/null)
 case $tool in
   Read|Grep|Glob)
-    for k in file_path path glob; do
+    for k in file_path path; do
       v=$(jq -r --arg k "$k" '.tool_input[$k] // "" | strings' <<<"$in" 2>/dev/null)
       # by the name given and, for a symlink, the name it points to
       [[ -n $v ]] && secret "$v" "$(realpath -- "$v" 2>/dev/null)" && deny "$tool of a secret file"
     done
+    v=$(jq -r '.tool_input.glob // "" | strings' <<<"$in" 2>/dev/null)
+    [[ -n $v ]] && glob_secret "$v" && deny "$tool with a glob that can reach a secret file"
     if [[ $tool == Grep ]]; then
       # Grep over a directory (no path = the cwd) reads every file in it: only with a narrow glob such as *.md
       v=$(jq -r '.tool_input.path // "" | strings' <<<"$in" 2>/dev/null)

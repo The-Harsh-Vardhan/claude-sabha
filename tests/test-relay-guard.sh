@@ -84,8 +84,32 @@ done
 check "Grep with a relative path and the hook cwd is judged as that dir" 'hook pre "$(jq -cn --arg c "$dir" '"'"'{tool_name: "Grep", cwd: $c, tool_input: {pattern: "x", path: "ws"}}'"'"')"; (( rc == 2 ))'
 check "Glob for .envrc is denied" 'denies Glob glob "**/.envrc"'
 check "Read of README.md is allowed" 'allows Read file_path "$dir/ws/README.md"'
+for f in .ENV .Env a.KEY .pgpass .git-credentials kubeconfig credentials.json creds .git/config .docker/config.json; do
+  check "Read of $f is denied" 'denies Read file_path "$dir/ws/$f"'
+done
+for f in .environment x.envelope.md .envs-notes 'app/[id]/page.tsx' 'app/{x}/a.md'; do
+  check "Read of $f is allowed" 'allows Read file_path "$dir/ws/$f"'
+done
+check "Grep over a directory with glob .en? is denied" 'gr "$dir/ws" ".en?"; (( rc == 2 ))'
+check "Glob for app/[id]/*.tsx is allowed" 'allows Glob glob "app/[id]/*.tsx"'
+check "Glob for .e[n]v is denied" 'denies Glob glob "**/.e[n]v"'
 
-for c in 'ls -la inbox' 'cat status/x.md | head -5' 'git log --oneline -3 2>/dev/null' 'git status && git diff' \
+# the Bash checks run from a cwd this test owns, so a dir named like a grep operand in the caller's cwd does not count
+cw=$dir/ws/cw; mkdir -p "$cw/docs" "$cw/sub/.git" "$dir/out"
+: >"$cw/.env"; ln -s "$cw/.env" "$cw/lnk"; ln -s "$dir/out" "$cw/outlnk"
+cd "$cw" || exit 1
+for c in 'grep docs a.md' 'grep -e docs a.md' 'git log --all -p' 'git -C sub branch --show-current' \
+         "git -C $cw/sub log -1" 'git -C docs/.. log' "cd sub; git -C $cw log"; do
+  check "Bash read-only: $c" 'allows Bash command "$c"'
+done
+for c in 'cat .ENV' 'head .Env' 'cat a.KEY' 'grep S .ENV' 'cat .pgpass' 'cat .git-credentials' 'cat kubeconfig' \
+         'cat credentials.json' 'cat creds' 'cat .git/config' 'cat .docker/config.json' 'cat .aws/x' \
+         'grep -f /etc/passwd x' 'grep -e x -f /etc/hosts' 'grep --file=/etc/hosts x' 'grep -f/etc/hosts x f' \
+         'grep -ef x a.md' 'grep x docs' 'grep -e x docs' 'cat lnk' 'grep S lnk' 'git -C outlnk log' \
+         'cd docs; git -C sub log' 'git -C missing log' 'git -C sub push'; do
+  check "Bash denied: $c" 'denies Bash command "$c"'
+done
+for c in 'ls -la inbox''cat status/x.md | head -5' 'git log --oneline -3 2>/dev/null' 'git status && git diff' \
          'git branch --show-current' 'echo a=b' 'grep x docs/a.md' 'grep -n -i foo a.md | wc -l' 'git log -1' 'git diff HEAD~1' \
          'git log -p -1' 'tail -20 a >/dev/null 2>&1' 'echo hi 2>&1'; do
   check "Bash read-only: $c" 'allows Bash command "$c"'

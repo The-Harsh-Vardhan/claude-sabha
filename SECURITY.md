@@ -127,19 +127,26 @@ Claude hooks that `sabha-up.sh` gives the relay only (README, "Opt-in workflow f
 `inbox/`, the relay's own `status/<name>.md` and `status/<name>-night-*.md`, `for-me.items`, its flat project memory
 dir and the paths in `SABHA_RELAY_WRITE` (absolute, a glob in the last part only, one directory deep); a `.conf` and
 the conf itself never. Paths are resolved (a symlinked dir or file does not lead out). Read, Grep, Glob and Bash refuse
-`.env*`, `*.env*` (so `.envrc`, `.testsigma-github.env`, `.lab-agent.env`), `.npmrc`, `.netrc`, `credentials`, anything under `.aws/`, `*.pem`, `*.key` and `id_*` by name (the last part of a word after `/`, `:` or `=`; a `[` or `{` in a name is refused too). No
-recursive read: Bash `grep` takes no option word holding `r`, `R` or `d`, no `--recursive`, `--directories`,
-`--include`/`--exclude` and no directory operand; the Grep tool over a directory (or with no path) needs a narrow
-glob such as `**/*.md`. git refuses `-C <dir>` and other global options, `-O<file>` and `--no-index` (they read any
-file or another repo), besides `-c`, `--output` and `--ext-diff`. Bash words are plain (no quote, glob or
+`.env`, `.env.*`, `*.env` (so `.testsigma-github.env`, `.lab-agent.env`), `.envrc`, `.npmrc`, `.netrc`, `.pgpass`,
+`.git-credentials`, `kubeconfig`, `credentials*`, `creds`, `*.pem`, `*.key`, `id_*`, anything under `.aws/`,
+`.git/config` and `.docker/config.json` by name, in any case (the last part of a word after `/`, `:` or `=`; a Bash
+word naming a symlink is judged by its target too). A Grep or Glob glob with a `{` is refused, and one that could match
+a secret name (`.e[n]v`, `*`, `.en?`) too; a literal `[id]` in a path is fine. No recursive read: Bash `grep` takes no
+option word holding `r`, `R` or `d`, no `--recursive`, `--directories`, `--include`/`--exclude` and no directory
+operand (the pattern word may name one); `-f` and `--file` (read the pattern from any file) are refused; the Grep tool
+over a directory (or with no path) needs a narrow glob such as `**/*.md`. git refuses global options except
+`-C <dir>` whose real path is inside `SABHA_WS` (and, for a relative dir, no `cd` earlier in the line), and refuses
+`-O<file>` and `--no-index` (they read any file), besides `-c`, `--output` and `--ext-diff`. Bash words are plain (no quote, glob or
 expansion). The conf runs in its own bash and passes back only the values the guard reads, so a conf that exits
 (even `exit 100`, the internal allow code) or sets a trap is a broken setup and denies. A prompt whose first line is "you do it" lifts the guard for that turn, 10 minutes at most; SessionStart
 and Stop clear it. Escape: with no conf or a broken one the guard denies every call, Read too; set
 `SABHA_RELAY_GUARD=0` in `sabha.conf` and restart the relay (the deny message says so). Known limits: secrets are
-matched by name only, so a secret under another name, or a symlink named in a Bash word (not resolved), is still
-read; plain `git log -p`, `git diff` and `git show` print committed history, so a secret that was ever committed is
-readable; the directory-operand check for `grep` sees the hook's cwd, not a `cd` earlier in the same line (the
-recursion flags are the control). Keep the deny list.
+matched by name only, so a secret under another name is still read; `git log -p`, `--all`, `git diff` and `git show`
+print committed history, so a secret that was ever committed is readable; the directory-operand check for `grep` and
+a relative symlink in a Bash word are judged from the hook's cwd, not a `cd` earlier in the same line (the recursion
+flags are the control); paths outside the workspace (`/etc/hosts`) are not refused, since the relay reads other repos.
+The guard prevents accidents in a trusted session and is not a sandbox: a read gap found from here on is documented as
+a limit unless it opens a push, a post, a delete or a write. Keep the deny list.
 
 ## The deny list (`share/claude-settings.json`)
 
