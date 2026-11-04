@@ -27,4 +27,6 @@ o=$(SEED_PW=hunter2-secret P --var SEED_PW --session "$dir/state.json" --status-
 grep -q 'hunter2-secret\|cookies' <<<"$o" && fail "a secret or the session contents must never be printed: $o"
 
 P --bogus x 2>/dev/null; [[ $? -eq 2 ]] || fail "an unknown option is a usage error (2)"
+P --server maybe 2>/dev/null; [[ $? -eq 2 ]] || fail "--server takes yes|no only (2)"
+P --headless 1 2>/dev/null; [[ $? -eq 2 ]] || fail "--headless takes yes|no only (2)"
 echo "ok: 092 replay reports password, session, 402 and env file at once; 401; server/headless; healthy pass; no secret printed"

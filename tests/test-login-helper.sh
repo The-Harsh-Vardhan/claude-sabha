@@ -35,4 +35,11 @@ alive "$dir/helper-hang.pid" && fail "no login script may be left after the time
 
 # the script exits 0 but saved nothing
 o=$(bash "$BIN/sabha-login-helper" --session "$dir/empty.json" --timeout 5 -- true 2>&1); [[ $? -eq 1 ]] || fail "no session file must exit 1: $o"
-echo "ok: login helper exits 0 with mode 600 and no browser left, 124 on timeout with nothing left, 1 without a session"
+
+# a trailing option with no value is a usage error, never a spin
+for args in "--session" "--session $dir/x.json --timeout" "--session $dir/x.json --pidfile"; do
+  # shellcheck disable=SC2086
+  timeout 5 bash "$BIN/sabha-login-helper" $args >/dev/null 2>&1; rc=$?
+  [[ $rc -eq 2 ]] || fail "a trailing option ('$args') must exit 2 within 5 s, rc=$rc"
+done
+echo "ok: login helper exits 0 with mode 600 and no browser left, 124 on timeout with nothing left, 1 without a session, 2 on a trailing option"

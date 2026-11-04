@@ -12,10 +12,11 @@ set -u
 die() { echo "sabha-login-helper: $*" >&2; exit 2; }
 session="" secs=600 pidfile=""
 while [[ $# -gt 0 ]]; do
+  [[ $1 == -- || $# -ge 2 ]] || die "$1 needs a value"
   case $1 in
-    --session) session=${2:-}; shift 2 ;;
-    --timeout) secs=${2:-}; shift 2 ;;
-    --pidfile) pidfile=${2:-}; shift 2 ;;
+    --session) session=$2; shift 2 ;;
+    --timeout) secs=$2; shift 2 ;;
+    --pidfile) pidfile=$2; shift 2 ;;
     --) shift; break ;;
     *) die "unknown option $1" ;;
   esac

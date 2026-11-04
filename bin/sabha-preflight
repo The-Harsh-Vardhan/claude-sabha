@@ -10,6 +10,7 @@
 #  4 port        --port N is free, or --port-owner names who serves it
 #  5 server      --server no = the brief does not allow starting or stopping the dev server
 #  6 headless    --headless no = the run needs a window (the brief must say headed: yes and why)
+# --status-cmd runs with bash -c: its text must come from the brief author only, never from untrusted input.
 # Exits 0 when every check passes, 1 when any fails, 2 on bad usage. --out also writes the report to FILE.
 set -u
 die() { echo "sabha-preflight: $*" >&2; exit 2; }
@@ -31,6 +32,8 @@ while [[ $# -gt 0 ]]; do
   shift 2
 done
 [[ -z $port || $port =~ ^[0-9]+$ ]] || die "--port takes a number"
+[[ $server == yes || $server == no ]] || die "--server takes yes or no"
+[[ $headless == yes || $headless == no ]] || die "--headless takes yes or no"
 report="" bad=0
 ok() { report+="ok    $1"$'\n'; }
 no() { report+="FAIL  $1"$'\n'"      human: $2"$'\n'; bad=$((bad + 1)); }

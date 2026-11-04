@@ -21,8 +21,9 @@ allow it.
 
 ## 3. A refusal is a stop
 
-Do not retry, rephrase or route the action through another role or tab. Record it in the human's queue as
-`BLOCKED-HARSH` (a `for-me.items` block with the pack path in `cmd:` or `why:`), and go on with the next local work.
+Do not retry, rephrase or route the action through another role or tab. Record it in the human's queue
+(for Arcus-Dev: `docs/harsh-queue.md`, state `BLOCKED-HARSH`) and as an open `for-me.items` block carrying the pack
+path in `cmd:` or `why:`, and go on with the next local work.
 
 ## 4. Optional: an allow rule the human adds
 
