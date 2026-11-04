@@ -27,6 +27,11 @@
   only as a whole word (`echo hi2>&1x` is refused), and a Bash command over 2000 characters is refused before any
   pattern work (a hook timeout does not block, so the cap is the control). Tests: `tests/test-relay-guard.sh`,
   `tests/test-doctor.sh`.
+- The relay is code-guarded: `hooks/sabha-guard.sh` no longer exempts the relay, so no role pushes, publishes or posts
+  (the human does). `sabha-loop` warns the relay at `SABHA_RELAY_WARN_K` (250k tokens: a log line and a nudge to write
+  the handoff) and restarts it fresh at `SABHA_RELAY_STOP_K` (300k) once the handoff is saved, as percent of
+  `SABHA_RELAY_WINDOW_K` (1000k). `sabha.conf.example` turns `SABHA_RELAY_GUARD` on and ships a `SABHA_PROMPT_Relay`
+  with no pushes and no pane restarts. Tests: `tests/test-hooks.sh`, `bin/sabha-loop --self-test`.
 
 ## 2.0.1 - 2026-10-20
 

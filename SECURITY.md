@@ -5,7 +5,7 @@ catch the honest mistake (the push a model emits out of habit) and make a delibe
 
 ## 1. The guard (`hooks/sabha-guard.sh`)
 
-A PreToolUse hook on the Bash tool. For every role except the relay it refuses a command whose first word (after env
+A PreToolUse hook on the Bash tool. For every role, the relay included, it refuses a command whose first word (after env
 assignments, `command`, `exec`, `sudo`, `env`, `timeout`, a path prefix, or an `&&`, `||`, `;`, `|`, `&`, `(`, `$(`,
 `then`, `do` or newline) is:
 

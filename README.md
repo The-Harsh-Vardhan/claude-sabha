@@ -396,7 +396,7 @@ All rows are UNTESTED live.
 | Hook | What |
 | --- | --- |
 | SessionStart | Loads the role's handoff and its open briefs |
-| PreToolUse guard | Blocks `git push`, `gh pr` and chat-service writes for every role except the relay |
+| PreToolUse guard | Blocks `git push`, `gh pr` and chat-service writes for every role, the relay included |
 | Stop | Reminds the role to update its handoff before the session ends |
 
 How these plug into the file bus: [ARCHITECTURE.md](ARCHITECTURE.md).
