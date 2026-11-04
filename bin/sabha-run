@@ -98,9 +98,8 @@ if [[ ${1:-} == --child ]]; then
     [[ -n ${SABHA_HELPER_ID:-} ]] && (( ! hdone )) && { hdone=1; sabha_helper_mark_done "$name" "$n" "$rc" "$log"; }
   }
   trap child_exit EXIT
+  # TERM only: the child is started under nohup, so HUP and INT are ignored at entry and bash cannot trap them
   child_sig() { rc=$1; [[ -n $cp ]] && kill -TERM -- -"$cp" 2>/dev/null; exit "$1"; }
-  trap 'child_sig 129' HUP
-  trap 'child_sig 130' INT
   trap 'child_sig 143' TERM
   # a durable helper (docs/durable-helpers.md): the registry names this process as soon as the run has started
   if [[ -n ${SABHA_HELPER_ID:-} ]]; then

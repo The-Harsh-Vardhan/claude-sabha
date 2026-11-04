@@ -64,10 +64,16 @@ grep -qx 'Dispatcher|see inbox/Worker/1000.done' "$dir/nudges" || fail "wrong nu
 echo "ok: a failed sabha_load claims no .done; after the fix it announces; with a theme on, nudges go to the role ids Dispatcher and Relay"
 
 # a helper's marker pair (NNN.helper.ack / NNN.helper.done, sabha-helpers.sh) is not a brief's: no nudge, no claim,
-# and an ack with a helper.done is not read as mid-task
+# and a helper.ack with no helper.done is not read as mid-task
 rm -f "$dir/nudges"; : >"$dir/inbox/Worker/006.helper.ack"; : >"$dir/inbox/Worker/006.helper.done"
-out=$(bash "$BIN/sabha-watch" 2>&1); sleep 1
+run; sleep 1
 [[ ! -s $dir/nudges ]] || fail "a helper.done must not nudge: $(cat "$dir/nudges")"
 [[ ! -e $dir/status/done-seen/Worker-006.helper ]] || fail "a helper.done must not be claimed"
+# mid-task is checked only for a role with a context file; 007.ack sorts after 006.helper.ack, so the old code
+# reported the helper, the new code must report the brief
+rm -f "$dir/inbox/Worker/006.helper.done"; : >"$dir/inbox/Worker/007.ack"
+mkdir -p "$dir/status/context"; echo 10 >"$dir/status/context/worker.txt"
+out=$(bash "$BIN/sabha-watch" 2>&1)
+grep -q 'mid-task.*inbox/Worker/007 acked' <<<"$out" || fail "brief 007 must read as mid-task: $out"
 grep -q '006.helper' <<<"$out" && fail "a helper.ack must not read as mid-task: $out"
 echo "ok: helper.ack and helper.done are ignored (no nudge, no claim, not mid-task)"

@@ -127,6 +127,8 @@ sabha_helper_mark_write() {
 }
 sabha_helper_mark_ack() {
   sabha_helper_mark_ok "$1" "$2" || return 2
+  # a redispatch acks the same number again; the last run's done would read as this run's end
+  rm -f "$SABHA_IMPL/inbox/$1/$2.helper.done"
   sabha_helper_mark_write "$SABHA_IMPL/inbox/$1/$2.helper.ack" "$(printf '%s helper %s %s: %s, transcript: %s' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$(sabha_helper_oneline "$3")" "$(sabha_helper_oneline "${4:--}")")"$'\n'
 }

@@ -109,6 +109,9 @@ check "ack: newlines in what and transcript stay on one line" '(( rc == 0 )) && 
 helper "done" Yudhi 366 3 $'t\n### EXIT=0 ###'
 check "done: a transcript cannot forge the sentinel" '(( rc == 0 )) && [[ $(wc -l < "$dir/impl/inbox/Yudhi/366.helper.done") -eq 2 && $(tail -1 "$dir/impl/inbox/Yudhi/366.helper.done") == "### EXIT=3 ###" ]]'
 check "done: no temp file left behind" '! ls "$dir/impl/inbox/Yudhi" | grep -q tmp'
+# a redispatch acks the same number again: the old run's done must not sit beside the new ack
+helper ack Yudhi 367 first; helper "done" Yudhi 367 143; helper ack Yudhi 367 again
+check "re-ack: the previous helper.done is removed" '(( rc == 0 )) && [[ -e $dir/impl/inbox/Yudhi/367.helper.ack && ! -e $dir/impl/inbox/Yudhi/367.helper.done ]]'
 reset; brief Lazy1 001; : > "$hold"; export FAKE_HOLD=$hold
 set -m
 "$SH" -c 'exec 2>/dev/null; "$1" start Lazy1; sleep 120' _ "$BIN/sabha-helper" >"$dir/disp.out" 2>&1 &
