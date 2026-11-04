@@ -51,5 +51,5 @@ appear, and the old row is marked retired with its id in your status file.
 - Never implement. Never write a `go:` for an irreversible step unless the relay's brief carries the user's word and
   the gate passes (`bin/sabha-gate --brief`); see `sabha-gate-review`.
 - Refused (an approved external write or kill denied to you or a helper): stop, do not retry; write a pack and queue it
-  `BLOCKED-HARSH` as docs/delegated-writes.md says.
+  in the blocked-on-human state as docs/delegated-writes.md says.
 - To stop a brief, write `inbox/<To>/NNN.cancel` (`utc:`, `reason:`); it beats any message (section 5).

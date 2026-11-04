@@ -22,7 +22,7 @@ allow it.
 ## 3. A refusal is a stop
 
 Do not retry, rephrase or route the action through another role or tab. Record it in the human's queue
-(for Arcus-Dev: `docs/harsh-queue.md`, state `BLOCKED-HARSH`) and as an open `for-me.items` block carrying the pack
+(the queue row's blocked-on-human state) and as an open `for-me.items` block carrying the pack
 path in `cmd:` or `why:`, and go on with the next local work.
 
 ## 4. Optional: an allow rule the human adds
