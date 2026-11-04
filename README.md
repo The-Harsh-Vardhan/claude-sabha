@@ -178,6 +178,8 @@ context percent to `status/context/<name>.txt` and the account's usage windows t
 desktop notification, the `sabha-watch` banner and a line in `status/alerts.log`. `SABHA_STOP=90` stops new sessions
 at that percent of either window until it resets; running briefs finish and nothing is killed. The Windows toast is
 UNTESTED. A per-role cost log is written to `status/cost-log.tsv`.
+`bin/sabha-cost [--since YYYY-MM-DD]` sums tokens per role and day from the Claude transcripts (read-only; input,
+cache writes, cache reads, output, cache-read share) and counts the cost-log events; tokens only, not priced.
 
 ## Session deck
 
