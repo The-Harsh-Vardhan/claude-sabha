@@ -7,6 +7,8 @@
 #   sabha-helper reattach [--redispatch]         for a fresh dispatcher: reconcile, report, restart the dead ones
 #   sabha-helper wait [--timeout S] [id...]      poll until the helpers (default: all running) have ended
 #   sabha-helper stop (<id> | --all) [--reason R] [--timeout S] [--dry-run]    cancel, wait, record "stopped"
+#   sabha-helper ack <Role> <n> <what> [transcript]  any helper's start: inbox/<Role>/<n>.helper.ack
+#   sabha-helper done <Role> <n> <exit> [transcript] its end: <n>.helper.done, last line "### EXIT=<exit> ###"
 set -uo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -17,7 +19,7 @@ BIN=$(dirname "$SELF")
 . "$BIN/sabha-helpers.sh"
 sabha_load sabha-helper
 utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-usage() { sed -n '2,10p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 (( $# )) || usage
 cmd=$1; shift
 
@@ -242,5 +244,7 @@ case $cmd in
   reattach) cmd_reattach "$@" ;;
   wait) cmd_wait "$@" ;;
   stop) cmd_stop "$@" ;;
+  ack) (( $# >= 3 )) || usage; sabha_helper_mark_ack "$@" ;;
+  done) (( $# >= 3 )) || usage; sabha_helper_mark_done "$@" ;;
   *) usage ;;
 esac

@@ -93,7 +93,10 @@ if [[ ${1:-} == --child ]]; then
   echo $$ >|"$dir/run.lock"
   trap 'rm -f "$dir/run.lock"' EXIT
   # a durable helper (docs/durable-helpers.md): the registry names this process as soon as the run has started
-  [[ -n ${SABHA_HELPER_ID:-} ]] && sabha_helper_put "$SABHA_HELPER_ID" state=running "pid=$$"
+  if [[ -n ${SABHA_HELPER_ID:-} ]]; then
+    sabha_helper_put "$SABHA_HELPER_ID" state=running "pid=$$"
+    sabha_helper_mark_ack "$name" "$n" "durable helper $SABHA_HELPER_ID, pid $$" "$log"
+  fi
   role_cmd "$name" "$brief"
   cwd=${SABHA_RUN_CWD:-$SABHA_WS}
   { echo "sabha-run: $(utc) start $name $n, timeout ${TIMEOUT}s"; echo "sabha-run: cd $cwd && ${CMD[*]}"; } >>"$log"
@@ -136,6 +139,7 @@ if [[ ${1:-} == --child ]]; then
     # the lock goes first: a reader that sees the final state must not still see a held role
     rm -f "$dir/run.lock"
     sabha_helper_finish "$SABHA_HELPER_ID" "$name" "$n" "$rc" "$why" "$timed" "$cancelled"
+    sabha_helper_mark_done "$name" "$n" "$rc" "$log"
   fi
   exit 0
 fi

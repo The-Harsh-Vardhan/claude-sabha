@@ -89,6 +89,16 @@ pid1=$(jget "$r" pid)
 # 2. survive a simulated dispatcher restart: kill the dispatcher's whole process group
 helper list
 check "list shows the running helper" 'grep -q "Lazy1-001" <<<"$out" && grep -q running <<<"$out"'
+check "start: a helper.ack and no helper.done while it runs" 'grep -q "helper Lazy1 001: durable helper Lazy1-001" "$dir/impl/inbox/Lazy1/001.helper.ack" && [[ ! -e $dir/impl/inbox/Lazy1/001.helper.done ]]'
+rm -f "$hold"; helper wait --timeout $((30 * S))
+check "end: helper.done ends with the exit sentinel" '[[ $(tail -1 "$dir/impl/inbox/Lazy1/001.helper.done") == "### EXIT=0 ###" ]]'
+# the pair writer for any helper (a dispatcher subagent): ack, done, a refused non-numeric exit
+helper ack Yudhi 363 "review helper" /x/agent-ab12.jsonl
+check "ack: one line with what and transcript" '(( rc == 0 )) && [[ $(wc -l < "$dir/impl/inbox/Yudhi/363.helper.ack") -eq 1 ]] && grep -q "review helper, transcript: /x/agent-ab12.jsonl" "$dir/impl/inbox/Yudhi/363.helper.ack"'
+helper "done" Yudhi 363 7 /x/agent-ab12.jsonl
+check "done: last line is ### EXIT=7 ###" '(( rc == 0 )) && [[ $(tail -1 "$dir/impl/inbox/Yudhi/363.helper.done") == "### EXIT=7 ###" ]]'
+helper "done" Yudhi 364 ok
+check "done: a non-numeric exit is refused, no file" '(( rc == 2 )) && [[ ! -e $dir/impl/inbox/Yudhi/364.helper.done ]]'
 reset; brief Lazy1 001; : > "$hold"; export FAKE_HOLD=$hold
 set -m
 "$SH" -c 'exec 2>/dev/null; "$1" start Lazy1; sleep 120' _ "$BIN/sabha-helper" >"$dir/disp.out" 2>&1 &

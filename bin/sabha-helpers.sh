@@ -112,6 +112,19 @@ sabha_helper_finish() {
   sabha_helper_put "$id" "state=$st" "ended=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "exit=$4" "why=$5"
 }
 
+# sabha_helper_mark_ack <role> <n> <what> [transcript]: one line at a helper's start, inbox/<role>/<n>.helper.ack.
+# sabha_helper_mark_done <role> <n> <exit code> [transcript]: inbox/<role>/<n>.helper.done, last line
+# "### EXIT=<code> ###" (gstack-detach style): an ack with no done, or a done with no sentinel, is never success.
+sabha_helper_mark_ack() {
+  local d=$SABHA_IMPL/inbox/$1
+  mkdir -p "$d" && printf '%s helper %s %s: %s, transcript: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4:--}" >"$d/$2.helper.ack"
+}
+sabha_helper_mark_done() {
+  local d=$SABHA_IMPL/inbox/$1
+  [[ $3 =~ ^-?[0-9]+$ ]] || { echo "sabha-helper: exit code must be a number, got '$3'" >&2; return 2; }
+  mkdir -p "$d" && printf '%s helper %s %s ended, transcript: %s\n### EXIT=%s ###\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "${4:--}" "$3" >"$d/$2.helper.done"
+}
+
 # sabha_helper_load: the 1-minute load average on stdout; non-zero when it cannot be read.
 # SABHA_LOADAVG replaces the probe in tests ("none" = unreadable).
 sabha_helper_load() {
