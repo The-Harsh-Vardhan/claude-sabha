@@ -145,6 +145,75 @@ sabha_load() {
   RELAY=${NAMES[0]}
   DISPATCHER=${NAMES[1]}
   MAX_COPIES=${SABHA_MAX_COPIES:-2}
+  # PANE_MAX: panes the grid opens (0 = no cap); a value set in sabha.conf always wins over the profile's
+  PANE_MAX=0
+  if sabha_efficiency; then
+    local pm rm hm
+    read -r pm rm hm <<<"$(sabha_profile_values "$(sabha_profile)")"
+    [[ -z ${SABHA_PANES:-} ]] && PANE_MAX=$pm
+    SABHA_RUN_MAX=${SABHA_RUN_MAX:-$rm} SABHA_HEAVY_MAX=${SABHA_HEAVY_MAX:-$hm}
+  fi
+}
+
+# --- efficiency (docs/specs/efficiency-profiles.md) --------------------------------------------------------------
+# SABHA_EFFICIENCY=1 (the default; any other value is off) turns on the profile, the sabha-loop line as the --print
+# default, the per-role MCP sets and the brief header "mcp: full". Off = the behaviour before it.
+sabha_efficiency() { [[ ${SABHA_EFFICIENCY:-1} == 1 ]]; }
+
+# sabha_cores: the CPU count; SABHA_FAKE_NCPU replaces it (tests). Empty when it cannot be read.
+sabha_cores() {
+  echo "${SABHA_FAKE_NCPU:-$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null)}"
+}
+
+# sabha_profile: lite, standard or full. SABHA_PROFILE (lite|standard|full|auto, default auto) wins; auto takes the
+# lower tier of cores (under 8, 8-11, 12+) and RAM (under 12 GB, under 32 GB, 32+), as the scarcer one is the limit.
+# A value that cannot be read (SABHA_FAKE_MEM replaces RAM in tests) counts as the standard tier.
+sabha_profile() {
+  case ${SABHA_PROFILE:-auto} in
+    lite|standard|full) echo "$SABHA_PROFILE"; return 0 ;;
+    auto) ;;
+    *) echo "sabha: SABHA_PROFILE=$SABHA_PROFILE is not lite, standard, full or auto; using standard" >&2; echo standard; return 0 ;;
+  esac
+  local c m g=1073741824 tc=1 tm=1
+  c=$(sabha_cores)
+  m=${SABHA_FAKE_MEM:-$(sysctl -n hw.memsize 2>/dev/null || awk '/^MemTotal:/ { printf "%d", $2 * 1024 }' /proc/meminfo 2>/dev/null)}
+  [[ $c =~ ^[0-9]+$ ]] && { tc=0; (( c >= 8 )) && tc=1; (( c >= 12 )) && tc=2; }
+  [[ $m =~ ^[0-9]+$ ]] && { tm=0; (( m >= 12 * g )) && tm=1; (( m >= 32 * g )) && tm=2; }
+  (( tm < tc )) && tc=$tm
+  case $tc in 0) echo lite ;; 2) echo full ;; *) echo standard ;; esac
+}
+
+# sabha_profile_values <profile>: "<panes> <headless runs> <heavy jobs>". Panes are the grid's (the dispatcher and the
+# workers; the relay is started by hand), so standard = 5 sessions: relay, dispatcher and three workers.
+# ponytail: lite and full numbers are a guess from about 2 GB per session; replace with measured RSS per role
+sabha_profile_values() {
+  case $1 in lite) echo "2 1 1" ;; full) echo "7 3 3" ;; *) echo "4 2 2" ;; esac
+}
+
+# sabha_mcp_args [brief file]: after sabha_role, sets MCP_PRE (--mcp-config <files>) and MCP_POST (--strict-mcp-config or
+# nothing) for the claude command. The roster flag "mcp" = the user's full set, no flag = none. With SABHA_EFFICIENCY on:
+# SABHA_MCP_<Name> (full, none, or set names: a,b, each the JSON file SABHA_MCP_FILE_<set>) wins, the relay and the
+# dispatcher default to full, and a brief header "mcp: full" gives that one headless run the full set.
+sabha_mcp_args() {
+  local v=SABHA_MCP_$R_BASE want='' s f
+  MCP_PRE=() MCP_POST=(--strict-mcp-config)
+  if sabha_efficiency; then
+    want=${!v:-}
+    [[ -z $want && ( $R_BASE == "$RELAY" || $R_BASE == "$DISPATCHER" ) ]] && want=full
+    [[ -n ${1:-} && -f $1 ]] && sed -n '1,/^$/p' "$1" | grep -qi '^mcp:[[:space:]]*full[[:space:]]*$' && want=full
+  fi
+  [[ -z $want ]] && { if sabha_flag "$R_ENTRY" mcp; then want=full; else want=none; fi; }
+  case $want in
+    full) MCP_POST=() ;;
+    none) ;;
+    *)
+      for s in ${want//,/ }; do
+        f=SABHA_MCP_FILE_$s
+        [[ -n ${!f:-} ]] || { echo "sabha: $v names the MCP set $s, but SABHA_MCP_FILE_$s is not set" >&2; return 1; }
+        MCP_PRE+=("${!f}")
+      done
+      MCP_PRE=(--mcp-config "${MCP_PRE[@]}") ;;
+  esac
 }
 
 # sabha_theme [caller]: a theme is a skin over the role ids and never renames a role (ROLES, NAMES, PANES and every file
@@ -220,7 +289,9 @@ sabha_role() {
 # character's voice, and the job comes first (Q9).
 sabha_reads() {
   # a copy Thor-1 shares Thor's card; a dash is not legal in a variable name
-  local lower card=$1 base=${1%-[0-9]*} voice tail= docs=${SABHA_DOCS:-$SABHA_IMPL}
+  local lower card=$1 base=${1%-[0-9]*} voice tail= docs=${SABHA_DOCS:-$SABHA_IMPL} own=SABHA_READS_${1%-[0-9]*}
+  # a role that keeps its own role card and memory (an Architect with ROLE.md) reads those, not the protocol files
+  [[ -n ${!own:-} ]] && { echo "${!own}"; return 0; }
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$1")
   # a copy keeps the card of its base role unless the project has a card under the copy's own name
   [[ ! -f $docs/${SABHA_ROLE_DIR:-protocol}/$1.md ]] && card=$base
