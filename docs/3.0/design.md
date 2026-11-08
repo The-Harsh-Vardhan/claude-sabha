@@ -15,7 +15,7 @@ from the audit's line numbers.
 | Audit finding | State on d1fe294 | Evidence |
 | --- | --- | --- |
 | iTerm2 grid is the layout engine (audit row 1) | herdr is the default backend on every OS; iTerm2 is `SABHA_BACKEND=iterm`, "macOS only, frozen" | bin/sabha-herdr.sh:2-3, :16; bin/sabha-up.sh:2-4, :241-256 (herdr), :297 (osascript) |
-| Windows grid via `sabha-up.ps1` / `wt.exe` (rows 7-9) | the .ps1 and .cmd are gone; Windows = Git Bash + herdr native beta, untested | docs/windows.md:9-10; docs/known-gaps.md:31 |
+| Windows grid via `sabha-up.ps1` / `wt.exe` (rows 7-9) | the .ps1 and .cmd are gone; Windows = Git Bash + herdr native beta, untested | docs/windows.md:9-10 |
 | one agent only (claude) | roster field 2 is the agent: `claude opencode codex agy muse`; non-claude roles start with `herdr agent start --kind` | bin/sabha-lib.sh:12-13, :21; bin/sabha-up.sh:119-127; bin/sabha-herdr.sh:4-5 |
 | nudge by typing into an iTerm2 tty (row 17) | `sabha_nudge` = `herdr agent prompt --wait` on the role's pane from `status/herdr-panes.txt` | bin/sabha-herdr.sh:226-236 |
 | headless = `claude -p` only (row 10) | still claude only; other agents are refused by `served` | bin/sabha-run:37, :49-50 |
@@ -48,19 +48,22 @@ equivalents are named so the move is mechanical.
 
 | Function | Contract | herdr today | iTerm today |
 | --- | --- | --- | --- |
-| `L_ready` | backend usable (installed, server up); false + one stderr line otherwise | `sabha_herdr_ready` bin/sabha-herdr.sh:51 | `TERM_PROGRAM` check bin/sabha-up.sh:149 |
+| `L_ready` | backend usable (installed, server up); false + one stderr line otherwise | `sabha_herdr_ready` bin/sabha-herdr.sh:51 | none today: the `TERM_PROGRAM` test at bin/sabha-up.sh:149 only gates the badge block (see `L_cosmetics`); an iTerm `L_ready` is new (S) |
 | `L_open_grid <build[]> <gate[]>` | two tabs, panes in roster order; records `Name pane_id` | `fill_tab` bin/sabha-up.sh:210-240 | `tab_script` + osascript bin/sabha-up.sh:262-320 |
 | `L_pane_note / L_target <Name>` | the pane map, `status/herdr-panes.txt` renamed `status/panes.txt` (old name read as fallback) | bin/sabha-herdr.sh:191-226, :239-243 | none (tty from ps) |
 | `L_send <Name> <text>` | submit text to a role and wait to settle; timeout = exit 75 | `sabha_nudge` bin/sabha-herdr.sh:226-236 | osascript write text bin/sabha-down.sh:110 |
 | `L_close_all` | close only sabha's own panes/session, never the user's | `sabha_session_stop` bin/sabha-herdr.sh:170 | osascript bin/sabha-down.sh:162-188 |
 | `L_list_panes` | live pane ids, for prune and the reaper (section 8) | `pane list` bin/sabha-herdr.sh:212 | none |
-| `L_cosmetics <Name>` | optional badge/title | herdr `pane report-metadata` (known-gaps.md:15) | OSC 1337 bin/sabha-up.sh:149-160 |
+| `L_cosmetics <Name>` | optional badge/title | herdr `pane report-metadata` (bin/sabha-up.sh:231, bin/statusline-sabha.sh:134-135; docs/known-gaps.md:17 lists it untested) | OSC 1337 bin/sabha-up.sh:149-160 |
 
 Selection: `SABHA_BACKEND` (bin/sabha-herdr.sh:16) keeps its name and default `herdr`; new value `tmux`.
 
 Implementations
 - **herdr** (M): move `bin/sabha-herdr.sh` to `bin/launch/herdr.sh`, keep a one-line shim at the old path for one
-  release (plugins and Harsh's `Arcus-Dev/bin/sabha-up-au-herdr.sh` source it). The session guard
+  release. Nine kit scripts source it by that path (grep `sabha-herdr.sh` in bin/): bin/sabha-up.sh:28,
+  bin/sabha-down.sh:24, bin/sabha-loop:30, bin/sabha-alert:17, bin/sabha-nudge:9, bin/sabha-check:49,
+  bin/sabha-herdr-config:21, bin/sabha:308, bin/statusline-sabha.sh:117. Harsh's `Arcus-Dev/bin/sabha-up-au-herdr.sh`
+  does not (it calls `herdr --session` directly; `grep -n 'sabha-herdr\|herdr-panes' Arcus-Dev/bin/*` has no hit). The session guard
   (bin/sabha-herdr.sh:29-48: own named session, never `default`, fake-only under `SABHA_TEST=1`) moves unchanged.
 - **tmux** (M, new): `tmux -L sabha` (own server socket = same isolation idea as herdr's named session);
   `new-session -d -s sabha`, `split-window`, `select-layout tiled`; `L_send` = `send-keys -t <pane> -l <text>` then
@@ -70,7 +73,7 @@ Implementations
 - **iTerm2** (S): frozen. Only its osascript blocks move into `bin/launch/iterm.sh`; no new features.
 - **Windows Terminal** (S, doc): not a launcher of its own. herdr's Windows beta uses Windows Terminal as its attach
   app (docs/windows.md:12-13), so WT = the herdr launcher under Git Bash. A `wt.exe` launcher comes back only if
-  herdr on Windows fails in a real test (known-gaps.md:31 lists the open Windows test).
+  herdr on Windows fails in a real test (docs/known-gaps.md:20 lists the open Windows test).
 
 `kill_tree` (bin/sabha-run:89-103 in the audit, now the `--child` block from bin/sabha-run:82, `set -m` at :95) stays in
 `sabha-run`: it is per-OS process handling, not per-terminal, and bash-on-Windows already goes through Git Bash.
@@ -132,15 +135,15 @@ Additive only: `status/panes.txt` (renamed map, old name still read), `status/he
 | 8 | 7.0 GitHub fetch layer, then 7.1 `sabha prs`, 7.4 watcher, 7.2 `sabha shipped` | M + S + S + M | - | - |
 | 9 | 6b morning digest, 7.3 `sabha owe` (digest embeds owe) | M + S | 7, 8 for full content | - |
 | 10 | opencode headless adapter | M | 2 | - |
-| 11 | Remove the `bin/sabha-herdr.sh` shim (3.1) | S | 4 + one release | Arcus-Dev `bin/sabha-up-au-herdr.sh` until updated |
+| 11 | Remove the `bin/sabha-herdr.sh` shim (3.1) | S | 4 + one release | none known outside the kit; the nine in-kit sourcers (section 2) move to `bin/launch/herdr.sh` first |
 
 Steps 6 to 9 do not depend on 2 to 5 and can ship first; brief 469 item 4 already picks 6c as the first
 implementation.
 
 ## 5.1 What breaks for current users
 
-- Anything that sources `bin/sabha-herdr.sh` by path: covered by the shim until step 11. Known caller outside the
-  kit: `Arcus-Dev/bin/sabha-up-au-herdr.sh` (`ls Arcus-Dev/bin`).
+- Anything that sources `bin/sabha-herdr.sh` by path: covered by the shim until step 11. The known callers are the
+  nine kit scripts listed in section 2; no caller outside the kit is known (`Arcus-Dev/bin/*` has none, see section 2).
 - Anything reading `status/herdr-panes.txt` directly (bin/sabha-check:50 inside the kit; the Arcus-Dev board writer
   does not, per Arcus-Dev/docs/harsh-queue/board-writer/status-mapping.md sources table): the launcher writes both
   names for one release.
@@ -154,7 +157,9 @@ All hermetic (`tests/hermetic.sh`: fake herdr first on PATH, `SABHA_TEST=1`, inh
 tests/hermetic.sh:1-25). One suite run at a time, never against a real herdr or tmux server.
 - Adapter: `tests/test-grid.sh` already asserts exact claude argv; it must pass unchanged after step 2 (the
   byte-identical proof). New `tests/test-adapter.sh`: each adapter's argv for one role, interactive and headless.
-- Launcher: existing `tests/test-herdr*.sh` pass unchanged after step 4. New `tests/hermetic-bin/tmux` fake that logs
+- Launcher: existing `tests/test-herdr*.sh` pass unchanged after step 4, and so do the suites that reach the nine
+  in-kit sourcers through the shim (the sabha-down, sabha-loop, sabha-alert and sabha-nudge tests) while the shim
+  exists; step 11 repoints those nine and deletes the shim. New `tests/hermetic-bin/tmux` fake that logs
   calls (same shape as `tests/fake-herdr.sh`) and `tests/test-tmux.sh`: grid of 3 roles -> expected `split-window`
   / `send-keys` lines; a guard test that `-L sabha` is on every call (no call can reach the user's default server).
 - Pane map rename: a map only at the old path is read; a write lands at both paths.
@@ -167,9 +172,11 @@ tests/hermetic.sh:1-25). One suite run at a time, never against a real herdr or 
 
 **Problem (real use).** 8 Nov: the Uploads gate run (brief 467) was ready at about 19:50 but waited for hours,
 because the rule "start one headless Karna when load5 <= 20" lived in the dispatcher's status file and needed a
-session to keep re-checking it (Arcus-Dev/docs/pdf-report-2.0/impl/status/yudhishthira.md:1, :8 "load5 31-61",
-:12). The kit's gate exists (`bin/sabha-heavy`, #61) but (1) it judges `load1 <= 2 x cores`, not Harsh's rule
-(bin/sabha-heavy:9, :28-33 `load1`, :67 `lim`), (2) `acquire` gives up after `SABHA_HEAVY_WAIT` 900 s and returns 75
+session to keep re-checking it (Arcus-Dev/docs/pdf-report-2.0/impl/status/yudhishthira.md, the 8 Nov block that
+reads "467 mid-flight. Git work DONE, gates NOT run (load5 31-61)", and the line "Cap 4: slot 4 reserved for
+headless Karna (467 gates) at load5 <= 20"; a live status file, so quoted not line-cited). The kit's gate exists
+(`bin/sabha-heavy`, #61) but (1) it judges `load1 <= 2 x cores`, not Harsh's rule (header bin/sabha-heavy:10, load
+read :28-33, limit :67, check :70), (2) `acquire` gives up after `SABHA_HEAVY_WAIT` 900 s and returns 75
 (bin/sabha-heavy:94-110, `acquire`), and (3) nothing re-tries later: `sabha-run` starts any due brief without asking the gate
 (bin/sabha-run:169-173).
 
@@ -178,12 +185,28 @@ session to keep re-checking it (Arcus-Dev/docs/pdf-report-2.0/impl/status/yudhis
    `SABHA_HEAVY_LOAD_MAX` (absolute number; when set it replaces `FACTOR x cores`). Harsh's conf:
    `SABHA_HEAVY_LOAD_AVG=5`, `SABHA_HEAVY_LOAD_MAX=20`. load5 is the second field of the same `vm.loadavg` /
    `uptime` read (bin/sabha-heavy:28-33), so no new probe.
-2. Queue = the inbox. A brief header line `heavy: <label>` marks a heavy brief. In `sabha-run`, right after the
-   SABHA_STOP check (bin/sabha-run:169-170), a heavy brief runs `sabha-heavy check`; on WAIT it prints
+2. Queue = the inbox. A brief header line `heavy: <label>` marks a heavy brief; the sender writes it by hand like
+   any other header line (docs/inbox-protocol.md), nothing else writes it. In `sabha-run`, right after the
+   SABHA_STOP check (bin/sabha-run:169-170), a heavy brief runs `sabha-heavy check`; on WAIT `sabha-run` prints
    `sabha-run: <Name> <n>: queued (HEAVY WAIT: ...)`, writes `status/heavy/queue/<Name>-<n>` (one line: the WAIT
-   reason and utc, for the board and digest), and moves on; the brief stays un-acked. On GO the child takes the
-   slot (`sabha-heavy acquire <label> 0` with its own pid) and frees it on exit; the existing heartbeat/TTL
-   (bin/sabha-heavy:47-60) covers a crash. The queue file is removed when the ack is written.
+   reason and utc, for the board and digest), and moves on; the brief stays un-acked. That insertion point is after
+   the live-pane test (bin/sabha-run:155-156), so a role with a live pane never gets a queue file: the digest
+   cannot show a brief as queued that will never start headless (step 4). The queue file is removed when the ack
+   is written.
+   On GO the slot is taken by the child, with the child's own pid. Decision: add an optional pid argument to
+   `sabha-heavy acquire` (`acquire <label> <secs> [pid]`, default 0 = today), not `sabha-heavy run`. Why: the CLI
+   `acquire` hard-codes pid 0 (bin/sabha-heavy:115) and `clean()` skips the liveness test for pid 0
+   (bin/sabha-heavy:55 `[[ ${pid:-0} != 0 ]]`), so a pid-0 slot of a crashed run lives until the 1800 s TTL; and
+   `sabha-heavy run` (bin/sabha-heavy:118-126) would put `sabha-heavy` between the pass and the child, so the lock
+   would hold the child's `$$` while the pass waits for `$!` = the wrapper's pid (bin/sabha-run:88 and :180-187)
+   and every heavy run would be reported "did not start". In the `--child` block (bin/sabha-run:84-88), right
+   after the lock line, the child runs `sabha-heavy acquire <label> ${SABHA_HEAVY_WAIT:-900} $$`; on 75 it writes
+   a BLOCKED `.done` (the same shape as bin/sabha-run:192-193) instead of running claude; on exit its EXIT trap
+   releases the slot. Its 1 s watch loop (bin/sabha-run:101 on) runs `sabha-heavy touch <label>` (bin/sabha-heavy:117)
+   once a minute: the TTL test (bin/sabha-heavy:54, mtime older than 1800 s) applies to live pids too, so a run
+   over 30 minutes needs the heartbeat. A crash is covered by liveness (pid dead) at the next `clean()`, no
+   longer by TTL alone. A pane that runs a heavy command itself uses `sabha-heavy run` as it does today (there the
+   wrapper is the process that must be alive).
 3. "Starts by itself" = the existing schedule: `sabha-watch` with `SABHA_RUN_AUTO=1` runs a `sabha-run` pass
    (bin/sabha-watch:98); docs/headless-runner.md:30 says what drives it. No new daemon, no new process. Order: oldest
    queue file first, one heavy start per pass (the 45 s settle, bin/sabha-heavy:22 and :74, spaces them anyway).
@@ -195,11 +218,12 @@ Why the inbox and not a job file of shell commands: a queued shell line would ru
 in the file (a code-execution surface); a queued brief runs through the same `claude -p` path, permission mode and
 guard hooks as every other brief.
 
-**Files touched.** `bin/sabha-heavy` (two keys, load5 parse), `bin/sabha-run` (heavy header, queue file, slot in
-the child), `docs/headless-runner.md`, `docs/inbox-protocol.md` (the `heavy:` header), `sabha.conf.example`.
+**Files touched.** `bin/sabha-heavy` (two keys, load5 parse, the optional pid argument of `acquire`), `bin/sabha-run`
+(heavy header, queue file, slot and heartbeat in the child), `docs/headless-runner.md`, `docs/inbox-protocol.md` (the `heavy:` header), `sabha.conf.example`.
 
 **Tests.** `tests/test-heavy.sh` (exists; stub sysctl/uptime): load5 = 21 with MAX 20 -> 75; load5 = 19 -> 0;
-LOAD_AVG unset keeps today's load1 result. `tests/test-run.sh` (exists): a `heavy:` brief under WAIT is not acked
+LOAD_AVG unset keeps today's load1 result; `acquire <label> 0 <pid>` writes that pid, a slot whose pid is dead is
+reaped by the next `clean()` at once, and `acquire` without the argument still writes pid 0. `tests/test-run.sh` (exists): a `heavy:` brief under WAIT is not acked
 and leaves a queue file; under GO it is acked, a slot file names the child pid, and the slot is gone after the run;
 two heavy briefs in one pass -> only one starts.
 
@@ -250,8 +274,9 @@ comes from `SABHA_ROLE` or the hook's `session_name` (hooks/lib.sh:12-22), the c
    already runs at startup|clear|compact and has `HK_ROLE`; it adds `session_id` and `cwd` from its stdin JSON).
    `live copies` = rows of `sabha_procs` with this name; more than one prints a `WARN duplicate` line and exits 3.
 2. Relay pre-turn check: a `UserPromptSubmit` hook (new entry in hooks/hooks.json, which today has SessionStart,
-   PreToolUse, PermissionRequest, Stop) that runs only for the relay role (`HK_BASE = HK_RELAY`, the same test as
-   hooks/sabha-guard.sh:12) and prints the whoami line as context before each turn. Stdout of the hook becomes
+   PreToolUse, PermissionRequest, Stop) that runs only for the relay role (`HK_BASE = HK_RELAY`, the same comparison as
+   hooks/sabha-guard.sh:13, which uses it the other way round: there `[ "$HK_BASE" = "$HK_RELAY" ] && exit 0` exempts
+   the relay from the worker guard, here the relay is the only role the hook runs for) and prints the whoami line as context before each turn. Stdout of the hook becomes
    context (the SessionStart hook relies on this, hooks/sabha-session-start.sh:2). Cost: one line per turn.
 3. Packs: every command line Harsh pastes starts with `cd <absolute path> &&`. The whoami cwd and the pack lint
    (section 8) together cover the drift case; the hook alone cannot fix a pasted command.
@@ -277,12 +302,15 @@ and each new tool would otherwise re-invent auth, paging and rate limits.
 
 **Design.** One file `bin/sabha-gh`, bash, wrapping `gh api` only.
 - Read-only by construction: it builds the `gh api` argv itself and accepts only a path and `--paginate`/`--jq`;
-  there is no way to pass `-X`, `--method`, `-f`, `-F` or `--input`. GraphQL reads go through
+  a path must start with `repos/`, `orgs/`, `search/` or `users/` (or be a named read below) and must not start with
+  `-` or contain whitespace, so a path cannot turn into a flag; there is no way to pass `-X`, `--method`, `-f`, `-F` or `--input`. GraphQL reads go through
   `gh api graphql -f query=...` built inside the wrapper from a fixed list of named queries; a query text
   containing `mutation` is refused. So no caller can write.
 - Account: `SABHA_GH_USER` (Harsh: `harsh-vardhan-ts`); before the first call it checks `gh api user --jq .login`
   and stops with one line if it differs (the wrong account gives "Could not resolve to a Repository").
-- Cache: `status/gh-cache/<sha1 of argv>.json` with fetch time; `SABHA_GH_TTL` (default 600 s); `--fresh` bypasses.
+- Cache: `status/gh-cache/<sha1 of argv>.json` with fetch time (it holds PR titles and bodies of private repos: it
+  lives under `SABHA_IMPL/status/`, which both the kit `.gitignore` (`/status/`) and Arcus-Dev's ignore, and no pack
+  or digest copies the files, only the rendered table); `SABHA_GH_TTL` (default 600 s); `--fresh` bypasses.
   A failed call returns the cached copy marked `stale` rather than nothing, or exit 1 when there is none.
 - Rate: honours `X-RateLimit-Remaining` (via `gh api -i` on the first page) and stops at `SABHA_GH_MIN_LEFT`
   (default 200), so a radar never eats Harsh's quota.
@@ -296,7 +324,7 @@ and each new tool would otherwise re-invent auth, paging and rate limits.
 same guard pattern as herdr), `docs/github-layer.md`.
 
 **Tests.** `tests/test-gh.sh`: every named read maps to the expected `gh api` argv (fake logs calls); a caller
-passing `-X POST` or a mutation is refused with exit 2; wrong login -> stop; cache hit makes no second call; TTL
+passing `-X POST` or a mutation is refused with exit 2; a path starting with `-` is refused with exit 2; wrong login -> stop; cache hit makes no second call; TTL
 expiry makes one; failure with cache -> stale result; rate below the floor -> stop. Hermetic guard: the test exits
 2 if the first `gh` on PATH is not the fake.
 
