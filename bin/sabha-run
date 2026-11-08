@@ -35,9 +35,9 @@ role_cmd() {
   lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   n=$(basename "$2"); n=${n%%-*}
   to=$DISPATCHER; [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
-  CMD=(claude -p -n "$name" --model "$model" --effort "$effort")
-  # MCP servers each cost memory; "mcp" in the roster flags keeps them, as in sabha-up.sh
-  sabha_flag "$r" mcp || CMD+=(--strict-mcp-config)
+  # MCP servers each cost memory; the same sets as sabha-up.sh, plus the brief's "mcp: full"
+  sabha_mcp_args "$2" || return 1
+  CMD=(claude -p -n "$name" ${MCP_PRE[@]+"${MCP_PRE[@]}"} --model "$model" --effort "$effort" ${MCP_POST[@]+"${MCP_POST[@]}"})
   # nobody is at a terminal: a prompt must turn into a denial, not a hang until the timeout
   CMD+=(--permission-prompts none)
   CMD+=("You are $who in $PROJECT session setup, running headless (claude -p): nobody answers you or a permission prompt. Read $(sabha_reads "$name"), then the brief $2 (sabha-run already wrote its $n.ack). Do the brief, update status/$lower.md, write inbox/$name/$n.done (result for $to), then stop. A denied action ends the work: append the denial to $SABHA_IMPL/for-me.items, write $n.done with result: BLOCKED <the denial>, and stop; never work around a denial. Start no other brief.")
