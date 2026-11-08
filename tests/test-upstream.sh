@@ -166,13 +166,26 @@ reset_fx
 SABHA_GH_CACHE=$dir/cache4 SABHA_IMPL=$i4 up2
 check "baseline recorded, branch_exists true" '[[ ! -e $i4/for-me.items ]] && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json"'
 cp "$i4/status/upstream/last.json" "$dir/last4.before"
+cp -R "$i4" "$dir/impl4n"; cp -R "$i4" "$dir/impl4t"
 grep -v -e 'repos/acme/app --jq' -e 'branches/main' "$FD/map" > "$FD/map.t" && mv "$FD/map.t" "$FD/map"
 SABHA_GH_CACHE=$dir/cache4 SABHA_IMPL=$i4 up2; rc=$?
-check "repo and branch both 404, repo only from a stale cache: no item, branch fact kept" '(( rc == 0 )) && [[ ! -e $i4/for-me.items ]] && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json" && grep -q "could not read" "$dir/err"'
-SABHA_GH_CACHE=$dir/cache4-empty SABHA_IMPL=$i4 up2; rc=$?
-check "repo and branch both 404, no cache: not a branch finding, one check-by-hand item, facts kept" '(( rc == 0 )) && [[ $(grep -c "^id: " "$i4/for-me.items") == 1 ]] && grep -q "^title: upstream: acme/app not found or renamed: check by hand$" "$i4/for-me.items" && ! grep -q "is gone" "$i4/for-me.items" && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json" && grep -q "could not read" "$dir/err"'
-SABHA_GH_CACHE=$dir/cache4-empty SABHA_IMPL=$i4 up2
-check "and the check-by-hand item is not repeated" '[[ $(grep -c "^id: " "$i4/for-me.items") == 1 ]]'
+check "repo and branch both 404, repo only from a stale cache: one check-by-hand item, branch fact kept" '(( rc == 0 )) && [[ $(grep -c "^id: " "$i4/for-me.items") == 1 ]] && grep -q "^title: upstream: acme/app not found or renamed: check by hand$" "$i4/for-me.items" && ! grep -q "is gone" "$i4/for-me.items" && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json" && grep -q "could not read" "$dir/err"'
+check "the stale-cache 404 keeps every stored fact" 'python3 -c "import json,sys; a,b=[json.load(open(f))[\"repos\"] for f in sys.argv[1:]]; sys.exit(a != b)" "$i4/status/upstream/last.json" "$dir/last4.before"'
+SABHA_GH_CACHE=$dir/cache4 SABHA_IMPL=$i4 up2
+check "and the stale-cache 404 item is not repeated on the next run" '[[ $(grep -c "^id: " "$i4/for-me.items") == 1 ]] && grep -q "0 new finding" "$dir/out"'
+SABHA_GH_CACHE=$dir/cache4 FAKE_GH_FAIL=1 SABHA_IMPL=$dir/impl4t up2; rc=$?
+check "the transient twin (gh fails, cache primed): could not read, no item, facts kept" '(( rc == 0 )) && [[ ! -e $dir/impl4t/for-me.items ]] && grep -q "could not read" "$dir/err" && grep -q "\"branch_exists\": true" "$dir/impl4t/status/upstream/last.json"'
+SABHA_GH_CACHE=$dir/cache4-empty SABHA_IMPL=$dir/impl4n up2; rc=$?
+check "repo and branch both 404, no cache: not a branch finding, one check-by-hand item, facts kept" '(( rc == 0 )) && [[ $(grep -c "^id: " "$dir/impl4n/for-me.items") == 1 ]] && grep -q "^title: upstream: acme/app not found or renamed: check by hand$" "$dir/impl4n/for-me.items" && ! grep -q "is gone" "$dir/impl4n/for-me.items" && grep -q "\"branch_exists\": true" "$dir/impl4n/status/upstream/last.json" && grep -q "could not read" "$dir/err"'
+SABHA_GH_CACHE=$dir/cache4-empty SABHA_IMPL=$dir/impl4n up2
+check "and the check-by-hand item is not repeated" '[[ $(grep -c "^id: " "$dir/impl4n/for-me.items") == 1 ]]'
+
+echo "--- a release-line base is never a default branch"
+reset_fx
+echo "repos/acme/app/branches/release/x --jq|$dir/fx-app-branch.json" >> "$FD/map"
+echo "app   backend/app   release/x   x   commits" > "$ws/dev/repos3.conf"
+SABHA_IMPL=$dir/impl10 "$BIN/sabha-upstream" --conf "$ws/dev/repos3.conf" >"$dir/out" 2>"$dir/err"; rc=$?
+check "base release/x, default main: run 1 reports no default-branch item" '(( rc == 0 )) && [[ ! -e $dir/impl10/for-me.items ]]'
 
 echo "--- one run at a time"
 reset_fx
@@ -213,6 +226,26 @@ SABHA_GH_CACHE=$dir/cache9 FAKE_GH_FAIL=1 SABHA_IMPL=$i9 up2; rc=$?
 check "every read failed: the day is not marked, the next pass retries" '(( rc == 0 )) && [[ ! -e $i9/status/upstream/day ]]'
 SABHA_IMPL=$i9 up2 --daily
 check "the retry reads and marks the day" '[[ -s $i9/status/upstream/day ]]'
+
+echo "--- signals release the lock; SABHA_IMPL with an unset variable or empty in the environment"
+reset_fx
+wait_for() { local i; for (( i = 0; i < 60; i++ )); do eval "$1" && return 0; sleep 0.2; done; return 1; }
+sig() {
+  FAKE_GH_SLEEP=2 SABHA_GH_BIN=$BIN/../tests/fake-gh-slow.sh SABHA_IMPL=$dir/impl1$1 "$BIN/sabha-upstream" --conf "$ws/dev/repos2.conf" >"$dir/outs" 2>"$dir/errs" &
+  spid=$!
+  wait_for "[[ -d $dir/impl1$1/status/upstream/.lock ]]"
+  kill -"$2" "$spid"
+  wait "$spid"; srcode=$?
+}
+sig 1 TERM
+check "SIGTERM: exit 143 and the lock is gone" '(( srcode == 143 )) && [[ ! -e $dir/impl11/status/upstream/.lock ]]'
+sig 2 HUP
+check "SIGHUP: exit 129 and the lock is gone" '(( srcode == 129 )) && [[ ! -e $dir/impl12/status/upstream/.lock ]]'
+( cd "$home/cwd" && SABHA_IMPL='$SABHA_NO_SUCH_VAR/x' "$BIN/sabha-upstream" --conf "$ws/dev/repos2.conf" >"$dir/out" 2>"$dir/err" ); rc=$?
+check "SABHA_IMPL with an unset variable: exit 2, nothing created" '(( rc == 2 )) && grep -q "still contains a" "$dir/err" && [[ -z $(ls "$home/cwd") ]]'
+printf 'SABHA_IMPL="$HOME/imp2"\n' > "$home/sabha2.conf"
+( cd "$home/cwd" && SABHA_IMPL='' HOME="$home" SABHA_CONF="$home/sabha2.conf" SABHA_UPSTREAM_ORG=acme "$BIN/sabha-upstream" --conf "$ws/dev/repos2.conf" >"$dir/out" 2>"$dir/err" ); rc=$?
+check "SABHA_IMPL empty in the environment: the value from sabha.conf is used" '(( rc == 0 )) && [[ -s $home/imp2/status/upstream/last.json ]]'
 
 echo "--- read-only and usage"
 check "every gh call is an api read: no write flag, no mutation" '! grep -v "^api " "$CALLS" | grep -q . && ! grep -Eq -- "-X|--method|--input|mutation|POST" "$CALLS"'

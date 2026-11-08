@@ -19,7 +19,8 @@ Settings (environment, else sabha.conf):
   SABHA_USER             the owner of the for-me.items entry (default user); SABHA_IMPL holds status/, inbox/, for-me.items
 Findings: archived, renamed (GitHub's full_name differs from the clone's origin), default branch changed, base branch
 gone, probe path appeared or disappeared, upstream merged in (commits of upstream missing from base fell from more than
-0 to 0), and on the first read of a repo: the default branch is not the configured base. Archived, renamed, a gone base
+0 to 0), and on the first read of a repo: the default branch is not the configured base (skipped when the base
+contains a /: a release line is never a default branch). Archived, renamed, a gone base
 branch and a repo GitHub does not find are states, reported the first time they are seen, also on the first run; the
 change detectors (default branch, probes, pairs) only record facts on a first run. State: status/upstream/last.json,
 written atomically; a bad file is moved to last.json.bad and the run starts from a baseline. A read that fails (a 404
@@ -34,6 +35,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -59,6 +61,9 @@ def gh(fresh, *args):
     cmd = [GH] + (["--fresh"] if fresh else []) + list(args)
     reads.append(1)
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if p.returncode == 10 and "HTTP 404" in p.stderr:
+        # sabha-gh serves its cached body for any failure; a 404 behind it is the repo gone, not a stale read
+        raise GhError(p.stderr.strip().splitlines()[-1], 10)
     if p.returncode == 10:
         stale.append(1)
     elif p.returncode != 0:
@@ -206,7 +211,7 @@ def check(row, slug, prev, fresh, warns):
         add("default:%s:%s->%s" % (repo, p["default_branch"], facts["default_branch"]),
             "upstream: %s default branch is now %s" % (repo, facts["default_branch"]),
             "the default branch of %s changed from %s to %s" % (slug, p["default_branch"], facts["default_branch"]))
-    elif live and not p.get("default_branch") and facts["default_branch"] and facts["default_branch"] != base:
+    elif live and not p.get("default_branch") and facts["default_branch"] and facts["default_branch"] != base and "/" not in base:
         add("default-differs:%s:%s:%s" % (repo, base, facts["default_branch"]),
             "upstream: %s default branch is %s, the configured base is %s" % (repo, facts["default_branch"], base),
             "the default branch of %s is %s; the repos list names %s as its base" % (slug, facts["default_branch"], base), True)
@@ -253,6 +258,9 @@ def check(row, slug, prev, fresh, warns):
 
 
 def main():
+    # exiting through SystemExit lets main's finally release the lock on a signal
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(129))
     ap = argparse.ArgumentParser(prog="sabha-upstream", add_help=True)
     ap.add_argument("--conf")
     ap.add_argument("--fresh", action="store_true")
@@ -263,9 +271,14 @@ def main():
     if not conf or not os.path.isfile(conf):
         print("sabha-upstream: no repos list (set SABHA_UPSTREAM_CONF or pass --conf FILE)", file=sys.stderr)
         return 2
+    if not os.environ.get("SABHA_IMPL"):
+        os.environ.pop("SABHA_IMPL", None)
     impl = conf_value("SABHA_IMPL")
     if not impl:
         print("sabha-upstream: SABHA_IMPL is not set (environment or sabha.conf); it holds the state, the items and the briefs", file=sys.stderr)
+        return 2
+    if "$" in impl:
+        print("sabha-upstream: SABHA_IMPL still contains a $ after expansion (%s): an unset variable? Refusing to make that folder" % impl, file=sys.stderr)
         return 2
     sdir = os.path.join(impl, "status", "upstream")
     os.makedirs(sdir, exist_ok=True)
@@ -276,7 +289,10 @@ def main():
     try:
         return run(a, conf, impl, sdir)
     finally:
-        os.rmdir(held)
+        try:
+            os.rmdir(held)
+        except OSError:
+            pass
 
 
 def run(a, conf, impl, sdir):
