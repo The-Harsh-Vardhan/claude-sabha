@@ -100,12 +100,12 @@ echo "--- control characters never reach the terminal"
 mkdir "$dir/esc"
 cat > "$dir/esc/rows.json" <<'EOF'
 [
- {"id":"E-1","state":"R\u001b]0;pwn\u0007","owner":"o\u001b[2J","ask":"\u001b[31mred ‮rtl\u0085","dependsOn":["E-0\u001b[1m"]},
+ {"id":"E-1","state":"R\u001b]0;pwn\u0007","owner":"o\u001b[2J\u2028\u2029","ask":"\u001b[31mred \u202ertl\u0085","dependsOn":["E-0\u001b[1m"]},
  {"id":"E-0\u001b[1m","state":"BLOCKED","owner":"x\u009bP","ask":"root\u007f","dependsOn":["E-9\u0007"]}
 ]
 EOF
 echo '{broken' > "$dir/esc/$(printf 'bad\033[2J').json"
-nocc() { python3 -c 'import sys,re; b=sys.stdin.buffer.read(); sys.exit(1 if re.search(rb"[\x00-\x09\x0b-\x1f\x7f]|\xc2[\x80-\x9f]|\xe2\x80[\x8e\x8f\xaa-\xae]|\xe2\x81[\xa6-\xa9]", b) else 0)'; }
+nocc() { python3 -c 'import sys,re; b=sys.stdin.buffer.read(); sys.exit(1 if re.search(rb"[\x00-\x09\x0b-\x1f\x7f]|\xc2[\x80-\x9f]|\xe2\x80[\x8e\x8f\xa8-\xae]|\xe2\x81[\xa6-\xa9]", b) else 0)'; }
 out2=$(chain "$dir/esc"); rc=$?
 check "text output: no control, C1 or bidi byte (ESC, BEL, OSC, DEL, U+0085, U+202E) in id, state, owner, ask or the missing id" '(( rc == 0 )) && printf %s "$out2" | nocc && [[ $out2 == *"E-1"*"red"*"waits on E-0"* ]]'
 check "stderr notes (a file name with an ESC) are clean too" 'grep -q "skipped bad" "$dir/err" && nocc < "$dir/err"'
@@ -187,6 +187,8 @@ json.dump(rows, open(sys.argv[1] + "/rows.json", "w"))
 EOF
 out2=$(chain "$dir/deep"); rc=$?
 check "1500 levels: one clear line on stderr, a non-zero exit, no traceback" '(( rc != 0 )) && ! grep -q Traceback "$dir/err" && [[ $(wc -l < "$dir/err" | tr -d " ") == 1 ]] && grep -q "too deep" "$dir/err"'
+
+check "argparse's own error text echoes no raw ESC and still exits 2" 'out3=$(python3 "$BIN/sabha-chain" "$dir/esc" "--bogus$(printf "\033[2J")" 2>&1); rc=$?; (( rc == 2 )) && nocc <<< "$out3" && [[ $out3 == *unrecognized* ]]'
 
 echo
 if (( fails )); then echo "$fails check(s) failed"; exit 1; fi

@@ -26,7 +26,7 @@ GH = os.path.join(BIN, "sabha-gh")
 TEXT_KEYS = ("ask", "next", "details", "note")
 notes = []
 # C0, DEL, C1 and bidi controls: a board row is text agents and humans type, and it must not drive the terminal
-CTRL = re.compile(u"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+CTRL = re.compile(u"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
 
 
 def clean(s):
@@ -209,8 +209,13 @@ def render(node, depth, repos, prs, out):
         render(c, depth + 1, repos, prs, out)
 
 
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(2, clean("%s: error: %s" % (self.prog, message)) + "\n")
+
+
 def main():
-    ap = argparse.ArgumentParser(prog="sabha-chain", description="Blocker chains from board dependsOn data.")
+    ap = Parser(prog="sabha-chain", description="Blocker chains from board dependsOn data.")
     ap.add_argument("board_dir")
     ap.add_argument("--repos", default=None, help="space separated OWNER/NAME (default SABHA_CHAIN_REPOS)")
     ap.add_argument("--gh", action="store_true", help="add PR state and base through sabha-gh")
