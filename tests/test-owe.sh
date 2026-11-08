@@ -66,4 +66,63 @@ echo "$out" | grep -q 'b.md\|c.md\|d.bin' && fail "sent drafts and non-drafts mu
 printf -- '---\nid: 3\nutc: 2026-10-06T09:00:00Z\nstate: DONE\n' >>"$dir/impl/for-me.items"
 [[ $("$BIN/sabha" owe) == "nothing owed" ]] || fail "nothing left must print: nothing owed"
 
+# review 208 fixes: --sent confinement, send-word filter, asked: age, hostile board and draft text
+mkdir -p "$dir/other" "$dir/m2/impl" "$dir/m2/drafts"
+printf 'x\n' >"$dir/other/notadraft.txt"
+"$BIN/sabha" owe --sent "$dir/other/notadraft.txt" 2>/dev/null && fail "--sent outside SABHA_OWE_DIRS must fail"
+[[ -e $dir/other/notadraft.txt.sent ]] && fail "--sent outside SABHA_OWE_DIRS must write no marker"
+cat >"$dir/m2/impl/for-me.items" <<'ITEMS'
+---
+id: ask-a
+utc: 2026-10-01T09:00:00Z
+title: we ask a bit about colours
+---
+id: sup
+utc: 2026-10-01T09:00:00Z
+title: send Zed the note
+state: SUPERSEDED (by 9)
+---
+id: why-only
+utc: 2026-10-01T09:00:00Z
+title: check the logs
+why: we may send later
+---
+id: quest
+utc: 2026-10-01T09:00:00Z
+title: what may it send?
+---
+id: no-title
+utc: 2026-10-01T09:00:00Z
+why: send Ann the pack now
+---
+id: asked-only
+asked: 2026-11-05 18:32 IST
+title: send Lee the file
+---
+id: ask-name
+utc: 2026-10-02T09:00:00Z
+title: ask Priya for the key
+---
+ITEMS
+printf '# Hi\nREADME text\n' >"$dir/m2/drafts/README.md"
+printf '# Note\nto: Sam\033[31mRED\n' >"$dir/m2/drafts/n.md"
+touch -t 202609010900 "$dir/m2/drafts/n.md"
+printf '5\n' >"$dir/m2/board.json"
+printf 'SABHA_WS=%s/m2\nSABHA_IMPL=%s/m2/impl\nSABHA_ROSTER="Relay:opus Worker:sonnet"\nSABHA_OWE_DIRS=drafts\nSABHA_OWE_BOARD=%s/m2/board.json\n' \
+  "$dir" "$dir" "$dir" >"$dir/m2.conf"
+m2=$(SABHA_CONF=$dir/m2.conf "$BIN/sabha" owe 2>&1) || fail "owe with a non-list board export must exit 0: $m2"
+echo "$m2" | grep -q 'Traceback' && fail "a non-list board export must not traceback"
+echo "$m2" | grep -q 'for-me ask-a' && fail "'ask a ...' must not match the ask <Name> rule"
+echo "$m2" | grep -q 'for-me sup' && fail "a SUPERSEDED item must not be listed"
+echo "$m2" | grep -q 'for-me why-only' && fail "a send word inside why must not list an item"
+echo "$m2" | grep -q 'for-me quest' && fail "a title ending in ? is a question, not a send"
+echo "$m2" | grep -q '| send Ann the pack now |' || fail "an item with only why: must show it in the what column"
+echo "$m2" | grep -q 'for-me ask-name' || fail "ask Priya must still match"
+echo "$m2" | grep -q 'for-me asked-only' || fail "an asked: item must be listed"
+[[ $(echo "$m2" | tail -n 1) == *"for-me asked-only"* ]] || fail "the asked: item (5 Nov) must sort after the utc: items (1-2 Oct)"
+echo "$m2" | grep 'for-me asked-only' | grep -q '^-' && fail "asked: must give an age, not -"
+echo "$m2" | grep -q 'README.md' && fail "README.md is not a draft"
+printf '%s\n' "$m2" | grep -q "$(printf '\033')" && fail "control characters must be stripped from the output"
+echo "$m2" | grep -q 'Sam\[31mRED' || fail "the draft to: column must still show the name"
+
 echo "ok: owe lists open send items and unsent drafts oldest first with the board rows they block; done, sent and plain items stay out; --sent marks a draft"
