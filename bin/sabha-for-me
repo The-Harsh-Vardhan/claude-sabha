@@ -3,6 +3,8 @@
 
   sabha-for-me            render once
   sabha-for-me --watch    render every 15 s until interrupted
+  sabha-for-me --digest [--since <utc>]  write DIGEST-<yyyy-mm-dd>.md and .html: what finished, what is blocked and the
+                          commands you owe, since the previous day's digest (else 12 h); never overwrites an older day
   sabha-for-me --csv [dir]  also write agents.csv, for-me.csv and inbox.csv (dir, else SABHA_CSV_DIR); a plain
                           render and --watch write them too when SABHA_CSV_DIR is set
 
@@ -1010,6 +1012,155 @@ def once(conf, csv_dir=None):
     write_atomic(os.path.join(out, "FOR-ME.html"), render_html(b))
 
 
+DIGEST_HOURS = 12
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+_ELISION = re.compile(r"(^|[\s<])\.\.\.([\s>]|$)")
+_UTC = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def cmd_problem(cmd):
+    """Why a command may not be shown as a paste block, else "": an inline # comment (zsh passes it on as arguments;
+    text inside quotes is fine) or an elision. The same two rules as sabha-pack-lint."""
+    for line in cmd.splitlines():
+        bare = _QUOTED.sub("", line)
+        if re.search(r"(^|\s)#", bare):
+            return "inline # comment"
+        if _ELISION.search(line):
+            return "elision (...)"
+    return ""
+
+
+def digest_since(out, today, argv):
+    """--since wins; else the window recorded in today's digest (a rerun must not drift); else the mtime of the newest
+    digest of an earlier day; else DIGEST_HOURS back."""
+    if "--since" in argv:
+        n = argv.index("--since") + 1
+        try:
+            return dt.datetime.strptime(argv[n], _UTC).replace(tzinfo=dt.timezone.utc).timestamp()
+        except (IndexError, ValueError):
+            sys.exit("sabha-for-me: --since needs a utc stamp such as 2026-11-08T01:00:00Z")
+    try:
+        m = re.search(r"^since: (\S+)$", open(os.path.join(out, "DIGEST-%s.md" % today), encoding="ascii", errors="replace").read(), re.M)
+        if m:
+            return dt.datetime.strptime(m.group(1), _UTC).replace(tzinfo=dt.timezone.utc).timestamp()
+    except (OSError, ValueError):
+        pass
+    older = [f for f in os.listdir(out) if re.fullmatch(r"DIGEST-\d{4}-\d\d-\d\d\.md", f) and f != "DIGEST-%s.md" % today]
+    if older:
+        return os.path.getmtime(os.path.join(out, max(older)))
+    return time.time() - DIGEST_HOURS * 3600
+
+
+def first_paragraph(path):
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+    return short(next((p for p in re.split(r"\n\s*\n", text) if p.strip()), ""), 400)
+
+
+def digest_data(conf, since):
+    b = build(conf)
+    impl = conf["SABHA_IMPL"]
+    titles = {(r["agent"], r["brief"]): r["title"] for rs in b["inbox"].values() for r in rs}
+    finished, blocked = [], []
+    for role in sorted(b["inbox"]):
+        d = os.path.join(impl, "inbox", role)
+        for f in sorted(os.listdir(d)):
+            m = re.fullmatch(r"(\d+)\.(done|blocked.*)", f)
+            if not m:
+                continue
+            path = os.path.join(d, f)
+            if m.group(2) == "done":
+                mt = os.path.getmtime(path)
+                if mt >= since:
+                    finished.append((mt, role, m.group(1), titles.get((role, m.group(1)), ""), first_paragraph(path)))
+            else:
+                blocked.append((role, "inbox/%s/%s" % (role, f), marker_line(path, "status")))
+    for a in b["agents"]:
+        if a["blocked"]:
+            blocked.append((a["name"], "status/%s.md" % a["name"].lower(), short(a["blocked"], 300)))
+    cmds = sorted((i for i in b["open"] if i.get("cmd")), key=lambda i: i.get("added", ""))
+    return dict(finished=sorted(finished), blocked=blocked, cmds=cmds, agents=b["agents"], project=b["project"], since=since)
+
+
+def render_digest(d, day, fmt):
+    esc = ascii if fmt == "md" else (lambda s: html.escape(ascii(s)))
+    since = dt.datetime.fromtimestamp(d["since"], dt.timezone.utc).strftime(_UTC)
+    title = "Morning digest %s%s" % (day, " - " + d["project"] if d["project"] else "")
+    o = []
+    add = o.append
+
+    def sec(name, n):
+        add("## %s (%d)\n" % (name, n) if fmt == "md" else "<h2>%s (%d)</h2>" % (name, n))
+
+    def empty():
+        add("none\n" if fmt == "md" else "<p>none</p>")
+
+    if fmt == "md":
+        add("# %s\n\nsince: %s\n" % (title, since))
+    else:
+        add("<h1>%s</h1><p class=m>since %s</p>" % (esc(title), since))
+    sec("Finished", len(d["finished"]))
+    for mt, role, n, t, para in d["finished"] or [(None,) * 5]:
+        if mt is None:
+            empty()
+        elif fmt == "md":
+            add("- %s inbox/%s/%s.done: %s\n  %s" % (time.strftime("%H:%M", time.localtime(mt)), role, n, t, para))
+        else:
+            add("<p><b>%s %s/%s</b> %s<br>%s</p>" % (time.strftime("%H:%M", time.localtime(mt)), esc(role), n, esc(t), esc(para)))
+    sec("Blocked", len(d["blocked"]))
+    for row in d["blocked"] or [None]:
+        if row is None:
+            empty()
+        elif fmt == "md":
+            add("- %s (%s): %s" % row)
+        else:
+            add("<p><b>%s</b> %s: %s</p>" % (esc(row[0]), esc(row[1]), esc(row[2])))
+    sec("Commands for you", len(d["cmds"]))
+    for i in d["cmds"] or [None]:
+        if i is None:
+            empty()
+            continue
+        why = cmd_problem(i["cmd"])
+        head = "%s: %s" % (i["id"], i.get("title", ""))
+        if fmt == "md":
+            add("### %s\n" % head)
+            add("Not shown, it fails the paste rules: %s. Read it in for-me.items.\n" % why if why else "```\n%s\n```\n" % i["cmd"])
+        else:
+            add("<h3>%s</h3>" % esc(head))
+            add("<p class=bad>Not shown, it fails the paste rules: %s. Read it in for-me.items.</p>" % why if why else
+                "<pre>%s</pre><button onclick=\"navigator.clipboard.writeText(this.previousElementSibling.textContent)\">Copy</button>" % esc(i["cmd"]))
+    sec("Roles", len(d["agents"]))
+    for a in d["agents"]:
+        line = "%s: %s, %s (%s)" % (a["display"], state_label(a), short(a["task"], 160) or "-", age_text(a["age"]))
+        add("- " + line if fmt == "md" else "<p>%s</p>" % esc(line))
+    if fmt == "md":
+        return "\n".join(o) + "\n"
+    css = ("body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;background:#fff;color:#111}"
+           "pre{background:#f3f3f3;padding:.6rem;overflow:auto}.m{color:#666}.bad{color:#b00}"
+           "@media(prefers-color-scheme:dark){body{background:#161616;color:#eee}pre{background:#262626}.m{color:#aaa}.bad{color:#f66}}")
+    return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" \
+           "<title>%s</title><style>%s</style><body>%s</body></html>\n" % (html.escape(ascii(title)), css, "\n".join(o))
+
+
+def digest(conf, argv):
+    """DIGEST-<day>.md and .html beside FOR-ME.html. Read-only on every source; a rerun with nothing new writes nothing."""
+    out = conf.get("SABHA_FORME_DIR", conf["SABHA_IMPL"])
+    day = dt.datetime.now().strftime("%Y-%m-%d")
+    d = digest_data(conf, digest_since(out, day, argv))
+    md = render_digest(d, day, "md")
+    path = os.path.join(out, "DIGEST-%s.md" % day)
+    try:
+        if open(path, encoding="ascii").read() == md:
+            return
+    except OSError:
+        pass
+    write_atomic(path, md)
+    write_atomic(os.path.join(out, "DIGEST-%s.html" % day), render_digest(d, day, "html"))
+    print("sabha-for-me: wrote %s" % path)
+
+
 def selftest():
     """Asserts on synthetic inputs in a temp dir. Run as: sabha-for-me --selftest"""
     import shutil
@@ -1063,6 +1214,9 @@ def main():
         csv_dir = argv[n] if n < len(argv) and not argv[n].startswith("--") else conf.get("SABHA_CSV_DIR")
         if not csv_dir:
             sys.exit("sabha-for-me: --csv needs a directory or SABHA_CSV_DIR in sabha.conf")
+    if "--digest" in argv:
+        digest(conf, argv)
+        return
     if "--watch" not in argv:
         once(conf, csv_dir)
         return

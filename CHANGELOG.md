@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Morning digest: `sabha-for-me --digest [--since <utc>]` writes `DIGEST-<date>.md` and `.html` (finished, blocked, the
+  commands you owe, roles); `sabha-watch` builds it once a day after `SABHA_DIGEST_HOUR` (default 6).
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
