@@ -283,6 +283,7 @@ from the scripts):
 | `SABHA_NUDGE_TIMEOUT` | `120000` (milliseconds) | `sabha-nudge`: how long `herdr agent prompt --wait` waits |
 | `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
 | `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
+| `SABHA_CHAIN_<repo>` | unset | `sabha shipped`: the promotion chain of a repo, branches in order, space separated (`<repo>` = the name after the slash, other characters as `_`) |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
@@ -305,6 +306,7 @@ from the scripts):
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
+| `bin/sabha shipped [--fresh] [--chain "b1 b2"] <owner/repo#n>` | How far a merged PR has been promoted: `in`, `NOT IN` or `no such branch` per branch of its chain; by commit sha, so a squash promotion is not detected ([docs/shipped.md](docs/shipped.md)); read-only, through `bin/sabha-gh`; needs `gh` logged in, from a plain terminal |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |

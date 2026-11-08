@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `sabha shipped <owner/repo#n>` (`bin/sabha-shipped`, docs/shipped.md): where a merged PR has reached along a branch chain
+  (`SABHA_CHAIN_<repo>` or `--chain`): `in`, `NOT IN` or `no such branch` per branch, by commit sha. Read-only, through
+  `bin/sabha-gh` (docs/github-layer.md).
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
