@@ -5,8 +5,6 @@ SABHA_WS="$HOME/Work"
 SABHA_IMPL="$HOME/my-claude-sabha"
 # Optional: where FOR-ME.md and FOR-ME.html are written (default: SABHA_IMPL). Keep it outside this repo.
 #SABHA_FORME_DIR=$SABHA_WS/path/to/board
-# Local hour (0-23) after which sabha-watch builds the day's DIGEST-<date>.md/.html beside the board; default 6.
-#SABHA_DIGEST_HOUR=6
 #SABHA_CSV_DIR=$SABHA_WS/path/to/tracker   # agents.csv and for-me.csv, written on every render
 # Tracker: html (default: offline page from the CSVs, no login, tracker/build-html.py), xlsx (tracker/build-xlsx.py, import
 # into any spreadsheet) or sheet (Google Sheet: the better option for phone use, sharing and the Inbox/Decisions round

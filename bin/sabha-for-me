@@ -944,10 +944,15 @@ def inbox_md(inb):
 
 def write_atomic(path, text):
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".for-me-")
-    with os.fdopen(fd, "w", encoding="ascii") as f:
-        f.write(text)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def inbox_open(impl, name):
@@ -1051,9 +1056,17 @@ def digest_since(out, today, argv):
     return time.time() - DIGEST_HOURS * 3600
 
 
+_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def clean(s):
+    """ASCII only and no control bytes (an ESC in a .done would replay in a terminal); newline and tab stay."""
+    return _CTRL.sub("", ascii(s))
+
+
 def first_paragraph(path):
     try:
-        text = open(path, encoding="utf-8", errors="replace").read()
+        text = open(path, encoding="utf-8", errors="replace").read(65536)
     except OSError:
         return ""
     return short(next((p for p in re.split(r"\n\s*\n", text) if p.strip()), ""), 400)
@@ -1066,26 +1079,31 @@ def digest_data(conf, since):
     finished, blocked = [], []
     for role in sorted(b["inbox"]):
         d = os.path.join(impl, "inbox", role)
-        for f in sorted(os.listdir(d)):
+        names = set(os.listdir(d))
+        for f in sorted(names):
             m = re.fullmatch(r"(\d+)\.(done|blocked.*)", f)
             if not m:
                 continue
-            path = os.path.join(d, f)
+            n, path = m.group(1), os.path.join(d, f)
             if m.group(2) == "done":
                 mt = os.path.getmtime(path)
                 if mt >= since:
-                    finished.append((mt, role, m.group(1), titles.get((role, m.group(1)), ""), first_paragraph(path)))
+                    finished.append((mt, role, n, titles.get((role, n), ""), first_paragraph(path)))
+            elif "cleared" in f or n + ".done" in names or n + ".cancel" in names:
+                continue
+            elif n + ".ack" in names and os.path.getmtime(path) <= os.path.getmtime(os.path.join(d, n + ".ack")):
+                continue
             else:
-                blocked.append((role, "inbox/%s/%s" % (role, f), marker_line(path, "status")))
+                blocked.append((role, "inbox/%s/%s" % (role, f), marker_line(path, "status") or "(no text)"))
     for a in b["agents"]:
-        if a["blocked"]:
+        if a["state"] == "blocked":
             blocked.append((a["name"], "status/%s.md" % a["name"].lower(), short(a["blocked"], 300)))
     cmds = sorted((i for i in b["open"] if i.get("cmd")), key=lambda i: i.get("added", ""))
     return dict(finished=sorted(finished), blocked=blocked, cmds=cmds, agents=b["agents"], project=b["project"], since=since)
 
 
 def render_digest(d, day, fmt):
-    esc = ascii if fmt == "md" else (lambda s: html.escape(ascii(s)))
+    esc = clean if fmt == "md" else (lambda s: html.escape(clean(s)))
     since = dt.datetime.fromtimestamp(d["since"], dt.timezone.utc).strftime(_UTC)
     title = "Morning digest %s%s" % (day, " - " + d["project"] if d["project"] else "")
     o = []
@@ -1098,7 +1116,7 @@ def render_digest(d, day, fmt):
         add("none\n" if fmt == "md" else "<p>none</p>")
 
     if fmt == "md":
-        add("# %s\n\nsince: %s\n" % (title, since))
+        add("# %s\n\nsince: %s\n" % (esc(title), since))
     else:
         add("<h1>%s</h1><p class=m>since %s</p>" % (esc(title), since))
     sec("Finished", len(d["finished"]))
@@ -1106,7 +1124,7 @@ def render_digest(d, day, fmt):
         if mt is None:
             empty()
         elif fmt == "md":
-            add("- %s inbox/%s/%s.done: %s\n  %s" % (time.strftime("%H:%M", time.localtime(mt)), role, n, t, para))
+            add("- %s inbox/%s/%s.done: %s\n  %s" % (time.strftime("%H:%M", time.localtime(mt)), esc(role), n, esc(t), esc(para)))
         else:
             add("<p><b>%s %s/%s</b> %s<br>%s</p>" % (time.strftime("%H:%M", time.localtime(mt)), esc(role), n, esc(t), esc(para)))
     sec("Blocked", len(d["blocked"]))
@@ -1114,7 +1132,7 @@ def render_digest(d, day, fmt):
         if row is None:
             empty()
         elif fmt == "md":
-            add("- %s (%s): %s" % row)
+            add("- %s (%s): %s" % tuple(esc(x) for x in row))
         else:
             add("<p><b>%s</b> %s: %s</p>" % (esc(row[0]), esc(row[1]), esc(row[2])))
     sec("Commands for you", len(d["cmds"]))
@@ -1125,19 +1143,21 @@ def render_digest(d, day, fmt):
         why = cmd_problem(i["cmd"])
         head = "%s: %s" % (i["id"], i.get("title", ""))
         if fmt == "md":
-            add("### %s\n" % head)
-            add("Not shown, it fails the paste rules: %s. Read it in for-me.items.\n" % why if why else "```\n%s\n```\n" % i["cmd"])
+            fence = "`" * max(3, max((len(r) for r in re.findall(r"`+", i["cmd"])), default=0) + 1)
+            add("### %s\n" % esc(head))
+            add("Not shown, it fails the paste rules: %s. Read it in for-me.items.\n" % why if why else
+                "%s\n%s\n%s\n" % (fence, esc(i["cmd"]), fence))
         else:
             add("<h3>%s</h3>" % esc(head))
             add("<p class=bad>Not shown, it fails the paste rules: %s. Read it in for-me.items.</p>" % why if why else
-                "<pre>%s</pre><button onclick=\"navigator.clipboard.writeText(this.previousElementSibling.textContent)\">Copy</button>" % esc(i["cmd"]))
+                "<pre>%s</pre><button onclick=\"var p=this.previousElementSibling;(navigator.clipboard?navigator.clipboard.writeText(p.textContent):Promise.reject()).catch(function(){getSelection().selectAllChildren(p)})\">Copy</button>" % esc(i["cmd"]))
     sec("Roles", len(d["agents"]))
     for a in d["agents"]:
-        line = "%s: %s, %s (%s)" % (a["display"], state_label(a), short(a["task"], 160) or "-", age_text(a["age"]))
-        add("- " + line if fmt == "md" else "<p>%s</p>" % esc(line))
+        line = "%s: %s, %s" % (a["display"], a["state"], short(a["task"], 160) or "-")
+        add("- " + esc(line) if fmt == "md" else "<p>%s</p>" % esc(line))
     if fmt == "md":
         return "\n".join(o) + "\n"
-    css = ("body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;background:#fff;color:#111}"
+    css = ("body{color-scheme:light dark;font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;background:#fff;color:#111}"
            "pre{background:#f3f3f3;padding:.6rem;overflow:auto}.m{color:#666}.bad{color:#b00}"
            "@media(prefers-color-scheme:dark){body{background:#161616;color:#eee}pre{background:#262626}.m{color:#aaa}.bad{color:#f66}}")
     return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">" \
@@ -1145,8 +1165,11 @@ def render_digest(d, day, fmt):
 
 
 def digest(conf, argv):
-    """DIGEST-<day>.md and .html beside FOR-ME.html. Read-only on every source; a rerun with nothing new writes nothing."""
+    """DIGEST-<day>.md and .html beside FOR-ME.html. Read-only on every source; a rerun with nothing new writes nothing.
+    A same-day change replaces that day's page in place (a living page); an earlier day is never touched."""
     out = conf.get("SABHA_FORME_DIR", conf["SABHA_IMPL"])
+    if not os.path.isdir(out):
+        sys.exit("sabha-for-me: digest folder missing: %s" % out)
     day = dt.datetime.now().strftime("%Y-%m-%d")
     d = digest_data(conf, digest_since(out, day, argv))
     md = render_digest(d, day, "md")
@@ -1154,7 +1177,7 @@ def digest(conf, argv):
     try:
         if open(path, encoding="ascii").read() == md:
             return
-    except OSError:
+    except (OSError, ValueError):
         pass
     write_atomic(path, md)
     write_atomic(os.path.join(out, "DIGEST-%s.html" % day), render_digest(d, day, "html"))

@@ -3,8 +3,7 @@
 # above 30 percent that is not mid-task, the user's open items, and briefs nobody has acked. With SABHA_RUN_AUTO=1 it
 # then runs one sabha-run pass, so whatever calls sabha-watch on a schedule also starts headless runs.
 # A new inbox/<Role>/NNN.done is announced once with sabha-nudge: to the dispatcher, or to the relay for a .done in the
-# dispatcher's own inbox. The first pass only records the dones that already exist. After SABHA_DIGEST_HOUR it also
-# builds the day's DIGEST-<date>.md/.html beside the board (sabha-for-me --digest), the one thing here that writes. SABHA_NUDGE_BIN replaces sabha-nudge (tests).
+# dispatcher's own inbox. The first pass only records the dones that already exist. SABHA_NUDGE_BIN replaces sabha-nudge (tests).
 #   sabha-watch
 # Paths come from sabha.conf and the team's .sabha/config (sabha_conf_read in sabha-lib.sh). Always exits 0.
 set -uo pipefail
@@ -94,10 +93,6 @@ if [[ -n $DISPATCHER ]] && mkdir -p "$SEEN" 2>/dev/null; then
     to=$DISPATCHER; [[ $role == "$DISPATCHER" ]] && to=$RELAY
     ( "$nudge" "$to" "see inbox/$role/$n.done" </dev/null >>"$IMPL/status/done-nudge.log" 2>&1 || echo "nudge $to failed for inbox/$role/$n.done" >>"$IMPL/status/done-nudge.log" ) &
   done
-fi
-# the morning digest page: once the local hour reaches SABHA_DIGEST_HOUR (default 6); sabha-for-me --digest writes nothing when today's page is current
-if command -v python3 >/dev/null 2>&1 && (( 10#$(date +%H) >= 10#${SABHA_DIGEST_HOUR:-6} )); then
-  python3 "$BIN/sabha-for-me" --digest >/dev/null 2>&1 || true
 fi
 # the headless runner rides on this report instead of a loop of its own (docs/headless-runner.md)
 [[ ${SABHA_RUN_AUTO:-0} == 1 ]] && "$BIN/sabha-run"

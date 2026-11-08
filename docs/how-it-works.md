@@ -111,7 +111,7 @@ The morning digest: `bin/sabha-for-me --digest [--since <utc>]` writes `DIGEST-<
 the board: what finished since the previous day's digest (the `.done` files, else the last 12 hours), what is blocked
 (`.blocked` files and `Blocked:` status lines), the open `for-me.items` that carry a `cmd:` (a command with an inline
 `#` comment or a `...` is not shown, with the reason), and each role's status line. It only reads; it never overwrites
-an older day, and a rerun with nothing new writes nothing. `bin/sabha-watch` builds it once the local hour reaches
-`SABHA_DIGEST_HOUR` (default 6).
+an older day, and a rerun with nothing new writes nothing; a change on the same day replaces that day's page in place.
+Schedule it yourself: see [Morning digest](morning-digest.md).
 
 Next: the [Roster](roster.md) shows all 20 roles side by side in every theme.
