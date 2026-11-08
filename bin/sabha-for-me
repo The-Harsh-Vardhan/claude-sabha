@@ -1059,14 +1059,15 @@ def owe_list(conf):
     verb = "(?:%s)" % "|".join(map(re.escape, words))
     send_in = re.compile(r"\b%s\b" % verb, re.I)
     send_first = re.compile(r"\s*%s\b" % verb, re.I)
-    ask_name = re.compile(r"\bask [A-Z]")
+    ask_name = re.compile(r"\b[Aa]sk [A-Z]")
+    ask_first = re.compile(r"\s*[Aa]sk [A-Z]")
     name_after = re.compile(r"\b(?:send|message|reply to|reply|post|ask)\s+(?:to\s+)?([A-Z][A-Za-z]+)")
     rows = owe_board(conf.get("SABHA_OWE_BOARD", ""))
     out = []
     for i in parse_items(os.path.join(impl, "for-me.items")):
         title, why = i.get("title", ""), i.get("why", "")
         # a send word counts in the title; in why only as its first word; a title ending in ? is a question
-        is_send = (send_in.search(title) or ask_name.search(title) or send_first.match(why)) and not title.endswith("?")
+        is_send = (send_in.search(title) or ask_name.search(title) or send_first.match(why) or ask_first.match(why)) and not title.endswith("?")
         state = re.match(r"\w*", i.get("state", "OPEN")).group(0).upper()
         if state not in ("", "OPEN") or not is_send:
             continue
@@ -1077,7 +1078,7 @@ def owe_list(conf):
     for d in owe_dirs(conf):
         for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             f = os.path.join(d, name)
-            if (not name.endswith((".md", ".txt")) or name.upper().startswith("README") or not os.path.isfile(f)
+            if (not name.endswith((".md", ".txt")) or name.upper().startswith("README") or os.path.islink(f) or not os.path.isfile(f)
                     or os.path.exists(f + ".sent")):
                 continue
             with open(f, encoding="utf-8", errors="replace") as fh:
@@ -1163,7 +1164,7 @@ def main():
     if "--sent" in argv:
         n = argv.index("--sent") + 1
         f = os.path.realpath(argv[n]) if n < len(argv) else ""
-        if not os.path.isfile(f) or not f.endswith((".md", ".txt")) or os.path.dirname(f) not in map(
+        if (n < len(argv) and os.path.islink(argv[n])) or not os.path.isfile(f) or not f.endswith((".md", ".txt")) or os.path.dirname(f) not in map(
                 os.path.realpath, owe_dirs(conf)):
             sys.exit("sabha-for-me: --sent needs an existing .md or .txt draft inside SABHA_OWE_DIRS")
         open(f + ".sent", "a").close()

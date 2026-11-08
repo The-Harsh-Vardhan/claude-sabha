@@ -32,6 +32,7 @@ SABHA_USER="the user"
 # <file>.sent marker) in these folders (space-separated, relative = under SABHA_WS); an optional board export (JSON
 # list of rows with id, dependsOn, unblocks) names the rows each one blocks.
 #SABHA_OWE_WORDS="send message reply post"
+# Add words such as "tell" here; "ask <Name>" (capital N) always counts.
 #SABHA_OWE_DIRS="docs/drafts"
 #SABHA_OWE_BOARD=$SABHA_WS/path/to/board.json
 # Plan: the roster, panes, copies and labels of sabha.<plan>.conf beside this file (pro, max5, max20) replace the ones

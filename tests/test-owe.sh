@@ -103,10 +103,25 @@ id: ask-name
 utc: 2026-10-02T09:00:00Z
 title: ask Priya for the key
 ---
+id: ask-cap
+utc: 2026-10-02T09:00:00Z
+title: Ask Priya for the key
+---
+id: ask-why
+utc: 2026-10-02T09:00:00Z
+title: check the key
+why: Ask Sam for the key
+---
+id: ask-why-a
+utc: 2026-10-02T09:00:00Z
+title: check the lock
+why: ask a locksmith
+---
 ITEMS
 printf '# Hi\nREADME text\n' >"$dir/m2/drafts/README.md"
 printf '# Note\nto: Sam\033[31mRED\n' >"$dir/m2/drafts/n.md"
 touch -t 202609010900 "$dir/m2/drafts/n.md"
+ln -s "$dir/m2/drafts/n.md" "$dir/m2/drafts/lnk.md"
 printf '5\n' >"$dir/m2/board.json"
 printf 'SABHA_WS=%s/m2\nSABHA_IMPL=%s/m2/impl\nSABHA_ROSTER="Relay:opus Worker:sonnet"\nSABHA_OWE_DIRS=drafts\nSABHA_OWE_BOARD=%s/m2/board.json\n' \
   "$dir" "$dir" "$dir" >"$dir/m2.conf"
@@ -118,9 +133,14 @@ echo "$m2" | grep -q 'for-me why-only' && fail "a send word inside why must not 
 echo "$m2" | grep -q 'for-me quest' && fail "a title ending in ? is a question, not a send"
 echo "$m2" | grep -q '| send Ann the pack now |' || fail "an item with only why: must show it in the what column"
 echo "$m2" | grep -q 'for-me ask-name' || fail "ask Priya must still match"
+echo "$m2" | grep -q 'for-me ask-cap' || fail "a capital Ask Priya title must be listed"
+echo "$m2" | grep -q 'for-me ask-why ' || fail "a why starting with Ask Sam must be listed"
+echo "$m2" | grep -q 'for-me ask-why-a' && fail "a why starting with ask a must not be listed"
 echo "$m2" | grep -q 'for-me asked-only' || fail "an asked: item must be listed"
 [[ $(echo "$m2" | tail -n 1) == *"for-me asked-only"* ]] || fail "the asked: item (5 Nov) must sort after the utc: items (1-2 Oct)"
 echo "$m2" | grep 'for-me asked-only' | grep -q '^-' && fail "asked: must give an age, not -"
+echo "$m2" | grep -q 'lnk.md' && fail "a symlink in a draft folder must not be listed"
+SABHA_CONF=$dir/m2.conf "$BIN/sabha" owe --sent "$dir/m2/drafts/lnk.md" 2>/dev/null && fail "--sent on a symlink must fail"
 echo "$m2" | grep -q 'README.md' && fail "README.md is not a draft"
 printf '%s\n' "$m2" | grep -q "$(printf '\033')" && fail "control characters must be stripped from the output"
 echo "$m2" | grep -q 'Sam\[31mRED' || fail "the draft to: column must still show the name"
