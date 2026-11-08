@@ -96,13 +96,13 @@ glob_in() {
   return $hit
 }
 
-# is_secret <word>: the last part after / : or = names a secret file, in any case (APFS is case-insensitive). Covers
+# is_secret <word>: the last part after / : = or @ (curl -d @file) names a secret file, in any case (APFS is case-insensitive). Covers
 # .env, .env.*, .<name>.env, .envrc, .npmrc, .yarnrc.yml, .pypirc, .netrc, .pgpass, .htpasswd, .vault-token,
 # .git-credentials, kubeconfig, credentials*, creds, secrets.y*ml, terraform.tfvars, *.pem, *.key, *.pfx, *.p12,
 # *.keystore, id_rsa-style keys, .aws/, .ssh/config, .git/config, .docker/config.json, gh/hosts.yml.
 # *.example, *.sample, *.template and *.pub (public keys) are not secrets.
 is_secret() {
-  local n=${1##*[/:=]} hit=1
+  local n=${1##*[/:=@]} hit=1
   shopt -s nocasematch
   case $n in
     *.example|*.sample|*.template|*.pub) ;;
@@ -191,9 +191,9 @@ push_args() {
   for tok; do
     if [[ $skip == 1 ]]; then skip=0; continue; fi
     case $tok in
-      --all|--mirror) deny shared-push "git push $tok reaches every branch, shared ones included; push your own branch by name" ;;
-      --repo) skip=1; n=1; continue ;;
-      --repo=*) n=1; continue ;;
+      --all|--al|--mirror|--mirro|--mirr|--mir|--mi|--m) deny shared-push "git push $tok reaches every branch, shared ones included (git accepts an abbreviated option); push your own branch by name" ;;
+      --repo|--rep) skip=1; n=1; continue ;;
+      --repo=*|--rep=*) n=1; continue ;;
       -o|--push-option|--receive-pack|--exec) skip=1; continue ;;
       -*) continue ;;
     esac
@@ -203,7 +203,7 @@ push_args() {
     dest=${tok#+}
     case $dest in *:*) dest=${dest##*:} ;; esac
     dest=${dest#refs/heads/}
-    case $dest in *'$'*|*'`'*) deny shared-push "the refspec '$tok' holds a shell expansion the hook cannot read; name your own feature branch literally" ;; esac
+    case $dest in *'$'*|*'`'*|*'{'*) deny shared-push "the refspec '$tok' holds a shell expansion the hook cannot read; name your own feature branch literally" ;; esac
     if [[ $dest == HEAD || -z $dest ]]; then
       if branch_of "$d"; then dest=$br
       else deny shared-push "the branch of this push cannot be told (directory '$d' is unknown or not a checkout); name your own feature branch in the refspec"; fi
@@ -235,7 +235,7 @@ git_args() {
       --git-dir|--work-tree) d='?'; shift; [[ $# -gt 0 ]] && shift ;;
       --git-dir=*|--work-tree=*) d='?'; shift ;;
       -*) shift ;;
-      push) shift; push_args "$d" "$@"; return ;;
+      push) shift; [[ $gd$gw == 00 ]] || d='?'; push_args "$d" "$@"; return ;;
       *) return ;;
     esac
   done
@@ -267,7 +267,7 @@ gh_args() {
     *git/refs*|*/merge*|*/branches*|*/contents*|*refs/heads*|*refs/tags*)
       shopt -u nocasematch; deny shared-push "gh api write on refs, a merge, branches or contents moves a shared branch like a push; open a reviewed pull request instead" ;;
     *graphql*)
-      if printf '%s' "$cmd" | grep -Eiq 'mergePullRequest|createRef|updateRef|deleteRef|CommitOnBranch|mergeBranch'; then
+      if printf '%s' "$ncmd" | grep -Eiq 'mergePullRequest|createRef|updateRef|deleteRef|CommitOnBranch|mergeBranch'; then
         shopt -u nocasematch; deny shared-push "a gh api graphql mutation that merges or moves a ref moves a shared branch like a push; open a reviewed pull request instead"
       fi ;;
   esac
@@ -276,12 +276,22 @@ gh_args() {
 
 # judge <one command segment>: tracks cd/pushd/popd in cur, then looks at every git and gh word of the segment
 judge() {
-  local IFS=$' \t\n' t saved=$cur envd=0
+  local IFS=$' \t\n' t saved=$cur envd=0 inenv=0 allas=1
   # shellcheck disable=SC2086  # split on purpose; globbing is off
   set -- $1
   while [[ $# -gt 0 ]]; do
     case $1 in then|do|else|'{'|'!'|time|builtin|command|sudo|exec|nohup) shift ;; *) break ;; esac
   done
+  # GIT_DIR or GIT_WORK_TREE set as a command of its own (export, declare, a bare assignment) holds for the rest of the
+  # command, so every later push has an unknown directory until it is unset
+  case ${1:-} in
+    export|declare|typeset|readonly) for t in "${@:2}"; do case $t in GIT_DIR|GIT_DIR=*) gd=1 ;; GIT_WORK_TREE|GIT_WORK_TREE=*) gw=1 ;; esac; done ;;
+    unset) for t in "${@:2}"; do case $t in GIT_DIR) gd=0 ;; GIT_WORK_TREE) gw=0 ;; esac; done ;;
+    *) for t; do case $t in [A-Za-z_]*=*) ;; *) allas=0 ;; esac; done
+       if [[ $allas == 1 && $# -gt 0 ]]; then
+         for t; do case $t in GIT_DIR=*) gd=1 ;; GIT_WORK_TREE=*) gw=1 ;; esac; done
+       fi ;;
+  esac
   case ${1:-} in
     cd|pushd)
       local verb=$1
@@ -296,7 +306,18 @@ judge() {
   while [[ $# -gt 0 ]]; do
     t=${1#\\}; shift
     case $t in GIT_DIR=*|GIT_WORK_TREE=*) cur='?'; envd=1; continue ;; esac
+    if [[ $inenv == 1 ]]; then
+      # env -C dir (--chdir) moves the directory for the command it runs
+      case $t in
+        -C|--chdir) jp "$cur" "${1:-}"; cur=$JP; envd=1; [[ $# -gt 0 ]] && shift; continue ;;
+        --chdir=*) jp "$cur" "${t#*=}"; cur=$JP; envd=1; continue ;;
+        -u|--unset) [[ $# -gt 0 ]] && shift; continue ;;
+        -*|*=*) continue ;;
+        *) inenv=0 ;;
+      esac
+    fi
     case ${t##*/} in
+      env) inenv=1 ;;
       git) git_args "$@" ;;
       gh) gh_args "$@" ;;
     esac
@@ -313,17 +334,29 @@ unwrap_sh_c() {
       if (q == "") { if (c == "\"" || c == "'"'"'") q = c; o = o c }
       else if (c == q) { q = ""; o = o c } else o = o "x" }
     return o }
-  { while (match(mask($0), /(^|[ \t;&|(])((ba|z|da)?sh[ \t]+-[A-Za-z]*c([ \t]+--)?|eval)[ \t]+("[^"]*"|'"'"'[^'"'"']*'"'"')/)) {
+  { while (match(mask($0), /(^|[ \t;&|(\/])((ba|z|da|k)?sh([ \t]+(--?[A-Za-z][-A-Za-z]*|[-+]O[ \t]+[A-Za-z]+))*[ \t]+-[A-Za-z]*c([ \t]+--)?|(ba|z|da|k)?sh[ \t]+<<<|eval|env[ \t]+(-[A-Za-z]+[ \t]+)*-[A-Za-z]*S)[ \t]*("[^"]*"|'"'"'[^'"'"']*'"'"')/)) {
       st = RSTART; ln = RLENGTH; s = substr($0, st, ln); q = match(s, /["'"'"']/); s = substr(s, q + 1, length(s) - q - 1)
       $0 = substr($0, 1, st - 1) "\n" s "\n" substr($0, st + ln) }
     print }'
 }
 
-if on shared-push && [[ -n $cmd ]]; then
-  bare=${cmd//[\"\'\\]/}
+# The two rules that walk a command word by word get it with line continuations joined and every other backslash
+# deleted (g\it, pu\sh, .e\nv are the same words to the shell), after a size check: bash 3.2 is quadratic on a very
+# long word, and a hook that times out lets the call through, so a huge command is refused instead.
+ncmd=
+if [[ -n $cmd ]] && { on shared-push || on secret-read; }; then
+  if [[ ${#cmd} -gt 16384 ]] || printf '%s\n' "$cmd" | awk '{ for (i = 1; i <= NF; i++) if (length($i) > 8192) f = 1 } END { exit !f }'; then
+    deny size "the command is too long to check in time (over 16 KB, or one word over 8 KB); split it, or write the data to a file with the Write tool"
+  fi
+  bsnl=$'\\\n'
+  ncmd=${cmd//"$bsnl"/}
+  ncmd=$(printf '%s\n' "$ncmd" | sed -E 's/\\([^"'"'"'])/\1/g')
+fi
+
+if on shared-push && [[ -n $ncmd ]]; then
+  bare=${ncmd//[\"\']/}
   case $bare in *push*|*" api"*)
-    src=$cmd
-    case $cmd in *eval*|*"sh -"*) src=$(printf '%s\n' "$cmd" | unwrap_sh_c) ;; esac
+    src=$(printf '%s\n' "$ncmd" | unwrap_sh_c)
     # a quoted string with a space is data (a commit message): it becomes Q; other quotes are dropped; a string that holds
     # a $ or a backtick stays, so $(git push ...) inside double quotes is seen. Every command, subshell and substitution
     # goes on its own line.
@@ -333,7 +366,7 @@ if on shared-push && [[ -n $cmd ]]; then
       -e "s/[\"']//g" \
       -e 's/(&&?|\|\|?|;|\$\(|\(|\)|`)/\
 /g')
-    cur=${cwd:-.}
+    cur=${cwd:-.} gd=0 gw=0
     set -f
     old_ifs=$IFS
     IFS=$'\n'
@@ -371,7 +404,7 @@ dollar_secret() {
 
 # leak_check <segment>: a command that dumps the environment or prints a secret variable, or a token out of gh
 leak_check() {
-  local IFS=$' \t\n' t flags=0 pflag=0 left=0 s=${1//[\"\']/}
+  local IFS=$' \t\n' t flags=0 pflag=0 pname=0 left=0 s=${1//[\"\']/}
   set -f
   # shellcheck disable=SC2086  # split on purpose; globbing is off
   set -- $s
@@ -393,14 +426,29 @@ leak_check() {
       done
       if [[ $# -eq 0 ]]; then deny secret-read "a bare env prints every variable, secrets included; name the one variable you need or ask the human"; fi
       leak_check "$*"; return ;;
+    eval) [[ $# -gt 0 ]] && leak_check "$*" ;;
+    bash|sh|zsh|dash|ksh)
+      # the words after -c are a command line of their own
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          -O|+O) shift; [[ $# -gt 0 ]] && shift ;;
+          --*) shift ;;
+          -*c*) shift; [[ $# -gt 0 ]] && leak_check "$*"; return ;;
+          -*) shift ;;
+          *) break ;;
+        esac
+      done ;;
     printenv)
       for t; do case $t in -*) ;; *) left=1; secret_var "$t" && deny secret-read "printenv of '$t' prints a secret; never read it, ask the human or the relay" ;; esac; done
       [[ $left == 1 ]] || deny secret-read "a bare printenv prints every variable, secrets included; name the one variable you need or ask the human" ;;
     set) [[ $# -gt 0 ]] || deny secret-read "a bare set prints every variable, secrets included" ;;
     export|declare|typeset)
-      for t; do case $t in -*) flags=1; case $t in *p*|*x*) pflag=1 ;; esac ;; *) left=1 ;; esac; done
+      for t; do case $t in -*) flags=1; case $t in *p*|*x*) pflag=1 ;; esac; case $t in *p*) pname=1 ;; esac ;; *) left=1 ;; esac; done
       if [[ $left == 0 ]] && { [[ $flags == 0 ]] || [[ $pflag == 1 ]]; }; then
         deny secret-read "$cw without a name lists every exported variable, secrets included"
+      fi
+      if [[ $pname == 1 ]]; then
+        for t; do case $t in -*|*=*) ;; *) secret_var "$t" && deny secret-read "$cw -p of '$t' prints a secret; never read it, ask the human or the relay" ;; esac; done
       fi ;;
     echo|printf|print|cat|base64|head|tail)
       for t; do dollar_secret "$t" && deny secret-read "'$t' reads a secret variable; never print it, ask the human or the relay"; done ;;
@@ -413,15 +461,32 @@ leak_check() {
 }
 
 if on secret-read; then
-  if [[ -n $cmd ]]; then
-    src=$cmd
+  if [[ -n $ncmd ]]; then
+    src=$ncmd
     if [[ $msg_cmd == 1 ]]; then
       # the message argument of a commit or PR command is data
-      src=$(printf '%s\n' "$cmd" | sed -E "s/(-[a-zA-Z]*m|--message|--body|--title|-b|-t)([[:space:]]+|=)?(\"[^\"]*\"|'[^']*')/\\1 Q/g")
+      src=$(printf '%s\n' "$ncmd" | sed -E "s/(-[a-zA-Z]*m|--message|--body|--title|-b|-t)([[:space:]]+|=)?(\"[^\"]*\"|'[^']*')/\\1 Q/g")
     fi
+    # the string of sh -c, eval and env -S runs as a command: it gets its own line
+    src=$(printf '%s\n' "$src" | unwrap_sh_c)
     copied=
     IFS=$'\n'
     set -f
+    # a cp with a substitution in its arguments is judged whole, before the cut at $( leaves it without a destination: a
+    # secret named on the line, or a /dev or /proc path, is refused
+    for seg in $(printf '%s\n' "$src" | sed -E 's/(&&?|\|\|?|;)/\
+/g'); do
+      case $seg in *'$('*|*'`'*)
+        if printf '%s\n' "$seg" | grep -Eq '(^|[^[:alnum:]_.-])cp[[:space:]]'; then
+          unset IFS
+          for w in $(printf '%s\n' "$seg" | tr -s " \t\"'(),<>{}@" '\n'); do
+            is_secret "$w" && deny secret-read "'$w' is a secret file on a cp line with a substitution the hook cannot read; name the destination literally"
+            case $w in /dev/*|/proc/*) deny secret-read "a cp line with a substitution and a '$w' path cannot be judged; name the destination literally" ;; esac
+          done
+          IFS=$'\n'
+        fi ;;
+      esac
+    done
     for seg in $(printf '%s\n' "$src" | sed -E 's/(&&?|\|\|?|;|\$\(|\(|\)|`)/\
 /g'); do
       leak_check "$seg"
@@ -454,7 +519,7 @@ if on secret-read; then
         continue
       fi
       unset IFS
-      for w in $(printf '%s\n' "$seg" | tr -s " \t\"'(),<>{}" '\n'); do
+      for w in $(printf '%s\n' "$seg" | tr -s " \t\"'(),<>{}@" '\n'); do
         is_secret "$w" && deny secret-read "'$w' is a secret file; never read, list or print it, ask the human or the relay"
         case $w in /proc/*/environ*|*/proc/*/environ*) deny secret-read "'$w' holds the environment, secrets included; never read it" ;; esac
         for c in $copied; do case $w in "$c"|"$c"/*) deny secret-read "'$w' is where a secret file was just copied; do not read it in the same command" ;; esac; done
