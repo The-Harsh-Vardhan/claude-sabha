@@ -286,6 +286,8 @@ from the scripts):
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
+| `SABHA_GH_USER`, `SABHA_GH_TTL`, `SABHA_GH_MIN_LEFT` | unset, `600`, `200` | `sabha-gh`: the login `gh` must be on, cache seconds, the quota floor ([docs/github-layer.md](docs/github-layer.md)) |
+| `SABHA_PRS_ORGS`, `SABHA_PRS_AUTHOR`, `SABHA_PRS_REPOS` | unset | `sabha prs`: orgs and repos (space separated) searched for the author's open PRs |
 
 ## Commands
 
@@ -305,6 +307,8 @@ from the scripts):
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
+| `bin/sabha prs [--org ORG] [--repo OWNER/NAME] [--author LOGIN] [--md FILE] [--json] [--fresh]` | PR radar: an author's open PRs across orgs and repos, worst first (ARCHIVED, CONFLICT, BEHIND>50, CHANGES_REQUESTED, STALE>7d); read-only, through `bin/sabha-gh` ([docs/github-layer.md](docs/github-layer.md)); needs `gh` logged in, from a plain terminal |
+| `bin/sabha-gh <read> ...` | The kit's one read-only GitHub layer: named reads (`pr`, `prs-by-author`, `compare`, `repo`, `branch`, `contents`), no flag accepted, account and quota checked, 10-minute cache |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
