@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# sabha-nightly: drafts the day's progress note from what the sabha already recorded. Read-only on every source;
+# it writes one draft file and never sends anything.
+#   sabha-nightly [--date YYYY-MM-DD] [--out DIR] [--stdout] [--force]
+# The day is the local calendar day of --date (default today). Sources: inbox/*/NNN.done whose mtime is in the day
+# (shipped, or BLOCKED) and for-me.items blocks whose utc is in the day (opened, closed); items still open are listed
+# as waiting. The draft is DIR/<date>.md (DIR: --out, else SABHA_NIGHTLY_DIR, else $SABHA_IMPL/nightly). A draft that
+# exists and differs (you may have edited it) is kept: use --force to replace it. Exit 0 ok, 2 usage, 3 kept, 1 error.
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+case ${1:-} in -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+sabha_load sabha-nightly
+export SABHA_IMPL SABHA_NIGHTLY_DIR="${SABHA_NIGHTLY_DIR:-}"
+exec python3 -I - "$@" <<'PY'
+import calendar, datetime, os, re, signal, stat, sys, time
+
+DONE_CAP = 65536
+ITEMS_CAP = 4 * 1024 * 1024
+LIST_MAX = 30
+LOCK_STALE = 600
+# ESC, OSC, BEL, CR, NUL, DEL, the C1 range, bidi controls and line separators: one place, every printed value
+CTRL = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def clean(s, n=200):
+    s = " ".join(CTRL.sub(" ", s).split())
+    return s if len(s) <= n else s[: n - 3] + "..."
+
+
+def usage(msg):
+    sys.stderr.write("sabha-nightly: %s\n" % msg)
+    sys.exit(2)
+
+
+def read_text(path, cap):
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return None
+        with open(path, "rb") as f:
+            return f.read(cap).decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def keys(text):
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"([A-Za-z_]+):[ \t]*(.*)$", line)
+        if m and m.group(1).lower() not in out:
+            out[m.group(1).lower()] = m.group(2)
+    return out
+
+
+def parse_utc(s):
+    try:
+        return calendar.timegm(time.strptime(s.strip(), "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def parse_args(argv):
+    o = {"date": None, "out": None, "stdout": False, "force": False}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--date", "--out"):
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                usage("%s needs a value" % a)
+            o[a[2:]] = argv[i + 1]
+            i += 2
+        elif a in ("--stdout", "--force"):
+            o[a[2:]] = True
+            i += 1
+        else:
+            usage("unknown argument %s" % a)
+    return o
+
+
+def window(date):
+    if date is None:
+        d = datetime.date.today()
+    else:
+        try:
+            d = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            usage("--date wants YYYY-MM-DD, got %s" % clean(date, 40))
+    start = time.mktime(d.timetuple())
+    end = time.mktime((d + datetime.timedelta(days=1)).timetuple())
+    return d.isoformat(), start, end
+
+
+def brief_title(role_dir, num):
+    try:
+        names = sorted(os.listdir(role_dir))
+    except OSError:
+        return ""
+    for n in names:
+        if re.match(r"%s([.-].*)?\.md$" % re.escape(num), n):
+            t = read_text(os.path.join(role_dir, n), DONE_CAP)
+            task = keys(t).get("task", "") if t else ""
+            return clean(task or re.sub(r"\.md$", "", n[len(num):].lstrip("-.")), 120)
+    return ""
+
+
+def gather_done(impl, start, end):
+    shipped, blocked = [], []
+    inbox = os.path.join(impl, "inbox")
+    try:
+        roles = sorted(os.listdir(inbox))
+    except OSError:
+        return shipped, blocked
+    for role in roles:
+        rd = os.path.join(inbox, role)
+        try:
+            files = sorted(os.listdir(rd))
+        except OSError:
+            continue
+        for f in files:
+            m = re.match(r"(\d+)\.done$", f)
+            if not m:
+                continue
+            p = os.path.join(rd, f)
+            try:
+                st = os.lstat(p)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode) or not (start <= st.st_mtime < end):
+                continue
+            k = keys(read_text(p, DONE_CAP) or "")
+            result = clean(k.get("result", "(no result line)"))
+            row = (st.st_mtime, clean(role, 40), m.group(1), brief_title(rd, m.group(1)), result)
+            (blocked if result.upper().startswith("BLOCKED") else shipped).append(row)
+    return sorted(shipped), sorted(blocked)
+
+
+def gather_items(impl, start, end):
+    text = read_text(os.path.join(impl, "for-me.items"), ITEMS_CAP)
+    if not text:
+        return [], [], []
+    if not text.endswith("\n"):  # a torn last block is still being written
+        text = text[: text.rfind("\n") + 1]
+    blocks, cur = [], []
+    for line in text.splitlines():
+        # a block that lost its --- starts again at a second id: line, but never inside a cmd: body
+        lost = line.startswith("id:") and any(l.startswith("id:") for l in cur) and not any(l.startswith("cmd:") for l in cur)
+        if line.strip() == "---" or lost:
+            if cur:
+                blocks.append(cur)
+            cur = [] if line.strip() == "---" else [line]
+        else:
+            cur.append(line)
+    if cur:
+        blocks.append(cur)
+    items = {}
+    for b in blocks:
+        head = []
+        for line in b:
+            if line.startswith("cmd:"):
+                break
+            head.append(line)
+        k = keys("\n".join(head))
+        iid = k.get("id", "").strip()
+        if not iid.isdigit():
+            continue
+        e = items.setdefault(iid, {"title": "", "owner": "", "ask": "", "opened": None, "closed": None, "state": ""})
+        t = parse_utc(k.get("utc", ""))
+        state = k.get("state", "").strip().upper()
+        if k.get("title"):
+            e["title"] = clean(k["title"], 120)
+        if k.get("owner"):
+            e["owner"] = clean(k["owner"], 40)
+        if k.get("ask"):
+            e["ask"] = clean(k["ask"], 40)
+        if state in ("DONE", "DROPPED"):
+            e["state"] = state
+            e["closed"] = t
+        elif not e["state"]:
+            e["state"] = "OPEN"
+            if e["opened"] is None:
+                e["opened"] = t
+    opened, closed, waiting = [], [], []
+    for iid in sorted(items, key=int):
+        e = items[iid]
+        if e["opened"] is not None and start <= e["opened"] < end:
+            opened.append((iid, e))
+        if e["state"] in ("DONE", "DROPPED") and e["closed"] is not None and start <= e["closed"] < end:
+            closed.append((iid, e))
+        if e["state"] == "OPEN":
+            waiting.append((iid, e))
+    return opened, closed, waiting
+
+
+def bullets(rows, none):
+    if not rows:
+        return ["- %s" % none]
+    out = ["- %s" % r for r in rows[:LIST_MAX]]
+    if len(rows) > LIST_MAX:
+        out.append("- and %d more" % (len(rows) - LIST_MAX))
+    return out
+
+
+def render(date, shipped, blocked, opened, closed, waiting):
+    L = ["# Nightly update %s (DRAFT)" % date, "", "Draft only, not sent. Edit it, then send it yourself.", ""]
+    L.append("## Shipped or moved")
+    L += bullets(["%s %s%s: %s" % (r[1], r[2], " " + r[3] if r[3] else "", r[4]) for r in shipped], "nothing recorded as done")
+    L += ["", "## Board changes"]
+    rows = ["opened #%s %s (owner %s)" % (i, e["title"], e["owner"] or "?") for i, e in opened]
+    rows += ["closed #%s %s (%s)" % (i, e["title"], e["state"]) for i, e in closed]
+    L += bullets(rows, "no item opened or closed")
+    L += ["", "## Blocked and on whom"]
+    rows = ["%s %s%s: %s" % (r[1], r[2], " " + r[3] if r[3] else "", r[4]) for r in blocked]
+    rows += ["#%s %s (waiting on %s)" % (i, e["title"], e["ask"] or e["owner"] or "?") for i, e in waiting]
+    L += bullets(rows, "nothing blocked")
+    L += ["", "## Plan for tomorrow", "- (write this part yourself)", ""]
+    return "\n".join(L)
+
+
+class Lock:
+    def __init__(self, path):
+        self.path = path
+
+    def __enter__(self):
+        for _ in range(2):
+            try:
+                os.mkdir(self.path)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.stat(self.path).st_mtime > LOCK_STALE:
+                        os.rmdir(self.path)
+                        continue
+                except OSError:
+                    pass
+                break
+        sys.stderr.write("sabha-nightly: another run holds %s\n" % self.path)
+        sys.exit(1)
+
+    def __exit__(self, *a):
+        try:
+            os.rmdir(self.path)
+        except OSError:
+            pass
+
+
+def main():
+    o = parse_args(sys.argv[1:])
+    impl = os.environ.get("SABHA_IMPL", "")
+    if not impl or not os.path.isdir(impl):
+        sys.stderr.write("sabha-nightly: SABHA_IMPL is not a folder: %s\n" % clean(impl, 80))
+        sys.exit(1)
+    date, start, end = window(o["date"])
+    shipped, blocked = gather_done(impl, start, end)
+    opened, closed, waiting = gather_items(impl, start, end)
+    body = render(date, shipped, blocked, opened, closed, waiting)
+    if o["stdout"]:
+        sys.stdout.write(body)
+        return
+    out = o["out"] or os.environ.get("SABHA_NIGHTLY_DIR") or os.path.join(impl, "nightly")
+    out = os.path.expanduser(os.path.expandvars(out))
+    try:
+        os.makedirs(out, exist_ok=True)
+    except OSError as e:
+        sys.stderr.write("sabha-nightly: cannot create %s: %s\n" % (out, e.strerror))
+        sys.exit(1)
+    target = os.path.join(out, date + ".md")
+    signal.signal(signal.SIGTERM, lambda *a: sys.exit(1))
+    with Lock(os.path.join(out, ".nightly.lock")):
+        have = read_text(target, ITEMS_CAP)
+        if have == body:
+            print("unchanged %s" % target)
+            return
+        if have is not None and not o["force"]:
+            sys.stderr.write("sabha-nightly: %s exists and differs (edited?); --force replaces it, --stdout shows the new one\n" % target)
+            sys.exit(3)
+        tmp = "%s.tmp.%d" % (target, os.getpid())
+        try:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(body)
+            os.replace(tmp, target)
+        except OSError as e:
+            sys.stderr.write("sabha-nightly: cannot write %s: %s\n" % (target, e.strerror))
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            sys.exit(1)
+    print("wrote %s" % target)
+
+
+main()
+PY

@@ -10,6 +10,7 @@
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
 #   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
+#   sabha nightly [--date D] [--out DIR] [--stdout] [--force]   draft the day's progress note (bin/sabha-nightly)
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
@@ -431,8 +432,9 @@ case ${1:-} in
   doctor) shift; cmd_doctor ;;
   keep-awake) shift; cmd_keep_awake "$@" ;;
   update) shift; cmd_update ;;
+  nightly) shift; exec "$BIN/sabha-nightly" "$@" ;;
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha nightly | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
 esac
