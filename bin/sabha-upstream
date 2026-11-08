@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""sabha upstream: the upstream move watcher. Reads, once a day, whether a repository in a repos list was archived or
+renamed, lost or changed its default branch, lost a base branch, changed layout, or had its upstream branch merged in.
+Read-only: every GitHub read goes through bin/sabha-gh (cached, quota-checked, no write possible); it never edits the
+repos list, a clone or a remote. A new finding becomes one for-me.items entry (bin/sabha-item) and the run's findings
+become one brief (bin/sabha-brief) that names the affected worktrees.
+
+  sabha-upstream [--conf FILE] [--fresh] [--daily]
+
+Settings (environment, else sabha.conf):
+  SABHA_UPSTREAM_CONF    the repos list: one row per repo, columns repo, dir, base-ref (more columns ignored; a line
+                         starting with # and blank lines are skipped). --conf overrides it.
+  SABHA_UPSTREAM_ROOT    the folder dir is relative to (default: the parent of the folder that holds the repos list)
+  SABHA_UPSTREAM_ORG     owner of a repo that has no clone (a clone's own origin URL wins)
+  SABHA_UPSTREAM_PROBE_<repo>   space separated paths whose existence on the base branch is tracked (layout); in
+                         <repo> every character that is not a letter or digit is written as _
+  SABHA_UPSTREAM_PAIRS   space separated repo:base:upstream; the finding is "upstream merged into base"
+  SABHA_UPSTREAM_TO      the brief's receiver (none: items only); SABHA_UPSTREAM_FROM (default upstream-watch)
+  SABHA_USER             the owner of the for-me.items entry (default user); SABHA_IMPL holds status/, inbox/, for-me.items
+Findings: archived, renamed (GitHub's full_name differs from the clone's origin), default branch changed, base branch
+gone, probe path appeared or disappeared, upstream merged in (commits of upstream missing from base fell from more than
+0 to 0). The first run, and the first run of a newly listed repo, only records facts: it reports nothing. State:
+status/upstream/last.json. A read that fails keeps the last known fact and counts in one warning line; it never reads as
+a move. An account or quota stop (sabha-gh exit 3 or 4) ends the run with one line and changes nothing. --daily skips
+the run when one already finished on this local day. gh needs a plain terminal. SABHA_NOW (epoch seconds) pins the clock.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+BIN = os.path.dirname(os.path.abspath(__file__))
+GH = os.path.join(BIN, "sabha-gh")
+
+
+stale = []
+
+
+class GhError(Exception):
+    def __init__(self, msg, rc):
+        Exception.__init__(self, msg)
+        self.msg, self.rc = msg, rc
+
+    def __str__(self):
+        return self.msg
+
+
+def gh(fresh, *args):
+    cmd = [GH] + (["--fresh"] if fresh else []) + list(args)
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if p.returncode == 10:
+        stale.append(1)
+    elif p.returncode != 0:
+        raise GhError(p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "sabha-gh failed", p.returncode)
+    try:
+        return json.loads(p.stdout)
+    except ValueError:
+        raise GhError("sabha-gh printed something that is not JSON", 1)
+
+
+def conf_value(key, default=""):
+    if os.environ.get(key) is not None:
+        return os.environ[key]
+    path = os.environ.get("SABHA_CONF") or os.path.join(BIN, "..", "sabha.conf")
+    try:
+        for line in open(path, encoding="ascii", errors="replace"):
+            m = re.match(r"^%s=(.*)$" % key, line.strip())
+            if m:
+                return m.group(1).strip().strip("\"'")
+    except OSError:
+        pass
+    return default
+
+
+def read_rows(path):
+    rows = []
+    for line in open(path, encoding="ascii", errors="replace"):
+        cols = line.split()
+        if len(cols) >= 3 and not cols[0].startswith("#"):
+            rows.append(dict(repo=cols[0], dir=cols[1], base=cols[2]))
+    return rows
+
+
+def origin_slug(clone):
+    p = subprocess.run(["git", "-C", clone, "remote", "get-url", "origin"], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, universal_newlines=True)
+    m = re.search(r"[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$", p.stdout.strip()) if p.returncode == 0 else None
+    return m.group(1) if m else ""
+
+
+def worktrees(clone):
+    p = subprocess.run(["git", "-C", clone, "worktree", "list", "--porcelain"], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, universal_newlines=True)
+    out, path = [], ""
+    for line in p.stdout.splitlines():
+        if line.startswith("worktree "):
+            path = line[9:]
+        elif line.startswith("branch "):
+            out.append("%s (%s)" % (path, line[7:].replace("refs/heads/", "")))
+        elif line == "detached":
+            out.append("%s (detached)" % path)
+    return out
+
+
+def load_last(path):
+    try:
+        return json.load(open(path))
+    except (OSError, ValueError):
+        return None
+
+
+def check(row, slug, prev, fresh, warns):
+    """Returns (facts, active keys, findings [(key, title, why)]) for one repo."""
+    repo, base = row["repo"], row["base"]
+    p = prev or {}
+    facts = dict(p)
+    facts.setdefault("probes", {})
+    facts["probes"] = dict(facts["probes"])
+    facts.setdefault("pairs", {})
+    facts["pairs"] = dict(facts["pairs"])
+    active, found = set(), []
+
+    def read(label, *args):
+        try:
+            return gh(fresh, *args)
+        except GhError as e:
+            if e.rc in (3, 4):
+                raise
+            warns.append("%s: %s unread (%s)" % (repo, label, e))
+            return None
+
+    def add(key, title, why):
+        active.add(key)
+        found.append((key, title, why))
+
+    r = read("repo", "repo", slug)
+    if r is not None:
+        facts.update(full_name=r.get("full_name", ""), archived=bool(r.get("archived")), default_branch=r.get("default_branch", ""))
+    if facts.get("archived"):
+        add("archived:%s" % repo, "upstream: %s archived" % repo, "%s is archived on GitHub, so it is read-only" % slug)
+    fn = facts.get("full_name", "")
+    if fn and fn.lower() != slug.lower():
+        add("renamed:%s:%s->%s" % (repo, slug, fn), "upstream: %s renamed to %s" % (slug, fn),
+            "GitHub answers %s with full_name %s; the clone's origin still says %s" % (slug, fn, slug))
+    if r is not None and p.get("default_branch") and facts["default_branch"] != p["default_branch"]:
+        add("default:%s:%s->%s" % (repo, p["default_branch"], facts["default_branch"]),
+            "upstream: %s default branch is now %s" % (repo, facts["default_branch"]),
+            "the default branch of %s changed from %s to %s" % (slug, p["default_branch"], facts["default_branch"]))
+
+    b = read("branch", "branch", slug, base)
+    if b is not None:
+        facts["branch_exists"] = bool(b.get("exists"))
+    if facts.get("branch_exists") is False:
+        add("branch-gone:%s:%s" % (repo, base), "upstream: %s base branch %s is gone" % (repo, base),
+            "branch %s no longer exists in %s" % (base, slug))
+
+    for path in conf_value("SABHA_UPSTREAM_PROBE_" + re.sub(r"[^A-Za-z0-9]", "_", repo)).split():
+        c = read("probe " + path, "contents", slug, path, base)
+        if c is None:
+            continue
+        now = bool(c.get("exists"))
+        was = p.get("probes", {}).get(path)
+        facts["probes"][path] = now
+        if was is not None and was != now:
+            word = "appeared" if now else "disappeared"
+            add("probe:%s:%s:%s" % (repo, path, word), "upstream: %s layout: %s %s on %s" % (repo, path, word, base),
+                "%s %s on %s in %s (it %s on the last run)" % (path, word, base, slug, "was missing" if now else "was there"))
+
+    for pair in conf_value("SABHA_UPSTREAM_PAIRS").split():
+        parts = pair.split(":")
+        if len(parts) != 3 or parts[0] != repo:
+            continue
+        up = parts[2]
+        # compare base=upstream, head=base branch: behind_by = commits of upstream the base branch does not have
+        c = read("pair %s:%s" % (parts[1], up), "compare", slug, up, parts[1])
+        if c is None or "behind_by" not in c:
+            continue
+        key = "%s:%s" % (parts[1], up)
+        was = p.get("pairs", {}).get(key)
+        facts["pairs"][key] = c["behind_by"]
+        if was and c["behind_by"] == 0:
+            add("merged:%s:%s:%s" % (repo, parts[1], up), "upstream: %s merged into %s in %s" % (up, parts[1], repo),
+                "%s was %d commits ahead of %s in %s on the last run and is now fully in it" % (up, was, parts[1], slug))
+    return facts, active, found
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="sabha-upstream", add_help=True)
+    ap.add_argument("--conf")
+    ap.add_argument("--fresh", action="store_true")
+    ap.add_argument("--daily", action="store_true")
+    a = ap.parse_args()
+
+    impl = conf_value("SABHA_IMPL") or "."
+    conf = a.conf or conf_value("SABHA_UPSTREAM_CONF")
+    if not conf or not os.path.isfile(conf):
+        print("sabha-upstream: no repos list (set SABHA_UPSTREAM_CONF or pass --conf FILE)", file=sys.stderr)
+        return 2
+    sdir = os.path.join(impl, "status", "upstream")
+    os.makedirs(sdir, exist_ok=True)
+    now = int(os.environ.get("SABHA_NOW") or time.time())
+    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    daypath = os.path.join(sdir, "day")
+    if a.daily and os.path.isfile(daypath) and open(daypath).read().strip() == today:
+        return 0
+    root = conf_value("SABHA_UPSTREAM_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(conf)))
+    org = conf_value("SABHA_UPSTREAM_ORG")
+
+    lastpath = os.path.join(sdir, "last.json")
+    last = load_last(lastpath)
+    known = (last or {}).get("repos", {})
+    reported = set((last or {}).get("reported", []))
+    warns, repos, active_all, new = [], {}, set(), []
+    for row in read_rows(conf):
+        clone = os.path.join(root, row["dir"])
+        slug = origin_slug(clone) if os.path.isdir(clone) else ""
+        if not slug and org:
+            slug = "%s/%s" % (org, row["repo"])
+        if not slug:
+            warns.append("%s: no origin and no SABHA_UPSTREAM_ORG, skipped" % row["repo"])
+            if row["repo"] in known:
+                repos[row["repo"]] = known[row["repo"]]
+                # its findings stay reported, or they would fire again when the owner is known
+                active_all |= set(k for k in reported if k.split(":")[1] == row["repo"])
+            continue
+        try:
+            facts, active, found = check(row, slug, known.get(row["repo"]), a.fresh, warns)
+        except GhError as e:
+            print("sabha-upstream: stopped, nothing recorded: %s" % e, file=sys.stderr)
+            return e.rc
+        repos[row["repo"]] = facts
+        active_all |= active
+        if last is not None and row["repo"] in known:
+            new += [(k, t, w, clone) for k, t, w in found if k not in reported]
+
+    user = conf_value("SABHA_USER", "user")
+    env = dict(os.environ, SABHA_IMPL=impl)
+    for key, title, why, clone in new:
+        p = subprocess.run([os.path.join(BIN, "sabha-item"), "add", user, title], input="why: %s\n" % why,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=env)
+        if p.returncode != 0:
+            print("sabha-upstream: could not write the item for %s: %s" % (title, p.stderr.strip()), file=sys.stderr)
+            return 1
+    to = conf_value("SABHA_UPSTREAM_TO")
+    if new and to:
+        lines = ["Upstream moved (read-only check, %s). Findings:" % today, ""]
+        lines += ["- %s: %s" % (t, w) for _, t, w, _ in new]
+        lines += ["", "Worktrees of the affected clones:"]
+        seen = set()
+        for _, _, _, clone in new:
+            if clone in seen:
+                continue
+            seen.add(clone)
+            lines += ["- %s" % w for w in worktrees(clone)] or ["- (no clone at %s)" % clone]
+        lines += ["", "Nothing was changed: the repos list and the clones are as they were."]
+        p = subprocess.run([os.path.join(BIN, "sabha-brief"), to, conf_value("SABHA_UPSTREAM_FROM", "upstream-watch"),
+                            "upstream-moved", "upstream moved: %d new finding(s)" % len(new), "--reply", "ack"],
+                           input="\n".join(lines) + "\n", stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, env=env)
+        if p.returncode != 0:
+            print("sabha-upstream: could not write the brief: %s" % p.stderr.strip(), file=sys.stderr)
+            return 1
+
+    state = dict(version=1, repos=repos, reported=sorted(active_all))
+    with open(lastpath + ".tmp", "w") as f:
+        json.dump(state, f, indent=1, sort_keys=True)
+    os.replace(lastpath + ".tmp", lastpath)
+    with open(daypath, "w") as f:
+        f.write(today + "\n")
+    if stale:
+        print("sabha-upstream: %d read(s) came from a stale cache (gh failed)" % len(stale), file=sys.stderr)
+    if warns:
+        print("sabha-upstream: %d read(s) failed, last known facts kept (first: %s)" % (len(warns), warns[0]), file=sys.stderr)
+    print("upstream: %d repo(s) checked, %d new finding(s)%s" % (len(repos), len(new), "" if last is not None else " (baseline recorded)"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

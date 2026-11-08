@@ -25,6 +25,11 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
+- `sabha upstream` (`bin/sabha-upstream`), the upstream move watcher: once a day, read-only through `bin/sabha-gh`, it checks
+  a repos list for an archived or renamed repo, a changed default branch, a lost base branch, a layout path that appeared
+  or disappeared and an upstream branch merged in. A new finding is one `for-me.items` entry and the run's findings one brief
+  to `SABHA_UPSTREAM_TO`; the first run only records facts. `sabha-watch` calls it daily when `SABHA_UPSTREAM_CONF` is set.
+  Needs `bin/sabha-gh` (merge after the PR radar, which carries the same file). docs/upstream-watch.md.
 
 ## 2.0.1 - 2026-10-20
 
