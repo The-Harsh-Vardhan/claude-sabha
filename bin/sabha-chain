@@ -25,6 +25,27 @@ BIN = os.path.dirname(os.path.abspath(__file__))
 GH = os.path.join(BIN, "sabha-gh")
 TEXT_KEYS = ("ask", "next", "details", "note")
 notes = []
+# C0, DEL, C1 and bidi controls: a board row is text agents and humans type, and it must not drive the terminal
+CTRL = re.compile(u"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def clean(s):
+    return CTRL.sub("", s)
+
+
+def scrub(o):
+    if isinstance(o, str):
+        return clean(o)
+    if isinstance(o, list):
+        return [scrub(x) for x in o]
+    if isinstance(o, dict):
+        return dict((scrub(k), scrub(v)) for k, v in o.items())
+    return o
+
+
+def emit(lines, stream=None):
+    """The one way text leaves this program: every line is cleaned before it is joined, so a field cannot add a line."""
+    (stream or sys.stdout).write("".join(clean(l) + "\n" for l in lines))
 
 
 def conf_value(key):
@@ -42,7 +63,7 @@ def conf_value(key):
 
 
 def load_rows(folder):
-    rows = {}
+    rows, src = {}, {}
     for name in sorted(os.listdir(folder)):
         if not name.endswith(".json"):
             continue
@@ -53,7 +74,13 @@ def load_rows(folder):
             continue
         for r in data if isinstance(data, list) else [data]:
             if isinstance(r, dict) and isinstance(r.get("id"), str):
-                rows[r["id"]] = r
+                d = r.get("dependsOn")
+                if d is not None and not isinstance(d, (list, str)):
+                    notes.append("row %s: dependsOn is not a list or a string, ignored" % r["id"])
+                    r["dependsOn"] = []
+                if r["id"] in rows:
+                    notes.append("duplicate id %s: %s replaces %s" % (r["id"], name, src[r["id"]]))
+                rows[r["id"]], src[r["id"]] = r, name
     return rows
 
 
@@ -87,7 +114,7 @@ def gh_pr(ref, fresh, cache):
     p = subprocess.run([GH] + (["--fresh"] if fresh else []) + ["pr", repo, num], stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, universal_newlines=True)
     if p.returncode in (3, 4):
-        sys.exit("sabha-chain: " + (p.stderr.strip().splitlines() or ["GitHub read stopped"])[-1])
+        sys.exit(clean("sabha-chain: " + (p.stderr.strip().splitlines() or ["GitHub read stopped"])[-1]))
     if p.returncode == 10 and not any(n.startswith("STALE") for n in notes):
         notes.append("STALE: " + (p.stderr.strip().splitlines() or ["cached copy"])[0])
     try:
@@ -108,20 +135,23 @@ def short(s, n=70):
     return s if len(s) <= n else s[: n - 3] + "..."
 
 
-def build(rows, rid, path, show_all):
+def build(rows, rid, path, show_all, seen):
     r = rows.get(rid)
     if r is None:
         return dict(id=rid, missing=True, waitsOn=[])
+    if rid in seen:
+        return dict(id=rid, seen=True, waitsOn=[])
+    seen.add(rid)
     node = dict(id=rid, state=r.get("state", "?"), owner=r.get("owner", ""), ask=short(r.get("ask")), done=is_done(r), waitsOn=[])
     hidden = 0
     for d in deps_of(r):
         dr = rows.get(d)
-        if d in path:
+        if d == rid or d in path:
             node["waitsOn"].append(dict(id=d, cycle=True, waitsOn=[]))
         elif dr is not None and is_done(dr) and not show_all:
             hidden += 1
         else:
-            node["waitsOn"].append(build(rows, d, path + [rid], show_all))
+            node["waitsOn"].append(build(rows, d, path + [rid], show_all, seen))
     node["hiddenDone"] = hidden
     return node
 
@@ -143,7 +173,7 @@ def chains(rows, show_all):
         r = rows[rid]
         if rid in blocking or not deps_of(r) or (is_done(r) and not show_all):
             continue
-        node = build(rows, rid, [], show_all)
+        node = build(rows, rid, [], show_all, set())
         if node["waitsOn"]:
             heads.append(node)
     # a cycle has no head (every member is waited on), so the first unshown member of each one starts a chain
@@ -151,7 +181,7 @@ def chains(rows, show_all):
     for rid in sorted(rows):
         if rid in shown or not deps_of(rows[rid]) or (is_done(rows[rid]) and not show_all):
             continue
-        node = build(rows, rid, [], show_all)
+        node = build(rows, rid, [], show_all, set())
         if node["waitsOn"]:
             heads.append(node)
             shown.update(n["id"] for n in walk(node))
@@ -166,6 +196,9 @@ def render(node, depth, repos, prs, out):
         return
     if node.get("cycle"):
         out.append("%s%s%s (cycle: already above, cut here)" % (pad, lead, node["id"]))
+        return
+    if node.get("seen"):
+        out.append("%s%s%s (seen above)" % (pad, lead, node["id"]))
         return
     owner = " %s" % node["owner"] if node["owner"] else ""
     hid = "  (+%d done hidden)" % node["hiddenDone"] if node.get("hiddenDone") else ""
@@ -186,38 +219,36 @@ def main():
     ap.add_argument("--json", action="store_true", help="print JSON, not text")
     a = ap.parse_args()
     if not os.path.isdir(a.board_dir):
-        sys.exit("sabha-chain: %s is not a folder" % a.board_dir)
+        sys.exit(clean("sabha-chain: %s is not a folder" % a.board_dir))
     repos = (a.repos if a.repos is not None else conf_value("SABHA_CHAIN_REPOS")).split()
     rows = load_rows(a.board_dir)
     heads = chains(rows, a.all)
     cache, prs = {}, {}
     for h in heads:
         for n in walk(h):
-            if n.get("missing") or n.get("cycle") or n["id"] in prs:
+            if n.get("missing") or n.get("cycle") or n.get("seen") or n["id"] in prs:
                 continue
             prs[n["id"]] = [(ref, gh_pr(ref, a.fresh, cache) if a.gh else "") for ref in pr_refs(rows[n["id"]], repos)]
     if a.json:
         for h in heads:
             for n in walk(h):
                 n["prs"] = [dict(ref=ref, state=st) for ref, st in prs.get(n["id"], [])]
-        print(json.dumps(dict(rows=len(rows), chains=heads, notes=notes), indent=1))
+        print(json.dumps(scrub(dict(rows=len(rows), chains=heads, notes=notes)), indent=1))
         return
     out = []
     for h in heads:
         render(h, 0, repos, prs, out)
-        roots = sorted(set(n["id"] for n in walk(h) if not n["waitsOn"] and n is not h and not n.get("cycle")))
+        roots = sorted(set(n["id"] for n in walk(h) if not n["waitsOn"] and n is not h and not n.get("cycle") and not n.get("seen") and not n.get("done")))
         out.append("    unblock first: " + (", ".join(roots) or "(a cycle: no root blocker, break it)"))
         out.append("")
     open_rows = sum(1 for r in rows.values() if not is_done(r))
-    print("%d chain%s from %d rows (%d open)" % (len(heads), "" if len(heads) == 1 else "s", len(rows), open_rows))
-    if not heads:
-        print("no blocker chains")
-    else:
-        print("")
-        print("\n".join(out).rstrip())
-    for n in notes:
-        print(n, file=sys.stderr)
+    head = ["%d chain%s from %d rows (%d open)" % (len(heads), "" if len(heads) == 1 else "s", len(rows), open_rows)]
+    emit(head + (["no blocker chains"] if not heads else [""] + out[:-1]))
+    emit(notes, sys.stderr)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RecursionError:
+        sys.exit("sabha-chain: chain too deep to draw (over about 900 levels); the board has a runaway dependsOn chain")
