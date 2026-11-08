@@ -25,6 +25,10 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
+- `bin/sabha-chain <board-folder>`, the chain view: blocker chains from the board's `dependsOn` rows (an exported folder of
+  JSON rows), printed as a tree from the row that waits down to the root blockers ("unblock first: ..."); DONE blockers are
+  hidden, ids off the board and cycles are marked; PR mentions in a row are listed, and `--gh` adds each PR's state and
+  base branch through `bin/sabha-gh` (merge after the PR radar branch, which adds it). docs/chain-view.md.
 
 ## 2.0.1 - 2026-10-20
 

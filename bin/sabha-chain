@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""sabha-chain: blocker chains from the board's dependsOn data. Read-only; it only reads files (and, with --gh, reads
+GitHub through bin/sabha-gh, which cannot write).
+
+  sabha-chain [--repos "OWNER/NAME ..."] [--gh] [--fresh] [--all] [--json] BOARD_DIR
+
+BOARD_DIR is an exported board: a folder of *.json files, each one row (an object with id, ask, state, owner,
+dependsOn, ...) or a list of rows. A row is DONE when its state is DONE or its column is done. A chain starts at an open
+row that waits on another open row and that no other open row waits on, and runs down through dependsOn to the root
+blockers (the rows that wait on nothing). An id that is not on the board is shown as "(not on board)". A cycle is cut and
+marked. DONE blockers are hidden (counted); --all shows them and the DONE rows that have blockers.
+PRs: OWNER/NAME#N in a row's ask, next, details or note is a PR of that row. NAME#N and "NAME #N" count only when NAME is
+the repo part of a SABHA_CHAIN_REPOS entry (space separated OWNER/NAME, from the environment or sabha.conf, or --repos),
+so "PR #12" never turns into a PR of some repo. --gh adds each PR's state and base branch through bin/sabha-gh (cached,
+quota-checked; needs gh logged in, from a plain terminal). Where a PR has reached (which release branch) is not read here.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.abspath(__file__))
+GH = os.path.join(BIN, "sabha-gh")
+TEXT_KEYS = ("ask", "next", "details", "note")
+notes = []
+
+
+def conf_value(key):
+    if os.environ.get(key) is not None:
+        return os.environ[key]
+    path = os.environ.get("SABHA_CONF") or os.path.join(BIN, "..", "sabha.conf")
+    try:
+        for line in open(path, encoding="ascii", errors="replace"):
+            m = re.match(r"^%s=(.*)$" % key, line.strip())
+            if m:
+                return m.group(1).strip().strip("\"'")
+    except OSError:
+        pass
+    return ""
+
+
+def load_rows(folder):
+    rows = {}
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            data = json.load(open(os.path.join(folder, name), encoding="utf-8"))
+        except (OSError, ValueError):
+            notes.append("skipped %s: not readable JSON" % name)
+            continue
+        for r in data if isinstance(data, list) else [data]:
+            if isinstance(r, dict) and isinstance(r.get("id"), str):
+                rows[r["id"]] = r
+    return rows
+
+
+def is_done(r):
+    return str(r.get("state", "")).upper() == "DONE" or r.get("column") == "done"
+
+
+def deps_of(r):
+    d = r.get("dependsOn") or []
+    return [d] if isinstance(d, str) else [x for x in d if isinstance(x, str)]
+
+
+def pr_refs(r, repos):
+    by_name = {}
+    for full in repos:
+        by_name.setdefault(full.split("/")[-1].lower(), full)
+    text = "\n".join(str(r.get(k) or "") for k in TEXT_KEYS)
+    found = []
+    for m in re.finditer(r"(?<![\w/.-])(?:([A-Za-z0-9_.-]+)/)?([A-Za-z0-9_.-]+) ?#([0-9]+)\b", text):
+        owner, name, num = m.groups()
+        full = "%s/%s" % (owner, name) if owner else by_name.get(name.lower())
+        if full and (full, num) not in found:
+            found.append((full, num))
+    return ["%s#%s" % p for p in found]
+
+
+def gh_pr(ref, fresh, cache):
+    if ref in cache:
+        return cache[ref]
+    repo, num = ref.split("#")
+    p = subprocess.run([GH] + (["--fresh"] if fresh else []) + ["pr", repo, num], stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, universal_newlines=True)
+    if p.returncode in (3, 4):
+        sys.exit("sabha-chain: " + (p.stderr.strip().splitlines() or ["GitHub read stopped"])[-1])
+    if p.returncode == 10 and not any(n.startswith("STALE") for n in notes):
+        notes.append("STALE: " + (p.stderr.strip().splitlines() or ["cached copy"])[0])
+    try:
+        pr = json.loads(p.stdout) if p.returncode in (0, 10) else None
+    except ValueError:
+        pr = None
+    if not isinstance(pr, dict):
+        cache[ref] = "? (gh read failed)"
+        return cache[ref]
+    state = "MERGED" if pr.get("mergedAt") else (pr.get("state") or "?")
+    extra = [" draft"] if pr.get("isDraft") and state == "OPEN" else []
+    cache[ref] = "%s%s -> %s" % (state, "".join(extra), pr.get("baseRefName") or "?")
+    return cache[ref]
+
+
+def short(s, n=70):
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= n else s[: n - 3] + "..."
+
+
+def build(rows, rid, path, show_all):
+    r = rows.get(rid)
+    if r is None:
+        return dict(id=rid, missing=True, waitsOn=[])
+    node = dict(id=rid, state=r.get("state", "?"), owner=r.get("owner", ""), ask=short(r.get("ask")), done=is_done(r), waitsOn=[])
+    hidden = 0
+    for d in deps_of(r):
+        dr = rows.get(d)
+        if d in path:
+            node["waitsOn"].append(dict(id=d, cycle=True, waitsOn=[]))
+        elif dr is not None and is_done(dr) and not show_all:
+            hidden += 1
+        else:
+            node["waitsOn"].append(build(rows, d, path + [rid], show_all))
+    node["hiddenDone"] = hidden
+    return node
+
+
+def walk(node):
+    yield node
+    for c in node["waitsOn"]:
+        for n in walk(c):
+            yield n
+
+
+def chains(rows, show_all):
+    blocking = set()
+    for r in rows.values():
+        if not is_done(r) or show_all:
+            blocking.update(d for d in deps_of(r) if d in rows and (not is_done(rows[d]) or show_all))
+    heads = []
+    for rid in sorted(rows):
+        r = rows[rid]
+        if rid in blocking or not deps_of(r) or (is_done(r) and not show_all):
+            continue
+        node = build(rows, rid, [], show_all)
+        if node["waitsOn"]:
+            heads.append(node)
+    # a cycle has no head (every member is waited on), so the first unshown member of each one starts a chain
+    shown = set(n["id"] for h in heads for n in walk(h))
+    for rid in sorted(rows):
+        if rid in shown or not deps_of(rows[rid]) or (is_done(rows[rid]) and not show_all):
+            continue
+        node = build(rows, rid, [], show_all)
+        if node["waitsOn"]:
+            heads.append(node)
+            shown.update(n["id"] for n in walk(node))
+    return heads
+
+
+def render(node, depth, repos, prs, out):
+    pad = "    " * depth
+    lead = "" if depth == 0 else "waits on "
+    if node.get("missing"):
+        out.append("%s%s%s (not on board)" % (pad, lead, node["id"]))
+        return
+    if node.get("cycle"):
+        out.append("%s%s%s (cycle: already above, cut here)" % (pad, lead, node["id"]))
+        return
+    owner = " %s" % node["owner"] if node["owner"] else ""
+    hid = "  (+%d done hidden)" % node["hiddenDone"] if node.get("hiddenDone") else ""
+    out.append("%s%s%s [%s%s]%s  %s" % (pad, lead, node["id"], node["state"], owner and "," + owner, hid, node["ask"]))
+    for ref, st in prs.get(node["id"], []):
+        out.append("%s    PR %s%s" % (pad, ref, "  " + st if st else ""))
+    for c in node["waitsOn"]:
+        render(c, depth + 1, repos, prs, out)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="sabha-chain", description="Blocker chains from board dependsOn data.")
+    ap.add_argument("board_dir")
+    ap.add_argument("--repos", default=None, help="space separated OWNER/NAME (default SABHA_CHAIN_REPOS)")
+    ap.add_argument("--gh", action="store_true", help="add PR state and base through sabha-gh")
+    ap.add_argument("--fresh", action="store_true", help="with --gh: skip the cache")
+    ap.add_argument("--all", action="store_true", help="also show DONE rows and blockers")
+    ap.add_argument("--json", action="store_true", help="print JSON, not text")
+    a = ap.parse_args()
+    if not os.path.isdir(a.board_dir):
+        sys.exit("sabha-chain: %s is not a folder" % a.board_dir)
+    repos = (a.repos if a.repos is not None else conf_value("SABHA_CHAIN_REPOS")).split()
+    rows = load_rows(a.board_dir)
+    heads = chains(rows, a.all)
+    cache, prs = {}, {}
+    for h in heads:
+        for n in walk(h):
+            if n.get("missing") or n.get("cycle") or n["id"] in prs:
+                continue
+            prs[n["id"]] = [(ref, gh_pr(ref, a.fresh, cache) if a.gh else "") for ref in pr_refs(rows[n["id"]], repos)]
+    if a.json:
+        for h in heads:
+            for n in walk(h):
+                n["prs"] = [dict(ref=ref, state=st) for ref, st in prs.get(n["id"], [])]
+        print(json.dumps(dict(rows=len(rows), chains=heads, notes=notes), indent=1))
+        return
+    out = []
+    for h in heads:
+        render(h, 0, repos, prs, out)
+        roots = sorted(set(n["id"] for n in walk(h) if not n["waitsOn"] and n is not h and not n.get("cycle")))
+        out.append("    unblock first: " + (", ".join(roots) or "(a cycle: no root blocker, break it)"))
+        out.append("")
+    open_rows = sum(1 for r in rows.values() if not is_done(r))
+    print("%d chain%s from %d rows (%d open)" % (len(heads), "" if len(heads) == 1 else "s", len(rows), open_rows))
+    if not heads:
+        print("no blocker chains")
+    else:
+        print("")
+        print("\n".join(out).rstrip())
+    for n in notes:
+        print(n, file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

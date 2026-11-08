@@ -145,3 +145,7 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #opta: develop | newest code, may be unstable | includes yesterday's unreviewed merge
 #optb: release/1.2 | stable, a day old | what Alex already reviewed
 #rec: b
+
+# Chain view (docs/chain-view.md): the repos whose "NAME #N" and "NAME#N" mentions in board rows count as PRs (space
+# separated OWNER/NAME); OWNER/NAME#N is always read.
+#SABHA_CHAIN_REPOS="you/your-repo you/other-repo"

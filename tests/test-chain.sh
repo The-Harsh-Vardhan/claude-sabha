@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# bin/sabha-chain: blocker chains from an exported board folder (one JSON row per file, or a list per file). A chain runs
+# from the open row nobody waits on down to the root blockers; DONE blockers are hidden and counted (--all shows them);
+# an id off the board and a cycle are marked; PR refs come from owner/repo#N and from NAME#N / "NAME #N" for a configured
+# repo only; --gh adds PR state and base through the fake gh and never sends a write flag; a wrong account stops with
+# one line and no table; no --gh means no gh call. GitHub is never reached. Run: tests/test-chain.sh
+# shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
+set -u
+# shellcheck source-path=SCRIPTDIR source=hermetic.sh
+. "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
+BIN=$(cd "$(dirname "$0")/../bin" && pwd)
+dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-chain.XXXXXX") || exit 1
+[[ -d $dir ]] || exit 1
+trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
+fails=0
+check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
+
+mkdir -p "$FAKE_GH_DIR" "$dir/board"
+CALLS=$FAKE_GH_DIR/calls
+: > "$CALLS"
+# the 367 -> snapshot -> repin -> PR chain, a done blocker, a missing id, a cycle, a bare "PR #12", a lone open row
+cat > "$dir/board/Q-1.json" <<'EOF'
+{"id":"Q-1","state":"BLOCKED-ME","owner":"Pat","ask":"Message the reviewer to merge acme/lib#367","dependsOn":[]}
+EOF
+cat > "$dir/board/rows.json" <<'EOF'
+[
+ {"id":"Q-2","state":"BLOCKED-OTHERS","owner":"Dev","ask":"Cut the snapshot","next":"after lib#367 lands","dependsOn":["Q-1","Q-0"]},
+ {"id":"Q-3","state":"RUNNING","owner":"Bot","ask":"Repin the app to the snapshot","dependsOn":["Q-2"]},
+ {"id":"Q-4","state":"READY","owner":"Bot","ask":"Ship it: see acme/app#40 and PR #12 and lib #368","dependsOn":["Q-3","Q-9"]},
+ {"id":"Q-0","state":"DONE","column":"done","owner":"Dev","ask":"Old prerequisite","dependsOn":[]},
+ {"id":"Q-5","state":"READY","owner":"Bot","ask":"cycle a","dependsOn":["Q-6"]},
+ {"id":"Q-6","state":"READY","owner":"Bot","ask":"cycle b","dependsOn":["Q-5"]},
+ {"id":"Q-7","state":"READY","owner":"Bot","ask":"no deps at all","dependsOn":[]}
+]
+EOF
+echo '{broken' > "$dir/board/bad.json"
+echo 'not json either' > "$dir/board/notes.txt"
+chain() { python3 "$BIN/sabha-chain" "$@" 2>"$dir/err"; }
+export SABHA_GH_CACHE=$dir/cache SABHA_GH_USER=fake-user SABHA_CONF=$dir/none.conf SABHA_CHAIN_REPOS=
+REPOS="acme/lib acme/app"
+
+echo "--- the chain"
+out=$(chain "$dir/board" --repos "$REPOS"); rc=$?
+check "exit 0 and a count line (8 rows with ids: the Q-4 chain and the cycle)" '(( rc == 0 )) && [[ $out == "2 chains from 8 rows (7 open)"* ]]'
+check "Q-4 heads a chain: Q-3, Q-2, Q-1 each one level deeper" 'grep -q "^Q-4 \[READY, Bot\]" <<<"$out" && grep -q "^    waits on Q-3 \[RUNNING, Bot\]" <<<"$out" && grep -q "^        waits on Q-2 \[BLOCKED-OTHERS, Dev\]" <<<"$out" && grep -q "^            waits on Q-1 \[BLOCKED-ME, Pat\]" <<<"$out"'
+check "a blocker is not also a head (Q-2 and Q-3 never start a line at column 0)" '! grep -q "^Q-[23] " <<<"$out"'
+check "the done blocker Q-0 is hidden and counted on Q-2" '[[ $out == *"Q-2 [BLOCKED-OTHERS, Dev]  (+1 done hidden)"* ]] && ! grep -q "waits on Q-0 " <<<"$out"'
+check "an id off the board is marked" '[[ $out == *"waits on Q-9 (not on board)"* ]]'
+check "unblock first names the roots" '[[ $out == *"unblock first: Q-1, Q-9"* ]]'
+check "the lone row and the done row are no chain" '! grep -q "Q-7" <<<"$out"'
+check "a cycle is cut and marked" '[[ $out == *"Q-5 [READY, Bot]"*"waits on Q-6"*"waits on Q-5 (cycle: already above, cut here)"* ]]'
+check "a file that is not JSON is skipped with a note on stderr, a .txt file is ignored" 'grep -q "skipped bad.json" "$dir/err" && ! grep -q notes.txt "$dir/err"'
+check "no --gh: no gh call" '[[ ! -s $CALLS ]]'
+
+echo "--- the PR refs"
+check "owner/repo#N is a PR of its row" '[[ $out == *"PR acme/lib#367"* && $out == *"PR acme/app#40"* ]]'
+check "NAME #N counts for a configured repo (lib #368), next-text refs count (lib#367 on Q-2)" '[[ $out == *"PR acme/lib#368"* ]] && [[ $(grep -c "PR acme/lib#367" <<<"$out") == 2 ]]'
+check "a bare PR #12 is no PR of any repo" '! grep -q "^ *PR .*#12" <<<"$out"'
+out2=$(chain "$dir/board"); rc=$?
+check "without repos only owner/repo#N is read" '(( rc == 0 )) && [[ $out2 == *"PR acme/lib#367"* ]] && ! grep -q "PR acme/lib#368" <<<"$out2"'
+out2=$(SABHA_CHAIN_REPOS=acme/lib chain "$dir/board")
+check "SABHA_CHAIN_REPOS from the environment is the default" '[[ $out2 == *"PR acme/lib#368"* ]]'
+
+echo "--- --all"
+out2=$(chain "$dir/board" --repos "$REPOS" --all)
+check "--all shows the done blocker" '[[ $out2 == *"waits on Q-0 [DONE, Dev]"* ]]'
+
+echo "--- --gh"
+echo '{"state":"MERGED","mergedAt":"2026-11-08T00:00:00Z","isDraft":false,"baseRefName":"main"}' > "$dir/pr367.json"
+echo '{"state":"OPEN","mergedAt":null,"isDraft":true,"baseRefName":"dev"}' > "$dir/pr40.json"
+{
+  echo "name=lib -F n=367|$dir/pr367.json"
+  echo "name=app -F n=40|$dir/pr40.json"
+} > "$FAKE_GH_DIR/map"
+out2=$(chain "$dir/board" --repos "$REPOS" --gh); rc=$?
+check "merged PR shows MERGED -> its base" '(( rc == 0 )) && [[ $out2 == *"PR acme/lib#367  MERGED -> main"* ]]'
+check "open draft PR shows OPEN draft -> base" '[[ $out2 == *"PR acme/app#40  OPEN draft -> dev"* ]]'
+check "a PR that gh cannot read is marked, not fatal" '[[ $out2 == *"PR acme/lib#368  ? (gh read failed)"* ]]'
+check "each PR is read once (367 appears on two rows, one call)" '[[ $(grep -c "n=367" "$CALLS") == 1 ]]'
+check "no gh call carries a write flag" '! grep -Eq -- "(^| )(-X|--method|--input)( |$)" "$CALLS"'
+out2=$(chain "$dir/board" --repos "$REPOS" --json); rc=$?
+check "--json is valid JSON with the chains and their PR refs" '(( rc == 0 )) && python3 -c "import json,sys; d=json.loads(sys.argv[1]); assert len(d[\"chains\"])==2 and d[\"chains\"][0][\"waitsOn\"]" "$out2"'
+
+echo "--- the account stop"
+rm -rf "$SABHA_GH_CACHE"
+out2=$(FAKE_GH_LOGIN=someone-else chain "$dir/board" --repos "$REPOS" --gh); rc=$?
+check "wrong gh account: exit 1, one line on stderr, no table" '(( rc != 0 )) && [[ -z $out2 ]] && [[ $(wc -l < "$dir/err" | tr -d " ") == 1 ]] && grep -q "someone-else" "$dir/err"'
+out2=$(chain "$dir/nope"); rc=$?
+check "a missing folder is refused" '(( rc != 0 )) && grep -q "is not a folder" "$dir/err"'
+mkdir "$dir/empty"
+out2=$(chain "$dir/empty")
+check "an empty board prints no blocker chains" '[[ $out2 == *"0 chains from 0 rows"* && $out2 == *"no blocker chains"* ]]'
+
+echo
+if (( fails )); then echo "$fails check(s) failed"; exit 1; fi
+echo "all checks passed"
