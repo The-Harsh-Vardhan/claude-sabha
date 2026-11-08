@@ -94,6 +94,8 @@ role() {
   prompt="You are $who in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
 }
 
+RAW=0
+[[ ${1:-} == --print && ${2:-} == --raw && $# -eq 3 ]] && { RAW=1; set -- --print "$3"; }
 if [[ ${1:-} == --print && $# -eq 2 ]]; then
   role "$2"
   # the line is pasted into zsh or bash, so a double quote, $ or backtick would break it
@@ -102,15 +104,24 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
     echo "herdr --session $(sabha_session) agent start $(tr '[:upper:]' '[:lower:]' <<<"$name") --kind $R_AGENT --pane <pane-id>   # then: herdr --session $(sabha_session) agent prompt <name> \"$prompt\""
     exit 0
   fi
-  mcp=""; sabha_flag "$r" mcp || mcp=" --strict-mcp-config"
+  # the user restarts a role under its supervisor unless they ask for the bare claude line (--raw)
+  if sabha_efficiency && (( ! RAW )); then
+    loop_env="SABHA_CONF='$SABHA_CONF' "; [[ -n ${SABHA_PLAN:-} ]] && loop_env+="SABHA_PLAN=$SABHA_PLAN "
+    echo "cd \"$SABHA_WS\" && $loop_env'$LOOP' $name"
+    exit 0
+  fi
+  sabha_mcp_args "" || exit 1
+  # --mcp-config takes several values, so it goes before another option and never right before the prompt
+  pre=""; (( ${#MCP_PRE[@]} )) && pre=" --mcp-config$(printf " '%s'" "${MCP_PRE[@]:1}")"
+  mcp=""; (( ${#MCP_POST[@]} )) && mcp=" --strict-mcp-config"
   remote=""; [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=" --remote-control"
   chrome=""; (( CHROME )) && chrome=" --chrome"
   # an account's token is never printed: the line reads it from its variable when it runs, and stops if that is unset
   acct=$(sabha_account "$name") || exit 1
   al=""; (( ${#guard_set[@]} )) && al=" --settings '${guard_set[1]}'"
   envp=""; [[ -n $acct ]] && envp="CLAUDE_CODE_OAUTH_TOKEN=\"\${CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_$acct:?}\" "
-  echo "cd \"$SABHA_WS\" && ${envp}claude -n $name --model $model --effort $effort$mcp$remote$chrome$al \"$prompt\""
-  echo "pane: cd \"$SABHA_WS\" && '$LOOP' $name"
+  echo "cd \"$SABHA_WS\" && ${envp}claude -n $name$pre --model $model --effort $effort$mcp$remote$chrome$al \"$prompt\""
+  (( RAW )) || echo "pane: cd \"$SABHA_WS\" && '$LOOP' $name"
   exit 0
 fi
 
@@ -163,13 +174,15 @@ if [[ $# -eq 1 ]]; then
   # token, so a push or a gh write that slips past the guard has nothing to sign in with (gh's keyring login stays)
   export SABHA_ROLE=$name
   [[ $R_BASE == "$RELAY" ]] || unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
-  # MCP servers each cost memory and the roles do not use them; "mcp" in the roster flags keeps them
-  mcp=(--strict-mcp-config); sabha_flag "$r" mcp && mcp=()
+  # MCP servers each cost memory; sabha_mcp_args gives each role only its set
+  sabha_mcp_args "" || exit 1
   remote=(); [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=(--remote-control)
   chrome=(); (( CHROME )) && chrome=(--chrome)
+  # a pane started by hand has no supervisor: it is not restarted at the context limit
+  sabha_efficiency && [[ ${SABHA_LOOP_ACTIVE:-} != "$name" ]] && echo "sabha-up: not supervised: use sabha-loop $name (sabha-up.sh --print $name)" >&2
   # the agent keeps its own account's token and not the other accounts' variables
   sabha_account_scrub
-  exec claude -n "$name" --model "$model" --effort "$effort" ${mcp[@]+"${mcp[@]}"} ${remote[@]+"${remote[@]}"} ${chrome[@]+"${chrome[@]}"} ${guard_set[@]+"${guard_set[@]}"} "$prompt"
+  exec claude -n "$name" ${MCP_PRE[@]+"${MCP_PRE[@]}"} --model "$model" --effort "$effort" ${MCP_POST[@]+"${MCP_POST[@]}"} ${remote[@]+"${remote[@]}"} ${chrome[@]+"${chrome[@]}"} ${guard_set[@]+"${guard_set[@]}"} "$prompt"
 fi
 
 # two tabs: Build takes the pane roles in pane order, Gate takes those flagged "gate"; each is two rows of up to four.
@@ -180,6 +193,16 @@ for n in ${PANES[@]+"${PANES[@]}"}; do
   [[ -z ${SABHA_PANES:-} ]] && sabha_flag "$R_ENTRY" lazy && continue
   if sabha_flag "$R_ENTRY" gate; then gate+=("$n"); else build+=("$n"); fi
 done
+# the profile's pane cap (SABHA_EFFICIENCY, no SABHA_PANES): the first panes in roster order open, the rest are on demand
+all=(${build[@]+"${build[@]}"} ${gate[@]+"${gate[@]}"})
+if (( PANE_MAX > 0 && ${#all[@]} > PANE_MAX )); then
+  echo "sabha-up: profile $(sabha_profile) opens $PANE_MAX panes; not opened: ${all[*]:PANE_MAX}"
+  build=() gate=()
+  for n in "${all[@]:0:PANE_MAX}"; do
+    sabha_role "$n"
+    if sabha_flag "$R_ENTRY" gate; then gate+=("$n"); else build+=("$n"); fi
+  done
+fi
 (( ${#build[@]} >= 1 && ${#build[@]} <= 8 && ${#gate[@]} <= 8 )) ||
   { echo "sabha-up: each tab holds up to 8 panes (Build has ${#build[@]}, Gate has ${#gate[@]})" >&2; exit 1; }
 # on-demand roles have no pane, so only the panes are checked (the relay too when SABHA_PANES lists it)

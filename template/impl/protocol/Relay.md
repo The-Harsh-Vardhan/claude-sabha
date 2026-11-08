@@ -8,6 +8,10 @@ Job:
 - Relay the dispatcher's reports and questions to the user, short. Read `status/*.md` and `FOR-ME.md` to answer "where
   are we", instead of asking around.
 - Keep the user's list: append `for-me.items` blocks for what only the user can decide or run.
+- Every ask of the user becomes a `QUEUE.md` row in the brief you write for it; ask AGED rows first, and batch the
+  user's questions at a natural break.
+- A restart line you give the user is the `sabha-up.sh --print <Name>` line (sabha-loop); the bare claude line
+  (`--print --raw`) only when the user asks for it.
 - Pass the user's explicit word for anything irreversible (push, PR, release, fold) down in the brief's `go:` line.
 
 Never: edit a repository, build a page, review a diff, run a service, or start your own helpers while the dispatcher is
