@@ -6,6 +6,8 @@
 # and config would replace the test's own (test-loop case 4, test-procs)
 while read -r _v; do unset "$_v"; done < <(compgen -v SABHA_)
 unset _v
+# the suites written before SABHA_EFFICIENCY pin the flag-off path (spec check A1); tests/test-efficiency.sh turns it on
+export SABHA_EFFICIENCY=0
 SABHA_TEST=1
 HERMETIC_BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/hermetic-bin
 PATH=$HERMETIC_BIN:$PATH
