@@ -5,7 +5,8 @@
 open `for-me.items` that carry a `cmd:`, and each role's state and task.
 
 - Blocked lists a `NNN.blocked*` marker only when the same number has no `.done` and no `.cancel`, the file name does
-  not contain `cleared`, and the marker is newer than the brief's `.ack` when there is one. A role is listed when its
+  not contain `cleared`, the marker is newer than the brief's `.ack` when there is one, and no newer `NNN.parked*` or
+  `NNN.cleared*` marker exists for the same number. A role is listed when its
   state is `blocked` (the state the board shows).
 - A rerun with nothing new writes nothing. A change on the same day replaces that day's page in place; an earlier day
   is never touched.
@@ -15,6 +16,8 @@ open `for-me.items` that carry a `cmd:`, and each role's state and task.
 Keep `SABHA_FORME_DIR` outside any git repository, or the daily files land in that tree.
 
 ## Example cron line (not installed)
+
+Replace `/path/to` with your clone in both examples.
 
 Every day at 06:15, with the config in `~/.config/sabha/sabha.conf`:
 
@@ -39,7 +42,7 @@ Save as `~/Library/LaunchAgents/com.example.sabha-digest.plist` and load it with
     <string>--digest</string>
   </array>
   <key>EnvironmentVariables</key>
-  <dict><key>SABHA_CONF</key><string>/Users/you/.config/sabha/sabha.conf</string></dict>
+  <dict><key>SABHA_CONF</key><string>/path/to/sabha.conf</string></dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
 </dict>

@@ -1093,6 +1093,9 @@ def digest_data(conf, since):
                 continue
             elif n + ".ack" in names and os.path.getmtime(path) <= os.path.getmtime(os.path.join(d, n + ".ack")):
                 continue
+            elif any(re.match(re.escape(n) + r"\.(parked|cleared)", g) and os.path.getmtime(os.path.join(d, g)) > os.path.getmtime(path)
+                     for g in names):
+                continue
             else:
                 blocked.append((role, "inbox/%s/%s" % (role, f), marker_line(path, "status") or "(no text)"))
     for a in b["agents"]:
