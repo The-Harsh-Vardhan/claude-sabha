@@ -92,6 +92,41 @@ printf 'SABHA_PRS_ORGS="acme"\nSABHA_PRS_AUTHOR=me\n' > "$dir/c.conf"
 out=$(SABHA_CONF=$dir/c.conf prs); rc=$?
 check "defaults come from sabha.conf" '(( rc == 0 )) && printf "%s\n" "$out" | sed -n 2p | grep -q "^acme/old"'
 
+echo "--- review 206"
+mkdir -p "$dir/proj/.sabha/local"
+printf 'SABHA_PRS_ORGS="acme"\nSABHA_PRS_AUTHOR=me\n' > "$dir/proj/.sabha/local/sabha.conf"
+out=$(cd "$dir/proj" && env -u SABHA_CONF "$SH" "$BIN/sabha" prs 2>"$dir/err"); rc=$?
+check "MUST 4: bin/sabha prs reads the project's .sabha/local/sabha.conf from the cwd" '(( rc == 0 )) && printf "%s\n" "$out" | sed -n 2p | grep -q "^acme/old"'
+
+# a fork PR (head owner:branch), a PR whose details cannot be read, a head name sabha-gh refuses
+echo '{"total":3,"items":[
+ {"repo":"acme/app","number":9,"title":"unreadable","created_at":"2026-11-01T00:00:00Z","updated_at":"2026-11-07T00:00:00Z","draft":false},
+ {"repo":"acme/app","number":10,"title":"from a fork","created_at":"2026-11-05T00:00:00Z","updated_at":"2026-11-07T00:00:00Z","draft":false},
+ {"repo":"acme/app","number":11,"title":"odd head","created_at":"2026-11-02T00:00:00Z","updated_at":"2026-11-07T00:00:00Z","draft":false}]}' > "$dir/search-edge.json"
+echo '{"baseRefName":"dev","headRefName":"feat-x","headRepository":{"nameWithOwner":"forkuser/app"},"reviewDecision":null,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}' > "$dir/pr-10.json"
+echo '{"baseRefName":"dev","headRefName":"a..b","headRepository":{"nameWithOwner":"acme/app"},"reviewDecision":null,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}' > "$dir/pr-11.json"
+echo '{"ahead_by":1,"behind_by":4,"status":"diverged"}' > "$dir/cmp-10.json"
+{
+  echo "q=is:pr+is:open+author:me+org:edge|$dir/search-edge.json"
+  echo "name=app -F n=10 --jq|$dir/pr-10.json"
+  echo "name=app -F n=11 --jq|$dir/pr-11.json"
+  echo "compare/dev...forkuser:feat-x --jq|$dir/cmp-10.json"
+} >> "$FAKE_GH_DIR/map"
+: > "$CALLS"
+out=$(prs --org edge --author me); rc=$?
+flags=$(printf '%s\n' "$out" | awk 'NR > 1 && !/^note:/ { printf "%s ", $NF }')
+check "MUST 1: a fork PR compares owner:branch; a refused head or an unreadable PR does not kill the table" '(( rc == 0 )) && grep -q "compare/dev...forkuser:feat-x --jq" "$CALLS" && printf "%s\n" "$out" | grep "^acme/app  *10 " | grep -q " 4 "'
+check "MUST 3: a PR whose details are missing is UNKNOWN, never ok (9 unreadable, 11 compare refused)" '[[ $flags == "UNKNOWN UNKNOWN ok " ]] && printf "%s\n" "$out" | grep "^acme/app  *9 " | grep -q " UNKNOWN$"'
+check "MUST 1: the table says why in a note" 'printf "%s\n" "$out" | grep -q "^note: .*#11"'
+
+: > "$CALLS"
+printf '5000\n10\n' > "$FAKE_GH_DIR/left.seq"
+: > "$FAKE_GH_DIR/expire-preflight"
+out=$(SABHA_GH_CACHE=$dir/cacheq prs --org acme --author me); rc=$?
+rm -f "$FAKE_GH_DIR/left.seq" "$FAKE_GH_DIR/expire-preflight"
+check "MUST 3: the quota drops after the search: exit 1, one sabha prs line naming the quota, no table" '(( rc == 1 )) && [[ -z $out ]] && grep -q "^sabha prs: .*quota" "$dir/err"'
+check "MUST 3: the stop is honoured, gh was asked for the quota twice and for no PR after it" '[[ $(grep -c "^api rate_limit" "$CALLS") == 2 ]] && ! grep -q "^api graphql" "$CALLS"'
+
 echo "---"
 (( fails == 0 )) && { echo "all ok"; exit 0; }
 echo "$fails failed"; exit 1

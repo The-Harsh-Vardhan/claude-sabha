@@ -3,7 +3,7 @@
 # refused (exit 2) before gh is called, the wrong account and a quota under the floor stop, the cache serves a hit with
 # no call, refetches after the TTL, and a failed call returns the cached copy as stale (exit 10) or fails (exit 1).
 # gh is the fake in tests/hermetic-bin; GitHub is never reached. Run: tests/test-gh.sh
-# shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
+# shellcheck disable=SC2016,SC2034,SC2329  # the checks are eval strings, expanded when they run
 set -u
 # shellcheck source-path=SCRIPTDIR source=hermetic.sh
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
@@ -32,7 +32,7 @@ echo '{"exists":true,"type":"file"}' > "$dir/contents.json"
   echo "branches/dev --jq|$dir/branch.json"
   echo "contents/docs/a.md?ref=main|$dir/contents.json"
 } > "$FAKE_GH_DIR/map"
-export SABHA_GH_CACHE=$dir/cache SABHA_GH_USER=fake-user
+export SABHA_GH_CACHE=$dir/cache SABHA_GH_USER=fake-user SABHA_CONF=$dir/none.conf
 unset SABHA_GH_TTL SABHA_GH_MIN_LEFT
 ncalls() { wc -l < "$CALLS" | tr -d ' '; }
 gh_() { "$SH" "$BIN/sabha-gh" "$@" 2>"$dir/err"; }
@@ -102,6 +102,54 @@ out=$(FAKE_GH_FAIL=1 SABHA_GH_TTL=0 gh_ compare acme/app dev feat/x); rc=$?
 check "gh fails with a cached copy: exit 10, the cached body, STALE on stderr" '(( rc == 10 )) && [[ $out == "$(cat "$dir/cmp.json")" ]] && grep -q "^sabha-gh: STALE" "$dir/err"'
 out=$(FAKE_GH_FAIL=1 gh_ repo acme/other); rc=$?
 check "gh fails with no cache: exit 1, says plain terminal" '(( rc == 1 )) && [[ -z $out ]] && grep -q "plain terminal" "$dir/err"'
+
+echo "--- review 206"
+{
+  echo "compare/dev...forkuser:feat-x|$dir/cmp.json"
+  echo "compare/dev...feat+x@y|$dir/cmp.json"
+} >> "$FAKE_GH_DIR/map"
+rm -rf "$dir/cache"; : > "$CALLS"
+out=$(gh_ compare acme/app dev forkuser:feat-x); rc=$?
+check "MUST 1: a fork head owner:branch is read" '(( rc == 0 )) && [[ $out == "$(cat "$dir/cmp.json")" ]] && grep -q "^api repos/acme/app/compare/dev...forkuser:feat-x --jq" "$CALLS"'
+out=$(gh_ compare acme/app dev 'feat+x@y'); rc=$?
+check "MUST 1: + and @ in a branch name are read" '(( rc == 0 )) && grep -q "^api repos/acme/app/compare/dev...feat+x@y --jq" "$CALLS"'
+before=$(ncalls)
+gh_ compare acme/app dev 'a:b:c' >/dev/null; rc1=$?
+gh_ compare acme/app dev 'u:a..b' >/dev/null; rc2=$?
+gh_ compare acme/app 'u:dev' feat/x >/dev/null; rc3=$?
+gh_ compare acme/app dev ':x' >/dev/null; rc4=$?
+gh_ branch acme/app 'u:dev' >/dev/null; rc5=$?
+check "MUST 1: two owners, '..' after an owner, an owner on the base, an empty owner, an owner on branch: all exit 2" '(( rc1 == 2 && rc2 == 2 && rc3 == 2 && rc4 == 2 && rc5 == 2 )) && [[ $(ncalls) == "$before" ]]'
+gh_ repo '../..' >/dev/null; rc1=$?
+gh_ repo 'acme/..' >/dev/null; rc2=$?
+gh_ branch './x' dev >/dev/null; rc3=$?
+gh_ prs-by-author '../..' me >/dev/null; rc4=$?
+check "SHOULD 1: a . or .. repo segment is refused, no gh call" '(( rc1 == 2 && rc2 == 2 && rc3 == 2 && rc4 == 2 )) && [[ $(ncalls) == "$before" ]]'
+out=$(gh_ repo acme/.github); rc=$?
+check "SHOULD 1: a real name that starts with a dot (.github) still passes the pattern" '(( rc != 2 ))'
+
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_GH_MIN_LEFT=5\nSABHA_GH_TTL=0\n' "$dir" "$dir" > "$dir/g.conf"
+rm -rf "$dir/cache"; : > "$CALLS"
+out=$(FAKE_GH_LEFT=10 SABHA_CONF=$dir/g.conf gh_ repo acme/app); rc=$?
+check "MUST 2: SABHA_GH_MIN_LEFT from the conf (quota 10, floor 5) reads" '(( rc == 0 ))'
+n3=$(ncalls)
+SABHA_CONF=$dir/g.conf gh_ repo acme/app >/dev/null
+check "MUST 2: SABHA_GH_TTL=0 from the conf refetches" '[[ $(ncalls) == $((n3 + 1)) ]]'
+rm -rf "$dir/cache"
+out=$(FAKE_GH_LEFT=100 SABHA_GH_MIN_LEFT=200 SABHA_CONF=$dir/g.conf gh_ repo acme/app); rc=$?
+check "MUST 2: an env SABHA_GH_MIN_LEFT wins over the conf" '(( rc == 4 ))'
+
+rm -rf "$dir/cache"
+out=$(FAKE_GH_LEFT=10 gh_ repo acme/app); rc=$?
+check "SHOULD 4: the quota stop does not blame the sandbox" '(( rc == 4 )) && ! grep -q "plain terminal" "$dir/err"'
+
+rm -rf "$dir/cache"
+out=$(FAKE_GH_WARN="warning: a token is about to expire" gh_ compare acme/app dev feat/x); rc=$?
+check "SHOULD 3: a gh warning on stderr is not in stdout or the cache" '(( rc == 0 )) && [[ $out == "$(cat "$dir/cmp.json")" ]] && ! grep -rq "warning" "$dir/cache"'
+rm -rf "$dir/cache"
+(umask 022; gh_ repo acme/app >/dev/null)
+mode_of() { python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$1"; }
+check "SHOULD 2: the cache dir is 0o700 and its files 0o600 even under umask 022" '[[ $(mode_of "$dir/cache") == 0o700 && $(mode_of "$(ls "$dir"/cache/*.json | head -1)") == 0o600 ]]'
 
 echo "---"
 (( fails == 0 )) && { echo "all ok"; exit 0; }

@@ -10,16 +10,17 @@
 #   sabha-gh [--fresh] contents <owner/repo> <path> <ref>  {exists, type, sha}
 # Output is JSON on stdout. Exit: 0 ok, 1 gh failed and no cache, 2 refused or usage, 3 wrong account, 4 under the rate
 # floor and no cache, 10 stale: gh failed (or the floor was hit) and stdout is the cached copy.
-# Env: SABHA_GH_USER (the login gh must be on; unset = no check), SABHA_GH_TTL (cache seconds, 600), SABHA_GH_MIN_LEFT
-# (stop when core or graphql quota is below it, 200), SABHA_GH_CACHE (cache dir, else $SABHA_IMPL/status/gh-cache),
-# SABHA_GH_BIN (the gh binary, default gh). gh needs the network and the keychain: run from a plain terminal.
+# Env or sabha.conf (the environment wins): SABHA_GH_USER (the login gh must be on; unset = no check), SABHA_GH_TTL (cache
+# seconds, 600), SABHA_GH_MIN_LEFT (stop when core or graphql quota is below it, 200). Env only: SABHA_GH_CACHE (cache dir,
+# else $SABHA_IMPL/status/gh-cache), SABHA_GH_BIN (the gh binary, default gh). gh needs the network and the keychain: run
+# from a plain terminal.
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
 GH=${SABHA_GH_BIN:-gh}
 if [[ ${SABHA_TEST:-} == 1 && -z ${SABHA_GH_BIN:-} ]]; then
   echo "sabha-gh: SABHA_TEST=1 and no SABHA_GH_BIN; refusing to reach a real gh" >&2; exit 2
 fi
-TTL=${SABHA_GH_TTL:-600} MIN_LEFT=${SABHA_GH_MIN_LEFT:-200}
+umask 077  # the cache holds private-repo PR titles
 
 die() { echo "sabha-gh: $*" >&2; exit "${2:-1}"; }
 usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
@@ -38,8 +39,11 @@ is() { [[ $2 =~ $1 ]]; }
 RE_NAME='^[A-Za-z0-9][A-Za-z0-9-]*$'
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_REF='^[A-Za-z0-9_][A-Za-z0-9._/-]*$'
+RE_BRANCH='^[A-Za-z0-9_][A-Za-z0-9._/+@-]*$'
+RE_HEAD='^([A-Za-z0-9][A-Za-z0-9-]*:)?[A-Za-z0-9_][A-Za-z0-9._/+@-]*$'
 RE_PATH='^[A-Za-z0-9_.@+-][A-Za-z0-9._/@+-]*$'
 no_dots() { [[ $1 != *..* ]]; }
+is_repo() { is "$RE_REPO" "$1" && [[ /$1/ != */./* && /$1/ != */../* ]]; }
 need() { (( $# - 1 == $1 )) || die "$read: wrong number of arguments (see: sabha-gh)" 2; }
 
 # shellcheck disable=SC2016  # the $ are GraphQL variables, not shell
@@ -51,41 +55,47 @@ shopt -u nocasematch
 ARGS=() JQ="" MISS404=""
 case $read in
   pr)
-    need 2 "$@"; { is "$RE_REPO" "$1" && is '^[0-9]+$' "$2"; } || die "pr: want <owner/repo> <number>" 2
+    need 2 "$@"; { is_repo "$1" && is '^[0-9]+$' "$2"; } || die "pr: want <owner/repo> <number>" 2
     ARGS=(api graphql -f "query=$Q_PR" -f "owner=${1%%/*}" -f "name=${1#*/}" -F "n=$2")
     JQ='.data.repository.pullRequest' ;;
   prs-by-author)
-    need 2 "$@"; is "$RE_REPO" "$1" && scope="repo:$1" || { is "$RE_NAME" "$1" && scope="org:$1"; } || die "prs-by-author: want <org|owner/repo> <login>" 2
+    need 2 "$@"; is_repo "$1" && scope="repo:$1" || { is "$RE_NAME" "$1" && scope="org:$1"; } || die "prs-by-author: want <org|owner/repo> <login>" 2
     is "$RE_NAME" "$2" || die "prs-by-author: bad login" 2
     ARGS=(api "search/issues?per_page=100&q=is:pr+is:open+author:$2+$scope")
     JQ='{total:.total_count,items:[.items[]|{repo:(.repository_url|sub("^.*/repos/";"")),number,title,created_at,updated_at,draft,url:.html_url}]}' ;;
   compare)
-    need 3 "$@"; { is "$RE_REPO" "$1" && is "$RE_REF" "$2" && is "$RE_REF" "$3" && no_dots "$2$3"; } || die "compare: want <owner/repo> <base> <head>" 2
+    need 3 "$@"; { is_repo "$1" && is "$RE_BRANCH" "$2" && is "$RE_HEAD" "$3" && no_dots "$2$3"; } || die "compare: want <owner/repo> <base> <head>" 2
     ARGS=(api "repos/$1/compare/$2...$3")
     JQ='{ahead_by,behind_by,status}' ;;
   repo)
-    need 1 "$@"; is "$RE_REPO" "$1" || die "repo: want <owner/repo>" 2
+    need 1 "$@"; is_repo "$1" || die "repo: want <owner/repo>" 2
     ARGS=(api "repos/$1")
     JQ='{full_name,archived,default_branch,private,pushed_at}' ;;
   branch)
-    need 2 "$@"; { is "$RE_REPO" "$1" && is "$RE_REF" "$2" && no_dots "$2"; } || die "branch: want <owner/repo> <branch>" 2
+    need 2 "$@"; { is_repo "$1" && is "$RE_BRANCH" "$2" && no_dots "$2"; } || die "branch: want <owner/repo> <branch>" 2
     ARGS=(api "repos/$1/branches/$2")
     JQ='{exists:true,name,sha:.commit.sha,date:.commit.commit.committer.date}' MISS404=1 ;;
   contents)
-    need 3 "$@"; { is "$RE_REPO" "$1" && is "$RE_PATH" "$2" && is "$RE_REF" "$3" && no_dots "$2$3"; } || die "contents: want <owner/repo> <path> <ref>" 2
+    need 3 "$@"; { is_repo "$1" && is "$RE_PATH" "$2" && is "$RE_REF" "$3" && no_dots "$2$3"; } || die "contents: want <owner/repo> <path> <ref>" 2
     ARGS=(api "repos/$1/contents/$2?ref=$3")
     JQ='if type=="array" then {exists:true,type:"dir"} else {exists:true,type:.type,sha:.sha} end' MISS404=1 ;;
   *) usage ;;
 esac
 ARGS+=(--jq "$JQ")
 
-if [[ -n ${SABHA_GH_CACHE:-} ]]; then CDIR=$SABHA_GH_CACHE
+# the conf is sourced after the environment is saved, so an env value wins over a conf key
+env_ttl=${SABHA_GH_TTL:-} env_min=${SABHA_GH_MIN_LEFT:-} env_user=${SABHA_GH_USER:-}
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+if [[ -n ${SABHA_GH_CACHE:-} ]]; then
+  sabha_conf_read sabha-gh 2>/dev/null  # no conf is fine when the cache dir is given
+  CDIR=$SABHA_GH_CACHE
 else
-  # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
-  . "$BIN/sabha-lib.sh"
   sabha_load sabha-gh
   CDIR=$SABHA_IMPL/status/gh-cache
 fi
+TTL=${env_ttl:-${SABHA_GH_TTL:-600}} MIN_LEFT=${env_min:-${SABHA_GH_MIN_LEFT:-200}}
+[[ -n $env_user ]] && SABHA_GH_USER=$env_user
 mkdir -p "$CDIR" || die "cannot create $CDIR"
 
 sha1() { if command -v shasum >/dev/null 2>&1; then shasum -a 1; else sha1sum; fi; }
@@ -110,12 +120,16 @@ preflight() {
 }
 
 fetch() {
-  local out
+  local out err
   preflight || return $?
-  out=$("$GH" "${ARGS[@]}" 2>&1) && [[ -n $out ]] || {
-    if [[ -n $MISS404 && $out == *"HTTP 404"* ]]; then out='{"exists":false}'
-    else ERR=${out:-empty reply from gh}; return 1; fi
+  # stderr stays out of the cached JSON: a gh warning on exit 0 must not corrupt it
+  out=$("$GH" "${ARGS[@]}" 2>"$BODY.err") && [[ -n $out ]] || {
+    err=$(cat "$BODY.err")
+    if [[ -n $MISS404 && "$out$err" == *"HTTP 404"* ]]; then out='{"exists":false}'
+    else ERR=${err:-${out:-empty reply from gh}}; rm -f "$BODY.err"; return 1; fi
   }
+  [[ -s $BODY.err ]] && cat "$BODY.err" >&2
+  rm -f "$BODY.err"
   printf '%s\n' "$out" > "$BODY.tmp" && mv "$BODY.tmp" "$BODY" && echo "$now" > "$STAMP"
   cat "$BODY"
 }
@@ -128,4 +142,5 @@ if [[ -s $BODY ]]; then
   echo "sabha-gh: STALE (cache of $(date -r "$(stamp_of "$STAMP")" '+%Y-%m-%d %H:%M' 2>/dev/null || stamp_of "$STAMP")): ${ERR%%$'\n'*}" >&2
   cat "$BODY"; exit 10
 fi
-die "${ERR%%$'\n'*} (no cached copy; gh needs a plain terminal, not the Claude sandbox)" "$rc"
+(( rc == 1 )) && ERR="${ERR%%$'\n'*} (no cached copy; gh needs a plain terminal, not the Claude sandbox)"
+die "${ERR%%$'\n'*}" "$rc"

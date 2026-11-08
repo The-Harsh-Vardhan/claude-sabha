@@ -435,6 +435,6 @@ case ${1:-} in
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  prs) shift; exec python3 "$BIN/sabha-prs" "$@" ;;
+  prs) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-prs" "$@" ;;
   *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options]" >&2; exit 2 ;;
 esac

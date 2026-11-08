@@ -4,7 +4,7 @@
 
 - `bin/sabha-gh`, the kit's one read-only GitHub layer (named reads, no flag accepted, account and quota checked, 10-minute
   cache, stale copy on failure), and `sabha prs`, a PR radar built on it: an author's open PRs across orgs and repos with
-  ARCHIVED, CONFLICT, BEHIND>50, CHANGES_REQUESTED and STALE>7d flags. `tests/hermetic-bin/gh` is the fake gh; `hermetic.sh`
+  ARCHIVED, CONFLICT, BEHIND>50, UNKNOWN, CHANGES_REQUESTED and STALE>7d flags. `tests/hermetic-bin/gh` is the fake gh; `hermetic.sh`
   refuses a test that finds another gh first on PATH. docs/github-layer.md.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when

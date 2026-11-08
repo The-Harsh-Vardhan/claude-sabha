@@ -7,7 +7,9 @@ GitHub read goes through bin/sabha-gh (cached, quota-checked, no write possible)
 Defaults: SABHA_PRS_ORGS (space separated), SABHA_PRS_AUTHOR, SABHA_PRS_REPOS (space separated), from the environment
 or sabha.conf. --org searches the org for the author; --repo searches that one repo (an own repo outside the org).
 Flag, worst first: ARCHIVED (the repo is read-only), CONFLICT (cannot merge as is), BEHIND>50 (more than 50 commits
-behind its base), CHANGES_REQUESTED, STALE>7d (no update for a week), else ok. Columns: repo, #, title, base, age
+behind its base), UNKNOWN (a read of the PR, its compare or its repo failed, so the flags above are unchecked; ranked
+after BEHIND>50 and before CHANGES_REQUESTED, never ok), CHANGES_REQUESTED, STALE>7d (no update for a week), else ok.
+An account or quota stop (sabha-gh exit 3 or 4) ends the run with one line and no table. Columns: repo, #, title, base, age
 (days since opened), review, mergeable, behind, flag. gh needs a plain terminal; data from the cache is marked STALE.
 Search lists the first 100 PRs per target. SABHA_NOW (epoch seconds) pins the clock for tests.
 """
@@ -22,14 +24,17 @@ import time
 
 BIN = os.path.dirname(os.path.abspath(__file__))
 GH = os.path.join(BIN, "sabha-gh")
-RANK = ["ARCHIVED", "CONFLICT", "BEHIND>50", "CHANGES_REQUESTED", "STALE>7d", "ok"]
+RANK = ["ARCHIVED", "CONFLICT", "BEHIND>50", "UNKNOWN", "CHANGES_REQUESTED", "STALE>7d", "ok"]
 stale_reasons = []
 
 
 class GhError(Exception):
     def __init__(self, msg, rc):
         Exception.__init__(self, msg)
-        self.rc = rc
+        self.msg, self.rc = msg, rc
+
+    def __str__(self):
+        return self.msg
 
 
 def gh(fresh, *args):
@@ -39,7 +44,10 @@ def gh(fresh, *args):
         stale_reasons.append(p.stderr.strip().splitlines()[0] if p.stderr.strip() else "cached copy")
     elif p.returncode != 0:
         raise GhError(p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "sabha-gh failed", p.returncode)
-    return json.loads(p.stdout)
+    try:
+        return json.loads(p.stdout)
+    except ValueError:
+        raise GhError("sabha-gh printed something that is not JSON", 1)
 
 
 def conf_value(key):
@@ -63,7 +71,7 @@ def parse_ts(s):
 def row_for(item, fresh, now, repos, warns):
     repo, num = item["repo"], item["number"]
     row = dict(repo=repo, number=num, title=item["title"], base="?", age=int((now - parse_ts(item["created_at"])) // 86400),
-               review="-", mergeable="?", merge_state="?", behind=None, archived=False, draft=bool(item.get("draft")),
+               review="-", mergeable="?", merge_state="?", behind=None, archived=False, incomplete=False, draft=bool(item.get("draft")),
                updated_days=int((now - parse_ts(item["updated_at"])) // 86400), url=item.get("url", ""))
     try:
         pr = gh(fresh, "pr", repo, str(num))
@@ -75,24 +83,28 @@ def row_for(item, fresh, now, repos, warns):
             head = "%s:%s" % (hr.split("/")[0], head)
         row["behind"] = gh(fresh, "compare", repo, pr["baseRefName"], head)["behind_by"]
     except (GhError, KeyError, TypeError) as e:
-        if isinstance(e, GhError) and e.rc in (2, 3):
+        if isinstance(e, GhError) and e.rc in (3, 4):
             raise
+        row["incomplete"] = True
         warns.append("%s#%s: PR details incomplete (%s)" % (repo, num, e))
     if repo not in repos:
         try:
             repos[repo] = bool(gh(fresh, "repo", repo)["archived"])
         except (GhError, KeyError, TypeError) as e:
-            if isinstance(e, GhError) and e.rc in (2, 3):
+            if isinstance(e, GhError) and e.rc in (3, 4):
                 raise
-            repos[repo] = False
+            repos[repo] = None
             warns.append("%s: could not read the repo, ARCHIVED unchecked (%s)" % (repo, e))
-    row["archived"] = repos[repo]
+    row["archived"] = bool(repos[repo])
+    row["incomplete"] = row["incomplete"] or repos[repo] is None
     if row["archived"]:
         flag = "ARCHIVED"
     elif row["merge_state"] == "DIRTY" or row["mergeable"] == "CONFLICTING":
         flag = "CONFLICT"
     elif row["behind"] is not None and row["behind"] > 50:
         flag = "BEHIND>50"
+    elif row["incomplete"]:
+        flag = "UNKNOWN"
     elif row["review"] == "CHANGES_REQUESTED":
         flag = "CHANGES_REQUESTED"
     elif row["updated_days"] > 7:
