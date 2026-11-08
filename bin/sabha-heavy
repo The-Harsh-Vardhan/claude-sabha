@@ -2,12 +2,23 @@
 # Heavy-job gate (docs/specs/efficiency-profiles.md 3.2, 3.3). A heavy job is a dev server, a build, a browser or
 # Playwright run or a Docker e2e; the dispatcher starts one only when this says GO:
 #   sabha-heavy check                    read-only verdict line; exit 0 GO, 75 WAIT
-#   sabha-heavy acquire <label> [secs]   check and take a slot, polling up to secs (default SABHA_HEAVY_WAIT, 900)
-#   sabha-heavy release <label>          free the slot
+#   sabha-heavy acquire <label> [secs] [pid]  check and take a slot, polling up to secs (default SABHA_HEAVY_WAIT, 900);
+#                                        pid (default 0 = no liveness test, TTL only) is the process that holds the slot
+#   sabha-heavy release <label> [outcome] free the slot; outcome (default "released") goes to jobs.tsv
 #   sabha-heavy touch <label>            renew a slot taken by acquire (it expires after SABHA_HEAVY_TTL seconds)
 #   sabha-heavy run <label> -- <cmd...>  acquire, run cmd, release on exit or TERM; heartbeat while it runs
-#   sabha-heavy status                   one line for a status bar: load, colour, memory, slots, labels
-# GO needs load1 <= SABHA_HEAVY_LOAD_FACTOR (2) x cores, memory pressure green, fewer than SABHA_HEAVY_MAX (profile)
+#   sabha-heavy status                   one line for a status bar: load, colour, memory, slots, labels, queue depth
+#   sabha-heavy queue add <label> [--prio 1-9] [--settle secs]   join the queue (higher prio first, default 5)
+#   sabha-heavy queue list | next | remove <label>
+# The queue holds labels only, never commands. Order = prio + waited/SABHA_HEAVY_AGE (600 s per point), oldest first on
+# a tie, so a waiting job cannot starve. `queue next` prints "NEXT: <label>" when the head may start (exit 0), else the
+# WAIT line (75; 1 when the queue is empty). A queued label that calls acquire or run waits until it is the head;
+# an unqueued label is unaffected. --settle (or SABHA_HEAVY_SETTLE_FOR on acquire/run) is how long after this job takes
+# its slot the next one waits (Jest ramps for minutes), default SABHA_HEAVY_SETTLE. Entries older than
+# SABHA_HEAVY_QUEUE_TTL (86400 s) are dropped.
+# $SABHA_IMPL/status/heavy/jobs.tsv gets one line per start, end and give-up: utc, label, event, load1, load5, memory,
+# detail (waited, rc, duration), so thresholds can be tuned from data.
+# GO needs memory pressure green (checked first), load1 <= SABHA_HEAVY_LOAD_FACTOR (2) x cores, fewer than SABHA_HEAVY_MAX (profile)
 # slots held and SABHA_HEAVY_SETTLE (45) seconds since the last slot was taken (load1 is a one-minute average).
 # Reads sysctl; inside a sandbox that denies it, uptime, memory_pressure -Q (free percent under SABHA_HEAVY_FREE_PCT,
 # 40, counts as yellow) and getconf. Nothing readable = WAIT, never a blind GO. SABHA_HEAVY_FORCE=1 takes a slot
@@ -17,20 +28,23 @@ BIN=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$BIN/sabha-lib.sh"
 sabha_load sabha-heavy
-DIR=$SABHA_IMPL/status/heavy
+DIR=$SABHA_IMPL/status/heavy QDIR=$SABHA_IMPL/status/heavy/queue LOG=$SABHA_IMPL/status/heavy/jobs.tsv
 mkdir -p "$DIR" || exit 1
 MAX=${SABHA_HEAVY_MAX:-2} TTL=${SABHA_HEAVY_TTL:-1800} SETTLE=${SABHA_HEAVY_SETTLE:-45}
 FACTOR=${SABHA_HEAVY_LOAD_FACTOR:-2} FREE=${SABHA_HEAVY_FREE_PCT:-40} POLL=${SABHA_HEAVY_POLL:-30}
+AGE=${SABHA_HEAVY_AGE:-600} QTTL=${SABHA_HEAVY_QUEUE_TTL:-86400}
 
 mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
 
-# load1: the one-minute load average, empty when unreadable (sysctl prints "{ 1.0 2.0 3.0 }"; uptime differs per OS)
-load1() {
-  local v
-  if v=$(sysctl -n vm.loadavg 2>/dev/null); then v=${v#\{ }; v=${v%% *}
-  else v=$(uptime 2>/dev/null) || return 0; v=${v##*load average}; v=${v#*: }; v=${v%%[, ]*}; fi
+# load_at <1|5|15>: that load average, empty when unreadable (sysctl prints "{ 1.0 2.0 3.0 }"; uptime differs per OS)
+load_at() {
+  local v a
+  if v=$(sysctl -n vm.loadavg 2>/dev/null); then v=${v#\{ }; v=${v%% \}*}
+  else v=$(uptime 2>/dev/null) || return 0; v=${v##*load average}; v=${v#*: }; v=${v//,/ }; fi
+  read -ra a <<<"$v"; v=${a[$(( $1 == 1 ? 0 : $1 == 5 ? 1 : 2 ))]:-}
   [[ $v =~ ^[0-9]+(\.[0-9]+)?$ ]] && echo "$v"
 }
+load1() { load_at 1; }
 
 # mem: green, yellow, red, or "yellow (free N%)" from the fallback; empty when unreadable
 mem() {
@@ -44,10 +58,11 @@ mem() {
   if (( v < FREE )); then echo "yellow (free $v%)"; else echo green; fi
 }
 
-# clean: drop slots whose pid is dead or whose heartbeat (the file's mtime) is older than TTL; sets HELD and NEWEST
+# clean: drop slots whose pid is dead or whose heartbeat (the file's mtime) is older than TTL; sets HELD, NEWEST and
+# READY (when the last slot's settle time ends: its epoch + its own settle, else SETTLE)
 clean() {
-  local f pid e stale now
-  now=$(date +%s) HELD=() NEWEST=0
+  local f pid e stale now st
+  now=$(date +%s) HELD=() NEWEST=0 READY=0
   for f in "$DIR"/*.slot; do
     [[ -e $f ]] || continue
     pid=$(sed -n 's/^pid: //p' "$f") e=$(sed -n 's/^epoch: //p' "$f") stale=0
@@ -55,7 +70,11 @@ clean() {
     [[ ${pid:-0} != 0 ]] && ! kill -0 "$pid" 2>/dev/null && stale=1
     if (( stale )); then echo "sabha-heavy: removed stale slot $(basename "$f" .slot)" >&2; rm -f "$f"; continue; fi
     HELD+=("$(basename "$f" .slot)")
-    [[ $e =~ ^[0-9]+$ ]] && (( e > NEWEST )) && NEWEST=$e
+    if [[ $e =~ ^[0-9]+$ ]]; then
+      (( e > NEWEST )) && NEWEST=$e
+      st=$(sed -n 's/^settle: //p' "$f"); [[ $st =~ ^[0-9]+$ ]] || st=$SETTLE
+      (( e + st > READY )) && READY=$(( e + st ))
+    fi
   done
 }
 
@@ -66,12 +85,12 @@ verdict() {
   [[ $c =~ ^[0-9]+$ ]] || { echo "HEAVY WAIT: cannot read the core count"; return 1; }
   lim=$(( FACTOR * c ))
   clean
-  [[ -z $l ]] && why+=("cannot read load")
-  [[ -n $l ]] && awk -v l="$l" -v m="$lim" 'BEGIN { exit !(l > m) }' && why+=("load1 $l > $lim ($c cores)")
   [[ -z $m ]] && why+=("cannot read memory pressure")
   [[ -n $m && $m != green ]] && why+=("memory $m")
+  [[ -z $l ]] && why+=("cannot read load")
+  [[ -n $l ]] && awk -v l="$l" -v m="$lim" 'BEGIN { exit !(l > m) }' && why+=("load1 $l > $lim ($c cores)")
   (( ${#HELD[@]} >= MAX )) && why+=("slots ${#HELD[@]}/$MAX")
-  [[ ${1:-} == settle ]] && (( $(date +%s) - NEWEST < SETTLE )) && why+=("settle: last slot $(( $(date +%s) - NEWEST ))s ago")
+  [[ ${1:-} == settle ]] && (( $(date +%s) < READY )) && why+=("settle: next slot in $(( READY - $(date +%s) ))s")
   if (( ${#why[@]} )); then
     for w in "${why[@]}"; do s+="${s:+; }$w"; done
     echo "HEAVY WAIT: $s"; return 1
@@ -90,20 +109,45 @@ lock() {
   echo "sabha-heavy: $DIR/.lock is held" >&2; return 1
 }
 
+# rec <label> <event> <detail>: one jobs.tsv line with the load and memory now
+rec() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$(load_at 1)" "$(load_at 5)" "$(mem)" "$3" >> "$LOG"; }
+
+# qrank: the queue, best first, as tab lines: label, epoch, prio, score, settle. Drops entries older than QTTL.
+qrank() {
+  local f now e p s
+  now=$(date +%s)
+  for f in "$QDIR"/*; do
+    [[ -f $f ]] || continue
+    e=$(sed -n 's/^epoch: //p' "$f") p=$(sed -n 's/^prio: //p' "$f") s=$(sed -n 's/^settle: //p' "$f")
+    [[ $e =~ ^[0-9]+$ && $p =~ ^[0-9]$ ]] || { rm -f "$f"; continue; }
+    (( now - e > QTTL )) && { rm -f "$f"; continue; }
+    awk -v l="$(basename "$f")" -v e="$e" -v p="$p" -v s="$s" -v n="$now" -v a="$AGE" \
+      'BEGIN { printf "%s\t%s\t%s\t%.3f\t%s\n", l, e, p, p + (n - e) / a, s }'
+  done | sort -t $'\t' -k4,4gr -k2,2n -k1,1
+}
+qhead() { qrank | head -1 | cut -f1; }
+
 # acquire <label> <secs> <pid>: exit 0 with the slot written, or 75 with the last WAIT line
 acquire() {
-  local label=$1 end=$(( $(date +%s) + $2 )) out
+  local label=$1 end=$(( $(date +%s) + $2 )) out st=${SABHA_HEAVY_SETTLE_FOR:-} h t0
+  t0=$(date +%s)
+  [[ -f $QDIR/$label ]] && st=$(sed -n 's/^settle: //p' "$QDIR/$label")
   while :; do
     lock || return 75
-    if out=$(verdict settle) || [[ ${SABHA_HEAVY_FORCE:-0} == 1 ]]; then
+    h=$(qhead)
+    if [[ -f $QDIR/$label && $h != "$label" && ${SABHA_HEAVY_FORCE:-0} != 1 ]]; then out="HEAVY WAIT: queue: $h is ahead"
+    elif out=$(verdict settle) || [[ ${SABHA_HEAVY_FORCE:-0} == 1 ]]; then
       { echo "pid: $3"; echo "epoch: $(date +%s)"; echo "label: $label"; echo "role: ${SABHA_ROLE:-}"
+        [[ $st =~ ^[0-9]+$ ]] && echo "settle: $st"
         [[ ${SABHA_HEAVY_FORCE:-0} == 1 ]] && echo "forced: ${SABHA_ROLE:-${USER:-unknown}}"; } > "$DIR/$label.slot"
+      rm -f "$QDIR/$label"
       rmdir "$DIR/.lock"
+      rec "$label" start "waited=$(( $(date +%s) - t0 ))s"
       echo "$out"; [[ ${SABHA_HEAVY_FORCE:-0} == 1 ]] && echo "HEAVY FORCED: $label"
       return 0
     fi
     rmdir "$DIR/.lock"
-    (( $(date +%s) >= end )) && { echo "$out"; return 75; }
+    (( $(date +%s) >= end )) && { rec "$label" giveup "$out"; echo "$out"; return 75; }
     sleep "$POLL"
   done
 }
@@ -112,15 +156,22 @@ label_ok() { [[ ${1:-} =~ ^[A-Za-z0-9._-]+$ ]] || { echo "sabha-heavy: label mus
 
 case ${1:-} in
   check) verdict || exit 75 ;;
-  acquire) label_ok "${2:-}"; acquire "$2" "${3:-${SABHA_HEAVY_WAIT:-900}}" 0; exit ;;
-  release) label_ok "${2:-}"; rm -f "$DIR/$2.slot" ;;
+  acquire)
+    label_ok "${2:-}"
+    [[ ${4:-0} =~ ^[0-9]+$ ]] || { echo "sabha-heavy: pid must be a number" >&2; exit 2; }
+    acquire "$2" "${3:-${SABHA_HEAVY_WAIT:-900}}" "${4:-0}"; exit ;;
+  release)
+    label_ok "${2:-}"
+    [[ -e $DIR/$2.slot ]] && rec "$2" end "outcome=${3:-released} dur=$(( $(date +%s) - $(sed -n 's/^epoch: //p' "$DIR/$2.slot") ))s"
+    rm -f "$DIR/$2.slot" ;;
   touch) label_ok "${2:-}"; [[ -e $DIR/$2.slot ]] && touch "$DIR/$2.slot" ;;
   run)
     label_ok "${2:-}"; label=$2; shift 2
     [[ ${1:-} == -- ]] && shift
     (( $# )) || { echo "usage: sabha-heavy run <label> -- <cmd...>" >&2; exit 2; }
     acquire "$label" "${SABHA_HEAVY_WAIT:-900}" $$ || exit 75
-    trap 'rm -f "$DIR/$label.slot"' EXIT
+    t0=$(date +%s)
+    trap 'rec "$label" end "rc=$? dur=$(( $(date +%s) - t0 ))s"; rm -f "$DIR/$label.slot"' EXIT
     "$@" & c=$!
     trap 'kill -TERM "$c" 2>/dev/null; wait "$c"; exit 143' TERM INT
     while kill -0 "$c" 2>/dev/null; do touch "$DIR/$label.slot"; sleep 1; done
@@ -131,6 +182,34 @@ case ${1:-} in
     [[ -n $l && $c =~ ^[0-9]+$ ]] && col=$(awk -v l="$l" -v c="$c" -v f="$FACTOR" 'BEGIN { print (l <= c ? "green" : l <= f * c ? "amber" : "red") }')
     line="load ${l:-?}/${c:-?} $col | mem ${m:-?} | slots ${#HELD[@]}/$MAX"
     (( ${#HELD[@]} )) && line+=" | ${HELD[*]}"
+    q=$(qrank | wc -l); (( q > 0 )) && line+=" | queue $(( q ))"
     echo "$line" ;;
+  queue)
+    shift; sub=${1:-}; shift
+    case $sub in
+      add)
+        label_ok "${1:-}"; label=$1; shift; prio=5 st=""
+        while (( $# )); do
+          case $1 in
+            --prio) prio=${2:-}; shift 2 ;;
+            --settle) st=${2:-}; shift 2 ;;
+            *) echo "sabha-heavy: unknown option $1" >&2; exit 2 ;;
+          esac
+        done
+        [[ $prio =~ ^[1-9]$ ]] || { echo "sabha-heavy: --prio is 1 to 9" >&2; exit 2; }
+        [[ -z $st || $st =~ ^[0-9]+$ ]] || { echo "sabha-heavy: --settle is whole seconds" >&2; exit 2; }
+        mkdir -p "$QDIR" && lock || exit 1
+        if [[ -e $QDIR/$label ]]; then rmdir "$DIR/.lock"; echo "sabha-heavy: $label is already queued" >&2; exit 1; fi
+        { echo "epoch: $(date +%s)"; echo "prio: $prio"; echo "role: ${SABHA_ROLE:-}"; [[ -n $st ]] && echo "settle: $st"; } > "$QDIR/$label"
+        rmdir "$DIR/.lock"
+        echo "queued $label (prio $prio)" ;;
+      list) qrank | awk -F '\t' -v n="$(date +%s)" '{ printf "%d %s prio %s waited %ds score %s%s\n", NR, $1, $3, n - $2, $4, ($5 == "" ? "" : " settle " $5 "s") }' ;;
+      next)
+        h=$(qhead); [[ -n $h ]] || { echo "queue empty"; exit 1; }
+        out=$(verdict settle) || { echo "$out (head: $h)"; exit 75; }
+        echo "$out"; echo "NEXT: $h" ;;
+      remove) label_ok "${1:-}"; rm -f "$QDIR/$1" ;;
+      *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    esac ;;
   *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

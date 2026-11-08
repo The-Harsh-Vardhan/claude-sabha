@@ -19,12 +19,12 @@ cat > "$dir/stubs/sysctl" <<'EOF'
 [ -n "$FAKE_SYSCTL_FAIL" ] && { echo "sysctl: Operation not permitted" >&2; exit 1; }
 case $2 in
   hw.ncpu) echo "${FAKE_NCPU:-10}" ;;
-  vm.loadavg) echo "{ ${FAKE_LOAD:-1.00} 1.00 1.00 }" ;;
+  vm.loadavg) echo "{ ${FAKE_LOAD:-1.00} ${FAKE_LOAD5:-1.00} 1.00 }" ;;
   kern.memorystatus_vm_pressure_level) echo "${FAKE_LEVEL:-1}" ;;
   *) exit 1 ;;
 esac
 EOF
-printf '#!/bin/sh\n[ -n "$FAKE_UPTIME_FAIL" ] && exit 1\necho "20:00  up 3 days, 2 users, load averages: ${FAKE_LOAD:-1.00} 1.00 1.00"\n' > "$dir/stubs/uptime"
+printf '#!/bin/sh\n[ -n "$FAKE_UPTIME_FAIL" ] && exit 1\necho "20:00  up 3 days, 2 users, load averages: ${FAKE_LOAD:-1.00} ${FAKE_LOAD5:-1.00} 1.00"\n' > "$dir/stubs/uptime"
 printf '#!/bin/sh\necho "System-wide memory free percentage: ${FAKE_FREE:-60}%%"\n' > "$dir/stubs/memory_pressure"
 printf '#!/bin/sh\necho "${FAKE_NCPU:-10}"\n' > "$dir/stubs/getconf"
 chmod +x "$dir/stubs/"*
@@ -83,6 +83,85 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -e $slots/job3.slot ]] && break; sleep 0.5;
 held=0; [[ -e $slots/job3.slot ]] && held=1
 kill -TERM "$w"; wait "$w" 2>/dev/null
 check "TERM to run frees the slot" '(( held == 1 )) && [[ ! -e $slots/job3.slot ]]'
+
+echo "--- memory first"
+out=$(FAKE_LOAD=21.0 FAKE_LEVEL=2 heavy check)
+check "memory and load both bad: the WAIT line names memory before load" 'grep -q "^HEAVY WAIT: memory yellow; load1 21.0" <<<"$out"'
+
+echo "--- queue: order, priority, aging"
+q=$slots/queue
+setep() { sed -i.bak "s/^epoch: .*/epoch: $(( $(date +%s) - $2 ))/" "$q/$1" && rm -f "$q/$1.bak"; }
+order() { heavy queue list | awk '{ printf "%s%s", (NR > 1 ? " " : ""), $2 } END { print "" }'; }
+heavy queue add a >/dev/null; setep a 100
+heavy queue add b >/dev/null; setep b 50
+heavy queue add c >/dev/null
+check "same priority: first in, first out" '[[ $(order) == "a b c" ]]'
+heavy queue add d --prio 9 >/dev/null
+check "a higher priority goes first" '[[ $(order) == "d a b c" ]]'
+setep a 3000
+check "aging: a job that waited 50 min passes a fresh prio 9" '[[ $(order) == "a d b c" ]]'
+out=$(heavy queue add a); rc=$?
+check "queueing a label twice is refused (it would reset its age)" '(( rc == 1 )) && grep -q "already queued" <<<"$out"'
+out=$(heavy queue add e --prio 0); rc=$?
+check "a prio outside 1 to 9 is refused" '(( rc == 2 ))'
+setep c 90000
+check "an entry older than the queue TTL is dropped" '[[ $(order) == "a d b" && ! -e $q/c ]]'
+out=$(heavy status)
+check "status shows the queue depth" '[[ $out == *" | queue 3" ]]'
+
+echo "--- queue: next and acquire"
+out=$(FAKE_LEVEL=2 heavy queue next); rc=$?
+check "next under memory pressure: wait, names the head" '(( rc == 75 )) && grep -q "memory yellow.*(head: a)" <<<"$out"'
+out=$(heavy queue next); rc=$?
+check "next when the gate is open: NEXT is the head, nothing is taken" '(( rc == 0 )) && grep -q "^NEXT: a$" <<<"$out" && [[ -e $q/a && ! -e $slots/a.slot ]]'
+out=$(heavy acquire b 0); rc=$?
+check "a queued label behind the head waits" '(( rc == 75 )) && grep -q "queue: a is ahead" <<<"$out" && [[ ! -e $slots/b.slot ]]'
+out=$(heavy acquire free-job 0); rc=$?
+check "an unqueued label is not held by the queue" '(( rc == 0 )) && [[ -e $slots/free-job.slot ]]'
+heavy release free-job >/dev/null
+out=$(heavy acquire a 0); rc=$?
+check "the head takes its slot and leaves the queue" '(( rc == 0 )) && [[ -e $slots/a.slot && ! -e $q/a ]]'
+heavy release a >/dev/null
+heavy queue remove d >/dev/null
+check "remove drops an entry" '[[ $(order) == "b" ]]'
+heavy queue remove b >/dev/null
+out=$(heavy queue next); rc=$?
+check "next on an empty queue: exit 1" '(( rc == 1 )) && grep -q "queue empty" <<<"$out"'
+
+echo "--- per-label settle"
+heavy queue add jest --settle 600 >/dev/null
+heavy acquire jest 0 >/dev/null
+check "the queued settle is stored in the slot" 'grep -q "^settle: 600$" "$slots/jest.slot"'
+out=$(heavy acquire next-job 0); rc=$?
+check "the next job waits out the label's own settle, not the default 0" '(( rc == 75 )) && grep -q "settle: next slot in" <<<"$out"'
+heavy release jest >/dev/null
+out=$(SABHA_HEAVY_SETTLE_FOR=600 heavy acquire viaenv 0); rc=$?
+check "SABHA_HEAVY_SETTLE_FOR does the same without the queue" '(( rc == 0 )) && grep -q "^settle: 600$" "$slots/viaenv.slot"'
+heavy release viaenv >/dev/null
+
+echo "--- acquire with a pid"
+sleep 30 & sp=$!
+heavy acquire withpid 0 "$sp" >/dev/null
+check "acquire <label> 0 <pid> writes that pid" 'grep -q "^pid: $sp$" "$slots/withpid.slot"'
+kill "$sp"; wait "$sp" 2>/dev/null
+out=$(heavy check)
+check "a slot whose pid died is reaped at once, not after the TTL" '[[ ! -e $slots/withpid.slot ]] && grep -q "slots 0/2" <<<"$out"'
+out=$(heavy acquire badpid 0 x); rc=$?
+check "a non-numeric pid is refused" '(( rc == 2 ))'
+
+echo "--- jobs.tsv"
+rm -f "$slots/jobs.tsv"
+T=$'\t'
+FAKE_LOAD=3.5 FAKE_LOAD5=7.25 heavy run rec1 -- false >/dev/null
+FAKE_LOAD=1.0 FAKE_LEVEL=2 heavy acquire rec2 0 >/dev/null
+FAKE_LOAD5=2.5 heavy acquire rec3 0 >/dev/null
+heavy release rec3 passed >/dev/null
+f=$slots/jobs.tsv
+check "run: a start line with load1, load5 and memory at the start" 'grep -q "${T}rec1${T}start${T}3.5${T}7.25${T}green${T}waited=" "$f"'
+check "run: an end line with the exit code" 'grep -q "${T}rec1${T}end${T}.*${T}rc=1 dur=" "$f"'
+check "a give-up (memory yellow) is logged with the reason" 'grep -q "${T}rec2${T}giveup${T}.*${T}HEAVY WAIT: memory yellow" "$f"'
+check "release logs the outcome it was given" 'grep -q "${T}rec3${T}end${T}.*${T}outcome=passed dur=" "$f"'
+check "every line has 7 tab-separated columns" '[[ -z $(awk -F "\t" "NF != 7" "$f") ]]'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"
