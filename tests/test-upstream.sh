@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# bin/sabha-upstream, the upstream move watcher: run 1 records a baseline and reports nothing; each later finding
-# (archived, renamed, branch gone, layout path gone, upstream merged in) writes one for-me.items entry and one brief that
-# names the clone's worktrees; the same facts again report nothing; a failed read never reads as a move; an account stop
-# changes nothing; --daily runs once per local day. gh is the fake in tests/hermetic-bin; GitHub is never reached.
+# bin/sabha-upstream, the upstream move watcher: run 1 records a baseline of the change detectors but reports a state
+# that is bad in itself (archived, renamed, default branch is not the base); each later finding (archived, renamed,
+# branch gone, layout path gone, upstream merged in) writes one for-me.items entry and one brief that names the clone's
+# worktrees; the same facts again report nothing; a failed or 404 read never reads as a move and never overwrites a
+# stored fact; an account stop changes nothing; two overlapping runs write one item; a conf value with $HOME is
+# expanded; --daily runs once per local day. gh is the fake in tests/hermetic-bin; GitHub is never reached.
 # Run: tests/test-upstream.sh
 # shellcheck disable=SC2016,SC2034,SC2329  # the checks are eval strings, expanded when they run
 set -u
@@ -110,22 +112,23 @@ check "all the same again: nothing new" '[[ $(nitems) == 6 ]]'
 
 echo "--- a repo newly listed is a baseline of its own"
 echo "new   backend/new   main   x   none" >> "$ws/dev/repos.conf"
+echo "repos/acme/new/branches/main --jq|$dir/fx-new-branch.json" >> "$FD/map"
 SABHA_UPSTREAM_ORG=acme up; rc=$?
-check "new repo, already archived: recorded, no item" '(( rc == 0 )) && [[ $(nitems) == 6 ]] && grep -q "\"new\"" "$LAST"'
+check "new repo, already archived: recorded and reported at once (a state, not an event)" '(( rc == 0 )) && [[ $(nitems) == 7 ]] && grep -q "\"new\"" "$LAST" && grep -q "^title: upstream: new archived$" "$ITEMS"'
 SABHA_UPSTREAM_ORG=acme up
-check "and silent on the run after" '[[ $(nitems) == 6 ]]'
+check "and not reported again on the run after" '[[ $(nitems) == 7 ]]'
 
 echo "--- a failed read is not a move"
 cp "$LAST" "$dir/last.before"
 SABHA_GH_CACHE=$dir/cache-empty FAKE_GH_FAIL=1 up; rc=$?
-check "gh down, no cache: exit 0, no item, one warning line" '(( rc == 0 )) && [[ $(nitems) == 6 ]] && [[ $(wc -l < "$dir/err" | tr -d " ") == 1 ]] && grep -q "read(s) failed, last known facts kept" "$dir/err"'
+check "gh down, no cache: exit 0, no item, one warning line" '(( rc == 0 )) && [[ $(nitems) == 7 ]] && [[ $(wc -l < "$dir/err" | tr -d " ") == 1 ]] && grep -q "read(s) failed, last known facts kept" "$dir/err"'
 check "the last facts are kept as they were" 'cmp -s "$LAST" "$dir/last.before" || { diff "$LAST" "$dir/last.before"; false; }'
 SABHA_GH_TTL=999999 FAKE_GH_FAIL=1 up; rc=$?
-check "gh down, cache valid: still no item" '(( rc == 0 )) && [[ $(nitems) == 6 ]]'
+check "gh down, cache valid: still no item" '(( rc == 0 )) && [[ $(nitems) == 7 ]]'
 
 echo "--- account stop"
 SABHA_GH_CACHE=$dir/cache-other FAKE_GH_LOGIN=someone-else up; rc=$?
-check "wrong account: exit 3, one line, nothing changed" '(( rc == 3 )) && [[ $(wc -l < "$dir/err" | tr -d " ") == 1 ]] && grep -q "stopped, nothing recorded" "$dir/err" && cmp -s "$LAST" "$dir/last.before" && [[ $(nitems) == 6 ]]'
+check "wrong account: exit 3, one line, nothing changed" '(( rc == 3 )) && [[ $(wc -l < "$dir/err" | tr -d " ") == 1 ]] && grep -q "stopped, nothing recorded" "$dir/err" && cmp -s "$LAST" "$dir/last.before" && [[ $(nitems) == 7 ]]'
 
 echo "--- once a day"
 up
@@ -134,6 +137,82 @@ up --daily; rc=$?
 check "--daily after a run today: no call" '(( rc == 0 )) && [[ $(ncalls) == "$c0" ]]'
 SABHA_NOW=$((SABHA_NOW + 86400)) up --daily; rc=$?
 check "--daily the next local day: runs" '(( rc == 0 )) && [[ $(ncalls) -gt $c0 ]]'
+
+echo "--- first run: a state that is bad in itself is reported, the change detectors only record"
+up2() { "$BIN/sabha-upstream" --conf "$ws/dev/repos2.conf" "$@" >"$dir/out" 2>"$dir/err"; }
+reset_fx() {
+  fx app-repo '{"full_name":"acme/app","archived":false,"default_branch":"main"}'
+  fx app-branch '{"exists":true,"name":"main"}'
+  printf '%s\n' "${MAP_ALL[@]}" > "$FD/map"
+}
+echo "app   backend/app   main   x   commits" > "$ws/dev/repos2.conf"
+export SABHA_UPSTREAM_PROBE_app='' SABHA_UPSTREAM_PAIRS=''
+i3=$dir/impl3
+reset_fx; fx app-repo '{"full_name":"acme/app","archived":true,"default_branch":"trunk"}'
+SABHA_IMPL=$i3 up2; rc=$?
+check "archived and on another default branch from the very first run: both reported" '(( rc == 0 )) && [[ $(grep -c "^id: " "$i3/for-me.items") == 2 ]] && grep -q "^title: upstream: app archived$" "$i3/for-me.items" && grep -q "^title: upstream: app default branch is trunk, the configured base is main$" "$i3/for-me.items"'
+SABHA_IMPL=$i3 up2
+check "and reported once, not on every run" '[[ $(grep -c "^id: " "$i3/for-me.items") == 2 ]] && grep -q "0 new finding" "$dir/out"'
+reset_fx; fx app-repo '{"full_name":"acme/app2","archived":false,"default_branch":"main"}'
+SABHA_IMPL=$dir/impl3b up2
+check "renamed away from the configured name on the first run: reported" 'grep -q "^title: upstream: acme/app renamed to acme/app2$" "$dir/impl3b/for-me.items"'
+reset_fx; grep -v 'branches/main' "$FD/map" > "$FD/map.t" && mv "$FD/map.t" "$FD/map"
+SABHA_IMPL=$dir/impl3c up2
+check "base branch missing on the first run (repo read fine): reported" 'grep -q "^title: upstream: app base branch main is gone$" "$dir/impl3c/for-me.items"'
+
+echo "--- a 404 or a failed read never overwrites a stored fact"
+i4=$dir/impl4
+reset_fx
+SABHA_GH_CACHE=$dir/cache4 SABHA_IMPL=$i4 up2
+check "baseline recorded, branch_exists true" '[[ ! -e $i4/for-me.items ]] && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json"'
+cp "$i4/status/upstream/last.json" "$dir/last4.before"
+grep -v -e 'repos/acme/app --jq' -e 'branches/main' "$FD/map" > "$FD/map.t" && mv "$FD/map.t" "$FD/map"
+SABHA_GH_CACHE=$dir/cache4 SABHA_IMPL=$i4 up2; rc=$?
+check "repo and branch both 404, repo only from a stale cache: no item, branch fact kept" '(( rc == 0 )) && [[ ! -e $i4/for-me.items ]] && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json" && grep -q "could not read" "$dir/err"'
+SABHA_GH_CACHE=$dir/cache4-empty SABHA_IMPL=$i4 up2; rc=$?
+check "repo and branch both 404, no cache: not a branch finding, one check-by-hand item, facts kept" '(( rc == 0 )) && [[ $(grep -c "^id: " "$i4/for-me.items") == 1 ]] && grep -q "^title: upstream: acme/app not found or renamed: check by hand$" "$i4/for-me.items" && ! grep -q "is gone" "$i4/for-me.items" && grep -q "\"branch_exists\": true" "$i4/status/upstream/last.json" && grep -q "could not read" "$dir/err"'
+SABHA_GH_CACHE=$dir/cache4-empty SABHA_IMPL=$i4 up2
+check "and the check-by-hand item is not repeated" '[[ $(grep -c "^id: " "$i4/for-me.items") == 1 ]]'
+
+echo "--- one run at a time"
+reset_fx
+for n in 5 6; do SABHA_IMPL=$dir/impl$n up2; done
+fx app-repo '{"full_name":"acme/app","archived":true,"default_branch":"main"}'
+slow() { SABHA_GH_BIN=$BIN/../tests/fake-gh-slow.sh SABHA_IMPL=$dir/impl$1 "$BIN/sabha-upstream" --conf "$ws/dev/repos2.conf" >"$dir/out$2" 2>"$dir/err$2"; }
+slow 5 a
+check "reference: one run, one item" '[[ $(grep -c "^id: " "$dir/impl5/for-me.items") == 1 ]]'
+slow 6 a & slow 6 b &
+wait
+check "two runs at once: still one item, one brief" '[[ $(grep -c "^id: " "$dir/impl6/for-me.items") == 1 && $(find "$dir/impl6/inbox/Boss" -name "*.md" | wc -l | tr -d " ") == 1 ]]'
+check "one of them said it was skipped by the lock; no temp file is left" 'cat "$dir/outa" "$dir/outb" | grep -q "holds" && [[ -z $(find "$dir/impl6/status/upstream" -name "*.tmp") && ! -e $dir/impl6/status/upstream/.lock ]]'
+i7=$dir/impl7
+mkdir -p "$i7/status/upstream/.lock"
+c0=$(ncalls)
+SABHA_IMPL=$i7 up2; rc=$?
+check "a held lock: exit 0, no gh call, no state" '(( rc == 0 )) && [[ $(ncalls) == "$c0" && ! -e $i7/status/upstream/last.json ]] && grep -q "holds" "$dir/out"'
+touch -t 202001010000 "$i7/status/upstream/.lock"
+SABHA_IMPL=$i7 up2; rc=$?
+check "a stale lock is taken over and released" '(( rc == 0 )) && [[ -s $i7/status/upstream/last.json && ! -e $i7/status/upstream/.lock ]]'
+
+echo "--- a conf-file-only setup and bad state"
+home=$dir/home
+mkdir -p "$home/dev" "$home/cwd"
+cp "$ws/dev/repos2.conf" "$home/dev/repos.conf"
+printf 'SABHA_IMPL="$HOME/imp"\nSABHA_UPSTREAM_CONF="$HOME/dev/repos.conf"\n' > "$home/sabha.conf"
+reset_fx
+( cd "$home/cwd" && env -u SABHA_IMPL HOME="$home" SABHA_CONF="$home/sabha.conf" SABHA_UPSTREAM_ORG=acme "$BIN/sabha-upstream" >"$dir/out" 2>"$dir/err" ); rc=$?
+check "SABHA_IMPL and SABHA_UPSTREAM_CONF written as \$HOME in sabha.conf are expanded" '(( rc == 0 )) && [[ -s $home/imp/status/upstream/last.json && ! -e "$home/cwd/\$HOME" ]]'
+( cd "$home/cwd" && env -u SABHA_IMPL SABHA_CONF="$dir/none.conf" "$BIN/sabha-upstream" --conf "$ws/dev/repos2.conf" >"$dir/out" 2>"$dir/err" ); rc=$?
+check "no SABHA_IMPL anywhere: exit 2 with a message, nothing written under the current folder" '(( rc == 2 )) && grep -q "SABHA_IMPL is not set" "$dir/err" && [[ ! -e $home/cwd/status ]]'
+i8=$dir/impl8
+mkdir -p "$i8/status/upstream"; echo "[1,2]" > "$i8/status/upstream/last.json"
+SABHA_IMPL=$i8 up2; rc=$?
+check "state that is not an object: moved to last.json.bad, one warning, a baseline, no traceback" '(( rc == 0 )) && [[ -s $i8/status/upstream/last.json.bad ]] && grep -q "last.json.bad" "$dir/err" && ! grep -q Traceback "$dir/err"'
+i9=$dir/impl9
+SABHA_GH_CACHE=$dir/cache9 FAKE_GH_FAIL=1 SABHA_IMPL=$i9 up2; rc=$?
+check "every read failed: the day is not marked, the next pass retries" '(( rc == 0 )) && [[ ! -e $i9/status/upstream/day ]]'
+SABHA_IMPL=$i9 up2 --daily
+check "the retry reads and marks the day" '[[ -s $i9/status/upstream/day ]]'
 
 echo "--- read-only and usage"
 check "every gh call is an api read: no write flag, no mutation" '! grep -v "^api " "$CALLS" | grep -q . && ! grep -Eq -- "-X|--method|--input|mutation|POST" "$CALLS"'

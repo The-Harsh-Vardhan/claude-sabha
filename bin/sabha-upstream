@@ -19,10 +19,16 @@ Settings (environment, else sabha.conf):
   SABHA_USER             the owner of the for-me.items entry (default user); SABHA_IMPL holds status/, inbox/, for-me.items
 Findings: archived, renamed (GitHub's full_name differs from the clone's origin), default branch changed, base branch
 gone, probe path appeared or disappeared, upstream merged in (commits of upstream missing from base fell from more than
-0 to 0). The first run, and the first run of a newly listed repo, only records facts: it reports nothing. State:
-status/upstream/last.json. A read that fails keeps the last known fact and counts in one warning line; it never reads as
-a move. An account or quota stop (sabha-gh exit 3 or 4) ends the run with one line and changes nothing. --daily skips
-the run when one already finished on this local day. gh needs a plain terminal. SABHA_NOW (epoch seconds) pins the clock.
+0 to 0), and on the first read of a repo: the default branch is not the configured base. Archived, renamed, a gone base
+branch and a repo GitHub does not find are states, reported the first time they are seen, also on the first run; the
+change detectors (default branch, probes, pairs) only record facts on a first run. State: status/upstream/last.json,
+written atomically; a bad file is moved to last.json.bad and the run starts from a baseline. A read that fails (a 404
+included) keeps every stored fact, skips the rest of that repo's reads and counts in one warning line ("could not
+read"); it never reads as a move. A 404 on the repo itself is also one finding, "not found or renamed: check by hand".
+An account or quota stop (sabha-gh exit 3 or 4) ends the run with one line and changes nothing. One run at a time
+(status/upstream/.lock, stale after 15 minutes): a second run exits 0 and does nothing. --daily skips the run when one
+already finished on this local day, unless every read failed. gh needs a plain terminal. SABHA_NOW (epoch seconds) pins
+the clock. Values read from sabha.conf expand $VAR and ~.
 """
 import argparse
 import json
@@ -36,7 +42,8 @@ BIN = os.path.dirname(os.path.abspath(__file__))
 GH = os.path.join(BIN, "sabha-gh")
 
 
-stale = []
+stale, reads, failed = [], [], []
+LOCK_STALE = 900
 
 
 class GhError(Exception):
@@ -50,6 +57,7 @@ class GhError(Exception):
 
 def gh(fresh, *args):
     cmd = [GH] + (["--fresh"] if fresh else []) + list(args)
+    reads.append(1)
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     if p.returncode == 10:
         stale.append(1)
@@ -61,15 +69,19 @@ def gh(fresh, *args):
         raise GhError("sabha-gh printed something that is not JSON", 1)
 
 
+def expand(v):
+    return os.path.expanduser(os.path.expandvars(v))
+
+
 def conf_value(key, default=""):
     if os.environ.get(key) is not None:
-        return os.environ[key]
+        return expand(os.environ[key])
     path = os.environ.get("SABHA_CONF") or os.path.join(BIN, "..", "sabha.conf")
     try:
         for line in open(path, encoding="ascii", errors="replace"):
             m = re.match(r"^%s=(.*)$" % key, line.strip())
             if m:
-                return m.group(1).strip().strip("\"'")
+                return expand(m.group(1).strip().strip("\"'"))
     except OSError:
         pass
     return default
@@ -107,13 +119,46 @@ def worktrees(clone):
 
 def load_last(path):
     try:
-        return json.load(open(path))
-    except (OSError, ValueError):
+        d = json.load(open(path))
+    except OSError:
         return None
+    except ValueError:
+        d = None
+    if not isinstance(d, dict):
+        os.replace(path, path + ".bad")
+        print("sabha-upstream: %s was not valid state, moved to last.json.bad; starting from a baseline" % path, file=sys.stderr)
+        return None
+    return d
+
+
+def lock(sdir):
+    d = os.path.join(sdir, ".lock")
+    for _ in range(2):
+        try:
+            os.mkdir(d)
+            return d
+        except FileExistsError:
+            try:
+                # ponytail: two runs both seeing a stale lock can each remove the other's; a 15 minute gap makes that a non-issue
+                if time.time() - os.stat(d).st_mtime > LOCK_STALE:
+                    os.rmdir(d)
+                    continue
+            except OSError:
+                pass
+            return None
+    return None
+
+
+def write_atomic(path, text):
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 def check(row, slug, prev, fresh, warns):
-    """Returns (facts, active keys, findings [(key, title, why)]) for one repo."""
+    """Returns (facts, active keys, findings [(key, title, why, is_state)]) for one repo. A state (archived, renamed, branch
+    gone, not found, default branch is not the base) is reported when first seen; the rest only against a previous run."""
     repo, base = row["repo"], row["base"]
     p = prev or {}
     facts = dict(p)
@@ -122,6 +167,7 @@ def check(row, slug, prev, fresh, warns):
     facts.setdefault("pairs", {})
     facts["pairs"] = dict(facts["pairs"])
     active, found = set(), []
+    miss404 = []
 
     def read(label, *args):
         try:
@@ -129,33 +175,52 @@ def check(row, slug, prev, fresh, warns):
         except GhError as e:
             if e.rc in (3, 4):
                 raise
-            warns.append("%s: %s unread (%s)" % (repo, label, e))
+            failed.append(1)
+            if "HTTP 404" in e.msg:
+                miss404.append(1)
+            warns.append("%s: could not read %s (%s)" % (repo, label, e))
             return None
 
-    def add(key, title, why):
+    def add(key, title, why, state=False):
         active.add(key)
-        found.append((key, title, why))
+        found.append((key, title, why, state))
 
+    s0 = len(stale)
     r = read("repo", "repo", slug)
+    live = r is not None and len(stale) == s0
+    if r is not None and not live:
+        failed.append(1)
+        warns.append("%s: could not read the repo live (stale cache)" % repo)
     if r is not None:
         facts.update(full_name=r.get("full_name", ""), archived=bool(r.get("archived")), default_branch=r.get("default_branch", ""))
+    if miss404:
+        add("notfound:%s:%s" % (repo, slug), "upstream: %s not found or renamed: check by hand" % slug,
+            "GitHub answers 404 for %s. It was renamed, moved or deleted, or this account cannot see it; the stored facts are kept" % slug, True)
     if facts.get("archived"):
-        add("archived:%s" % repo, "upstream: %s archived" % repo, "%s is archived on GitHub, so it is read-only" % slug)
+        add("archived:%s" % repo, "upstream: %s archived" % repo, "%s is archived on GitHub, so it is read-only" % slug, True)
     fn = facts.get("full_name", "")
     if fn and fn.lower() != slug.lower():
         add("renamed:%s:%s->%s" % (repo, slug, fn), "upstream: %s renamed to %s" % (slug, fn),
-            "GitHub answers %s with full_name %s; the clone's origin still says %s" % (slug, fn, slug))
+            "GitHub answers %s with full_name %s; the clone's origin still says %s" % (slug, fn, slug), True)
     if r is not None and p.get("default_branch") and facts["default_branch"] != p["default_branch"]:
         add("default:%s:%s->%s" % (repo, p["default_branch"], facts["default_branch"]),
             "upstream: %s default branch is now %s" % (repo, facts["default_branch"]),
             "the default branch of %s changed from %s to %s" % (slug, p["default_branch"], facts["default_branch"]))
+    elif live and not p.get("default_branch") and facts["default_branch"] and facts["default_branch"] != base:
+        add("default-differs:%s:%s:%s" % (repo, base, facts["default_branch"]),
+            "upstream: %s default branch is %s, the configured base is %s" % (repo, facts["default_branch"], base),
+            "the default branch of %s is %s; the repos list names %s as its base" % (slug, facts["default_branch"], base), True)
 
-    b = read("branch", "branch", slug, base)
-    if b is not None:
-        facts["branch_exists"] = bool(b.get("exists"))
+    if live:
+        b = read("branch", "branch", slug, base)
+        if b is not None:
+            facts["branch_exists"] = bool(b.get("exists"))
     if facts.get("branch_exists") is False:
         add("branch-gone:%s:%s" % (repo, base), "upstream: %s base branch %s is gone" % (repo, base),
-            "branch %s no longer exists in %s" % (base, slug))
+            "branch %s no longer exists in %s" % (base, slug), True)
+    if not live:
+        # an unread repo proves nothing about its branch, probes or pairs: keep every stored fact
+        return facts, active, found
 
     for path in conf_value("SABHA_UPSTREAM_PROBE_" + re.sub(r"[^A-Za-z0-9]", "_", repo)).split():
         c = read("probe " + path, "contents", slug, path, base)
@@ -194,13 +259,27 @@ def main():
     ap.add_argument("--daily", action="store_true")
     a = ap.parse_args()
 
-    impl = conf_value("SABHA_IMPL") or "."
     conf = a.conf or conf_value("SABHA_UPSTREAM_CONF")
     if not conf or not os.path.isfile(conf):
         print("sabha-upstream: no repos list (set SABHA_UPSTREAM_CONF or pass --conf FILE)", file=sys.stderr)
         return 2
+    impl = conf_value("SABHA_IMPL")
+    if not impl:
+        print("sabha-upstream: SABHA_IMPL is not set (environment or sabha.conf); it holds the state, the items and the briefs", file=sys.stderr)
+        return 2
     sdir = os.path.join(impl, "status", "upstream")
     os.makedirs(sdir, exist_ok=True)
+    held = lock(sdir)
+    if not held:
+        print("upstream: another run holds %s, skipped" % os.path.join(sdir, ".lock"))
+        return 0
+    try:
+        return run(a, conf, impl, sdir)
+    finally:
+        os.rmdir(held)
+
+
+def run(a, conf, impl, sdir):
     now = int(os.environ.get("SABHA_NOW") or time.time())
     today = time.strftime("%Y-%m-%d", time.localtime(now))
     daypath = os.path.join(sdir, "day")
@@ -233,19 +312,24 @@ def main():
             return e.rc
         repos[row["repo"]] = facts
         active_all |= active
-        if last is not None and row["repo"] in known:
-            new += [(k, t, w, clone) for k, t, w in found if k not in reported]
+        was_known = last is not None and row["repo"] in known
+        new += [(k, t, w, clone) for k, t, w, st in found if k not in reported and (st or was_known)]
 
     user = conf_value("SABHA_USER", "user")
     env = dict(os.environ, SABHA_IMPL=impl)
+    rc, written = 0, []
     for key, title, why, clone in new:
         p = subprocess.run([os.path.join(BIN, "sabha-item"), "add", user, title], input="why: %s\n" % why,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=env)
         if p.returncode != 0:
             print("sabha-upstream: could not write the item for %s: %s" % (title, p.stderr.strip()), file=sys.stderr)
-            return 1
+            rc = 1
+            break
+        written.append(key)
+    # a finding whose item was not written stays unreported, so the next run writes it; the ones that were written are kept
+    unwritten = set(k for k, _, _, _ in new) - set(written)
     to = conf_value("SABHA_UPSTREAM_TO")
-    if new and to:
+    if new and to and not rc:
         lines = ["Upstream moved (read-only check, %s). Findings:" % today, ""]
         lines += ["- %s: %s" % (t, w) for _, t, w, _ in new]
         lines += ["", "Worktrees of the affected clones:"]
@@ -262,14 +346,15 @@ def main():
                            universal_newlines=True, env=env)
         if p.returncode != 0:
             print("sabha-upstream: could not write the brief: %s" % p.stderr.strip(), file=sys.stderr)
-            return 1
+            rc = 1
 
-    state = dict(version=1, repos=repos, reported=sorted(active_all))
-    with open(lastpath + ".tmp", "w") as f:
-        json.dump(state, f, indent=1, sort_keys=True)
-    os.replace(lastpath + ".tmp", lastpath)
-    with open(daypath, "w") as f:
-        f.write(today + "\n")
+    state = dict(version=1, repos=repos, reported=sorted(active_all - unwritten))
+    write_atomic(lastpath, json.dumps(state, indent=1, sort_keys=True))
+    if rc:
+        return rc
+    # a day on which no read succeeded is retried on the next pass
+    if not (reads and len(failed) >= len(reads)):
+        write_atomic(daypath, today + "\n")
     if stale:
         print("sabha-upstream: %d read(s) came from a stale cache (gh failed)" % len(stale), file=sys.stderr)
     if warns:
