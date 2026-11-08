@@ -50,6 +50,17 @@ printf '    cd /abs\n' > h.md;                               expect "cd alone" "
 printf '# comment line\n\n```sh\n# a comment\n```\n' > i.md;  expect "comment line in fence" ':4: inline # comment' i.md
 printf '```bash\ncd /abs && ls\ngit status\n```\n' > j.md;   expect "second line of a block" ':3: no .cd /absolute' j.md
 
+printf '    cd /abs && git x \\\n        --flag # note\n' > k.md;    expect "comment on a deep continuation" ':2: inline # comment' k.md
+printf '    cd /abs && git x \\\n      ...\n' > l.md;             expect "elision on a deep continuation" ':2: elision' l.md
+printf '\tcd /abs && git push # n\n' > m.md;                  expect "tab-indented command" ':1: inline # comment' m.md
+printf '~~~sh\ngit foo\n~~~\n' > n.md;                        expect "tilde fence" ':2: no .cd /absolute' n.md
+printf '``` Bash title=x\ngit foo\n```\n' > o.md;             expect "spaced, capitalised fence language" ':2: no .cd /absolute' o.md
+printf '````sh\ncd /abs && ls\n```\ngit foo\n````\n' > p.md;  expect "inner triple fence inside a four-tick fence" ':4: no .cd /absolute' p.md
+printf '    cd /abs && echo a \342\206\222 b\n' > q.md;       expect "non-ASCII column" ':1: non-ASCII character at column 23' q.md
+printf '    cd /abs && git diff origin/main...HEAD\n    cd /abs && git log -p <...>\n' > r.md
+out=$(lint r.md); r=$?; [[ $r -eq 1 ]] && ! grep -q ':1:' <<<"$out" && grep -q ':2: elision' <<<"$out" || fail "git range passes, <...> fails (rc $r): $out"
+printf 'cd /abs && ls\000\n' > s.md;                          lint s.md >/dev/null 2>&1; [[ $? -eq 2 ]] || fail "NUL byte file should exit 2"
+
 out=$(lint ok.md a.md); r=$?
 [[ $r -eq 1 ]] && grep -q '^a.md:1:' <<<"$out" && ! grep -q '^ok.md' <<<"$out" || fail "two files (rc $r): $out"
 lint missing.md 2>/dev/null; [[ $? -eq 2 ]] || fail "unreadable file should exit 2"
@@ -59,4 +70,4 @@ out=$("$bin/sabha" pack lint a.md); r=$?
 [[ $r -eq 1 ]] && grep -q 'inline #' <<<"$out" || fail "sabha pack lint (rc $r): $out"
 out=$("$bin/sabha" pack-lint ok.md) || fail "sabha pack-lint: $out"
 "$bin/sabha" pack other >/dev/null 2>&1; [[ $? -eq 1 ]] || fail "sabha pack without lint should exit 1"
-echo "ok: clean pack passes; inline comment, elision (3 dots and ellipsis), non-ASCII, missing or relative cd each fail; sabha pack lint and pack-lint dispatch"
+echo "ok: clean pack passes; deep and tab-indented lines, tilde and spaced fences, git ranges, NUL files; inline comment, elision (3 dots and ellipsis), non-ASCII, missing or relative cd each fail; sabha pack lint and pack-lint dispatch"
