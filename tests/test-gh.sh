@@ -54,6 +54,7 @@ out=$(gh_ contents acme/app docs/a.md main); rc=$?
 check "contents: path and ?ref=" '(( rc == 0 )) && grep -q "^api repos/acme/app/contents/docs/a.md?ref=main --jq" "$CALLS"'
 out=$(gh_ branch acme/app gone); rc=$?
 check "a 404 on branch is {exists:false}, exit 0" '(( rc == 0 )) && [[ $out == "{\"exists\":false}" ]]'
+check "SHOULD 1: the expected 404 prints nothing on stderr" '[[ ! -s $dir/err ]]'
 check "no call carried a method or a body flag" '! grep -Eq -- "(^| )(-X|--method|--input|-H)( |$)|-f query=mutation" "$CALLS"'
 
 echo "--- read-only by construction"
@@ -150,6 +151,16 @@ rm -rf "$dir/cache"
 (umask 022; gh_ repo acme/app >/dev/null)
 mode_of() { python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$1"; }
 check "SHOULD 2: the cache dir is 0o700 and its files 0o600 even under umask 022" '[[ $(mode_of "$dir/cache") == 0o700 && $(mode_of "$(ls "$dir"/cache/*.json | head -1)") == 0o600 ]]'
+
+rm -rf "$dir/cache"
+SABHA_GH_TTL=abc gh_ repo acme/app >/dev/null; rc1=$?; e1=$(cat "$dir/err")
+SABHA_GH_MIN_LEFT=1x gh_ repo acme/app >/dev/null; rc2=$?
+check "SHOULD 2: a non-numeric SABHA_GH_TTL or SABHA_GH_MIN_LEFT exits 2 with one clear line" '(( rc1 == 2 && rc2 == 2 )) && [[ $e1 == *"must be whole numbers"* ]] && ! grep -q "unbound" "$dir/err"'
+
+gh_ branch acme/app 'a/./b' >/dev/null; rc1=$?
+gh_ contents acme/app 'docs/./a.md' main >/dev/null; rc2=$?
+gh_ compare acme/app dev 'u:a/./b' >/dev/null; rc3=$?
+check "SHOULD 3: a /./ segment in a branch, path or head is refused like a repo segment" '(( rc1 == 2 && rc2 == 2 && rc3 == 2 ))'
 
 echo "---"
 (( fails == 0 )) && { echo "all ok"; exit 0; }

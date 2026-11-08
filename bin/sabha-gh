@@ -42,7 +42,7 @@ RE_REF='^[A-Za-z0-9_][A-Za-z0-9._/-]*$'
 RE_BRANCH='^[A-Za-z0-9_][A-Za-z0-9._/+@-]*$'
 RE_HEAD='^([A-Za-z0-9][A-Za-z0-9-]*:)?[A-Za-z0-9_][A-Za-z0-9._/+@-]*$'
 RE_PATH='^[A-Za-z0-9_.@+-][A-Za-z0-9._/@+-]*$'
-no_dots() { [[ $1 != *..* ]]; }
+no_dots() { [[ $1 != *..* && /$1/ != */./* ]]; }
 is_repo() { is "$RE_REPO" "$1" && [[ /$1/ != */./* && /$1/ != */../* ]]; }
 need() { (( $# - 1 == $1 )) || die "$read: wrong number of arguments (see: sabha-gh)" 2; }
 
@@ -95,6 +95,7 @@ else
   CDIR=$SABHA_IMPL/status/gh-cache
 fi
 TTL=${env_ttl:-${SABHA_GH_TTL:-600}} MIN_LEFT=${env_min:-${SABHA_GH_MIN_LEFT:-200}}
+[[ $TTL =~ ^[0-9]+$ && $MIN_LEFT =~ ^[0-9]+$ ]] || die "SABHA_GH_TTL and SABHA_GH_MIN_LEFT must be whole numbers" 2
 [[ -n $env_user ]] && SABHA_GH_USER=$env_user
 mkdir -p "$CDIR" || die "cannot create $CDIR"
 
@@ -125,7 +126,7 @@ fetch() {
   # stderr stays out of the cached JSON: a gh warning on exit 0 must not corrupt it
   out=$("$GH" "${ARGS[@]}" 2>"$BODY.err") && [[ -n $out ]] || {
     err=$(cat "$BODY.err")
-    if [[ -n $MISS404 && "$out$err" == *"HTTP 404"* ]]; then out='{"exists":false}'
+    if [[ -n $MISS404 && "$out$err" == *"HTTP 404"* ]]; then out='{"exists":false}'; : > "$BODY.err"
     else ERR=${err:-${out:-empty reply from gh}}; rm -f "$BODY.err"; return 1; fi
   }
   [[ -s $BODY.err ]] && cat "$BODY.err" >&2
