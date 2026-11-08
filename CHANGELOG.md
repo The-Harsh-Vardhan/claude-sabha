@@ -9,6 +9,15 @@
   (inode, mode, owner kept); a file changed mid-run is skipped. `.bak/RESTORE.txt` gets one quoted line that puts the
   full copy back. `--apply` only at a quiet moment with no role writing (Vidur picks it, Q-049). Never deletes; dry
   run by default, `--keep N`. Test: `tests/test-rotate.sh`.
+- Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
+  a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
+  `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
+  heavy jobs on load1 <= 2 x cores, memory pressure green and free slots (exit 75 = wait, with the reason).
+  `sabha-up.sh --print <Name>` prints the sabha-loop line (`--raw` for the claude line); a pane started outside its loop
+  says so. MCP per role: the relay and the dispatcher keep the full set, others none, `SABHA_MCP_<Name>` names a set
+  file, a brief header `mcp: full` gives one headless run the full set. `QUEUE.md` template and the queue rules in the
+  dispatcher and relay role files. `SABHA_READS_<Name>` replaces a role's opening read list. Optional load meter:
+  docs/load-meter.md.
 - Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
   `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
   read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never
