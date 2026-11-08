@@ -33,6 +33,9 @@ mkdir -p "$DIR" || exit 1
 MAX=${SABHA_HEAVY_MAX:-2} TTL=${SABHA_HEAVY_TTL:-1800} SETTLE=${SABHA_HEAVY_SETTLE:-45}
 FACTOR=${SABHA_HEAVY_LOAD_FACTOR:-2} FREE=${SABHA_HEAVY_FREE_PCT:-40} POLL=${SABHA_HEAVY_POLL:-30}
 AGE=${SABHA_HEAVY_AGE:-600} QTTL=${SABHA_HEAVY_QUEUE_TTL:-86400}
+# a zero or non-numeric value would divide by zero in qrank and starve every queued label silently
+[[ $AGE =~ ^[1-9][0-9]*$ ]] || AGE=600
+[[ $QTTL =~ ^[1-9][0-9]*$ ]] || QTTL=86400
 
 mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
 
@@ -68,7 +71,10 @@ clean() {
     pid=$(sed -n 's/^pid: //p' "$f") e=$(sed -n 's/^epoch: //p' "$f") stale=0
     (( now - $(mtime "$f") > TTL )) && stale=1
     [[ ${pid:-0} != 0 ]] && ! kill -0 "$pid" 2>/dev/null && stale=1
-    if (( stale )); then echo "sabha-heavy: removed stale slot $(basename "$f" .slot)" >&2; rm -f "$f"; continue; fi
+    if (( stale )); then
+      echo "sabha-heavy: removed stale slot $(basename "$f" .slot)" >&2
+      rec "$(basename "$f" .slot)" end "outcome=reaped"; rm -f "$f"; continue
+    fi
     HELD+=("$(basename "$f" .slot)")
     if [[ $e =~ ^[0-9]+$ ]]; then
       (( e > NEWEST )) && NEWEST=$e
@@ -110,7 +116,9 @@ lock() {
 }
 
 # rec <label> <event> <detail>: one jobs.tsv line with the load and memory now
-rec() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$(load_at 1)" "$(load_at 5)" "$(mem)" "$3" >> "$LOG"; }
+# (tabs and newlines in the detail would add columns or lines)
+WS=$'\t\n'
+rec() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$(load_at 1)" "$(load_at 5)" "$(mem)" "${3//[$WS]/ }" >> "$LOG"; }
 
 # qrank: the queue, best first, as tab lines: label, epoch, prio, score, settle. Drops entries older than QTTL.
 qrank() {
@@ -129,9 +137,10 @@ qhead() { qrank | head -1 | cut -f1; }
 
 # acquire <label> <secs> <pid>: exit 0 with the slot written, or 75 with the last WAIT line
 acquire() {
-  local label=$1 end=$(( $(date +%s) + $2 )) out st=${SABHA_HEAVY_SETTLE_FOR:-} h t0
+  local label=$1 end=$(( $(date +%s) + $2 )) out st=${SABHA_HEAVY_SETTLE_FOR:-} h t0 qs=""
   t0=$(date +%s)
-  [[ -f $QDIR/$label ]] && st=$(sed -n 's/^settle: //p' "$QDIR/$label")
+  [[ -f $QDIR/$label ]] && qs=$(sed -n 's/^settle: //p' "$QDIR/$label")
+  [[ -n $qs ]] && st=$qs
   while :; do
     lock || return 75
     h=$(qhead)
@@ -162,13 +171,18 @@ case ${1:-} in
     acquire "$2" "${3:-${SABHA_HEAVY_WAIT:-900}}" "${4:-0}"; exit ;;
   release)
     label_ok "${2:-}"
-    [[ -e $DIR/$2.slot ]] && rec "$2" end "outcome=${3:-released} dur=$(( $(date +%s) - $(sed -n 's/^epoch: //p' "$DIR/$2.slot") ))s"
+    if [[ -e $DIR/$2.slot ]]; then
+      e=$(sed -n 's/^epoch: //p' "$DIR/$2.slot"); [[ $e =~ ^[0-9]+$ ]] || e=$(date +%s)
+      rec "$2" end "outcome=${3:-released} dur=$(( $(date +%s) - e ))s"
+    fi
     rm -f "$DIR/$2.slot" ;;
   touch) label_ok "${2:-}"; [[ -e $DIR/$2.slot ]] && touch "$DIR/$2.slot" ;;
   run)
     label_ok "${2:-}"; label=$2; shift 2
     [[ ${1:-} == -- ]] && shift
     (( $# )) || { echo "usage: sabha-heavy run <label> -- <cmd...>" >&2; exit 2; }
+    # a TERM between the slot being written and the trap below must not leave the slot behind; only our own pid's
+    trap '[[ $(sed -n "s/^pid: //p" "$DIR/$label.slot" 2>/dev/null) == "$$" ]] && rm -f "$DIR/$label.slot"; exit 143' TERM INT
     acquire "$label" "${SABHA_HEAVY_WAIT:-900}" $$ || exit 75
     t0=$(date +%s)
     trap 'rec "$label" end "rc=$? dur=$(( $(date +%s) - t0 ))s"; rm -f "$DIR/$label.slot"' EXIT
@@ -191,8 +205,8 @@ case ${1:-} in
         label_ok "${1:-}"; label=$1; shift; prio=5 st=""
         while (( $# )); do
           case $1 in
-            --prio) prio=${2:-}; shift 2 ;;
-            --settle) st=${2:-}; shift 2 ;;
+            --prio|--settle) (( $# >= 2 )) || { echo "sabha-heavy: $1 needs a value" >&2; exit 2; }
+              if [[ $1 == --prio ]]; then prio=$2; else st=$2; fi; shift 2 ;;
             *) echo "sabha-heavy: unknown option $1" >&2; exit 2 ;;
           esac
         done
@@ -211,5 +225,5 @@ case ${1:-} in
       remove) label_ok "${1:-}"; rm -f "$QDIR/$1" ;;
       *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
     esac ;;
-  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

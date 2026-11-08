@@ -19,7 +19,7 @@ cat > "$dir/stubs/sysctl" <<'EOF'
 [ -n "$FAKE_SYSCTL_FAIL" ] && { echo "sysctl: Operation not permitted" >&2; exit 1; }
 case $2 in
   hw.ncpu) echo "${FAKE_NCPU:-10}" ;;
-  vm.loadavg) echo "{ ${FAKE_LOAD:-1.00} ${FAKE_LOAD5:-1.00} 1.00 }" ;;
+  vm.loadavg) sleep "${FAKE_LOAD_SLEEP:-0}"; echo "{ ${FAKE_LOAD:-1.00} ${FAKE_LOAD5:-1.00} 1.00 }" ;;
   kern.memorystatus_vm_pressure_level) echo "${FAKE_LEVEL:-1}" ;;
   *) exit 1 ;;
 esac
@@ -79,7 +79,7 @@ heavy run job2 -- false >/dev/null; rc=$?
 check "run passes the command's exit code" '(( rc == 1 )) && [[ ! -e $slots/job2.slot ]]'
 "$SH" "$BIN/sabha-heavy" run job3 -- sleep 30 >/dev/null 2>&1 &
 w=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -e $slots/job3.slot ]] && break; sleep 0.5; done
+for _ in $(seq 1 40); do [[ -e $slots/job3.slot ]] && break; sleep 0.5; done
 held=0; [[ -e $slots/job3.slot ]] && held=1
 kill -TERM "$w"; wait "$w" 2>/dev/null
 check "TERM to run frees the slot" '(( held == 1 )) && [[ ! -e $slots/job3.slot ]]'
@@ -162,6 +162,42 @@ check "run: an end line with the exit code" 'grep -q "${T}rec1${T}end${T}.*${T}r
 check "a give-up (memory yellow) is logged with the reason" 'grep -q "${T}rec2${T}giveup${T}.*${T}HEAVY WAIT: memory yellow" "$f"'
 check "release logs the outcome it was given" 'grep -q "${T}rec3${T}end${T}.*${T}outcome=passed dur=" "$f"'
 check "every line has 7 tab-separated columns" '[[ -z $(awk -F "\t" "NF != 7" "$f") ]]'
+
+FAKE_LOAD_SLEEP=0.4 "$SH" "$BIN/sabha-heavy" run slowterm -- sleep 30 >/dev/null 2>&1 &
+w=$!
+for _ in $(seq 1 200); do [[ -e $slots/slowterm.slot ]] && break; sleep 0.05; done
+kill -TERM "$w"; wait "$w" 2>/dev/null
+check "TERM right after the slot is written (slow start-up) still frees it" '[[ ! -e $slots/slowterm.slot ]]'
+
+echo "--- review 205 (every call below is bounded by timeout: the old code looped forever)"
+tmo() { timeout 10 "$SH" "$BIN/sabha-heavy" "$@" 2>&1; }
+out=$(tmo queue add hang1 --prio); rc=$?
+check "queue add --prio with no value: usage error, no hang" '(( rc == 2 )) && [[ ! -e $q/hang1 ]]'
+out=$(tmo queue add hang2 --settle); rc=$?
+check "queue add --settle with no value: usage error, no hang" '(( rc == 2 )) && [[ ! -e $q/hang2 ]]'
+heavy queue add ageq >/dev/null
+out=$(SABHA_HEAVY_AGE=0 tmo acquire ageq 0); rc=$?
+check "SABHA_HEAVY_AGE=0 falls back to 600: the queued head still takes its slot" '(( rc == 0 )) && [[ -e $slots/ageq.slot && ! -e $q/ageq ]]'
+heavy release ageq >/dev/null
+heavy queue add ageq2 >/dev/null
+out=$(SABHA_HEAVY_AGE=abc tmo queue list)
+check "a non-numeric SABHA_HEAVY_AGE still lists the queue" 'grep -q " ageq2 " <<<"$out"'
+heavy queue remove ageq2 >/dev/null
+out=$(heavy 2>&1)
+check "no arguments: the usage text still lists run, status and queue" 'grep -q "sabha-heavy run" <<<"$out" && grep -q "sabha-heavy status" <<<"$out" && grep -q "sabha-heavy queue add" <<<"$out"'
+heavy queue add envq >/dev/null
+SABHA_HEAVY_SETTLE_FOR=300 heavy acquire envq 0 >/dev/null
+check "SABHA_HEAVY_SETTLE_FOR applies to a label queued without --settle" 'grep -q "^settle: 300$" "$slots/envq.slot"'
+heavy release envq >/dev/null
+heavy acquire tabq 0 >/dev/null
+heavy release tabq $'a\tb\nc' >/dev/null
+check "a tab or newline in the release outcome cannot break the 7 columns" '[[ -z $(awk -F "\t" "NF != 7" "$f") ]] && grep -q "${T}tabq${T}end${T}.*outcome=a b c dur=" "$f"'
+printf 'pid: 0\n' > "$slots/noepoch.slot"
+out=$(heavy release noepoch); rc=$?
+check "release of a slot with no epoch line does not abort" '(( rc == 0 )) && [[ ! -e $slots/noepoch.slot ]] && ! grep -qi "syntax error" <<<"$out"'
+printf 'pid: 999999\nepoch: %s\nlabel: crashed\n' "$(date +%s)" > "$slots/crashed.slot"
+heavy check >/dev/null
+check "a reaped slot logs an end line" 'grep -q "${T}crashed${T}end${T}.*${T}outcome=reaped" "$f" && [[ ! -e $slots/crashed.slot ]]'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"
