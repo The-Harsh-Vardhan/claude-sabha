@@ -12,6 +12,8 @@
 #   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
+#   sabha whoami [Name]                    one line: role, session id, cwd, conf, impl, pane, live copies; exit 3 when
+#                                          more than one live session carries the name (role: Name, else SABHA_ROLE)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -426,6 +428,27 @@ cmd_sheet() {
   exec python3 "$BIN/sabha-sheet" "${c#sheet-}" "$@"
 }
 
+# whoami [Name]: the one-line answer to "who and where am I". The session id is the one the SessionStart hook wrote to
+# status/whoami/<Name>.txt; live copies counts claude processes started with that name (sabha_procs).
+cmd_whoami() {
+  local role=${1:-${SABHA_ROLE:-}} impl session='' pane copies
+  [[ -n $role ]] || { echo "usage: sabha whoami <Name> (or set SABHA_ROLE)" >&2; exit 2; }
+  case $role in *[!A-Za-z0-9_-]*) die "whoami: bad role name '$role'" ;; esac
+  impl=${SABHA_IMPL:-$( set +u; sabha_conf_read whoami >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )}
+  [[ -n $impl && -f $impl/status/whoami/$role.txt ]] &&
+    session=$(sed -n 's/^session_id=//p' "$impl/status/whoami/$role.txt" | head -n 1)
+  pane=${HERDR_PANE_ID:-${TMUX_PANE:--}}
+  if copies=$(sabha_procs 2>/dev/null); then
+    copies=$(awk -v n="$role" '$1 == n { c++ } END { print c + 0 }' <<<"$copies")
+  else copies=unknown; fi
+  echo "role: $role | session: ${session:-unknown} | cwd: $PWD | conf: $CONF | impl: ${impl:--} | pane: $pane | live copies: $copies"
+  if [[ $copies != unknown ]] && (( copies > 1 )); then
+    echo "WARN duplicate: $copies live sessions are named $role; close all but one before acting"
+    exit 3
+  fi
+  return 0
+}
+
 case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
@@ -434,5 +457,6 @@ case ${1:-} in
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  whoami) shift; cmd_whoami "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha whoami [Name]" >&2; exit 2 ;;
 esac

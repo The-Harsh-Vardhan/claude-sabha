@@ -153,4 +153,25 @@ run sabha-stop.sh '{"session_name":"BuilderHeavy"}'
 run sabha-stop.sh '{"session_name":"nobody"}'
 [[ $rc == 0 && -z $out ]] || fail "non-sabha stop must be silent"
 
+# whoami: SessionStart writes the session id and cwd; the pre-turn hook prints the whoami line for the relay only
+run sabha-session-start.sh '{"session_name":"BuilderHeavy","session_id":"sid-42","cwd":"/w/x"}'
+[[ $rc == 0 && $(cat "$impl/status/whoami/BuilderHeavy.txt" 2>/dev/null) == $'session_id=sid-42\ncwd=/w/x' ]] ||
+  fail "whoami file: $(cat "$impl/status/whoami/BuilderHeavy.txt" 2>&1)"
+printf '  7 ttys001 Sat Nov  8 19:00:00 2026 /usr/local/bin/claude -n Relay\n' >"$dir/ps"
+export SABHA_PS_FILE=$dir/ps
+run sabha-session-start.sh '{"session_name":"Relay","session_id":"sid-relay"}'
+mkdir -p "$dir/wsdir"
+run sabha-preturn.sh "{\"session_name\":\"Relay\",\"cwd\":\"$dir/wsdir\",\"prompt\":\"hi\"}"
+[[ $rc == 0 && $out == "role: Relay | session: sid-relay | cwd: $dir/wsdir |"*"| live copies: 1" ]] || fail "preturn relay: $rc $out"
+run sabha-preturn.sh '{"session_name":"BuilderHeavy","prompt":"hi"}'
+[[ $rc == 0 && -z $out ]] || fail "preturn must be silent for a non-relay role: $out"
+run sabha-preturn.sh '{"session_name":"somebody","prompt":"hi"}'
+[[ $rc == 0 && -z $out ]] || fail "preturn must be silent outside sabha: $out"
+SABHA_CONF=$dir/missing.conf run sabha-preturn.sh '{"session_name":"Relay"}'
+[[ $rc == 0 && -z $out ]] || fail "preturn must fail soft: $rc $out"
+printf '  8 ttys002 Sat Nov  8 19:05:00 2026 /usr/local/bin/claude --name Relay\n' >>"$dir/ps"
+run sabha-preturn.sh '{"session_name":"Relay"}'
+[[ $rc == 0 && $out == *"WARN duplicate: 2 live sessions are named Relay"* ]] || fail "preturn duplicate: $rc $out"
+unset SABHA_PS_FILE
+
 echo "ok: hooks detect the role, inject handoff and open briefs, block pushes for non-relay roles, remind on a stale handoff"

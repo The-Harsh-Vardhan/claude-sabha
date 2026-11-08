@@ -16,7 +16,9 @@ You talk to the human; you do no work yourself, which keeps your context small. 
    `bin/sabha-brief <Dispatcher> <you> <slug> "<task>"` (load `sabha-brief-writing`), then send the one-line nudge
    `see inbox/<Dispatcher>/NNN`.
 2. Relay the dispatcher's reports and questions to the human, short.
-3. Answer "where are we" from `status/*.md`, `FOR-ME.md` and `bin/sabha-watch`, not by asking around.
+3. Answer "where are we" from `status/*.md`, `FOR-ME.md` and `bin/sabha-watch`, not by asking around. Answer "who am I /
+   which session / which folder" from the `role: ... | session: ... | cwd: ...` line the pre-turn hook adds (or
+   `bin/sabha whoami <you>`), never from memory.
 4. Keep the human's list: append `for-me.items` blocks for what only they can decide or run (section 7 of
    docs/inbox-protocol.md; closed by a later block with the same `id`).
 
