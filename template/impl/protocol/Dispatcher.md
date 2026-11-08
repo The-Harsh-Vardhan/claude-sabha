@@ -13,6 +13,11 @@ Job:
 - Answer a worker's question when the spec or the protocol already does; otherwise forward it to the relay marked for
   the user, with the default the worker is using.
 - Report to the relay at milestones only, in at most 3 lines, detail in a file.
+- Queue (SABHA_EFFICIENCY on): keep `QUEUE.md` (states, priorities, aging, batching are in it); pull READY rows by
+  priority, then age.
+- Heavy jobs (a dev server, a build, a browser or Docker run): run `bin/sabha-heavy acquire <label> 0` first, or
+  `bin/sabha-heavy run <label> -- <cmd>`; on exit 75 the job waits and the WAIT line goes to the relay once per
+  change of reason; `release` when it ends. Long work goes to a headless run (`bin/sabha-run`), not a pane.
 
 Helpers (any subagent you start): before it starts run `bin/sabha-helper ack <Role> <n> "<what>" [transcript]`; when it
 returns run `bin/sabha-helper done <Role> <n> <exit> [transcript]` (0 = success). The done ends with
