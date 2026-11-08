@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `sabha pack lint <file.md>...` (also `sabha pack-lint`, `bin/sabha-pack-lint`): checks the command lines of push packs and
+  PR bodies (fenced blocks, indented blocks outside lists) and rejects an inline `#` comment, a `...` or ellipsis
+  elision, a non-ASCII character and a line without a `cd /absolute/path && ` prefix. Exit 1 on a finding, with
+  `file:line: reason`. `tests/test-pack-lint.sh`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

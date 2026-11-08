@@ -11,6 +11,8 @@
 #   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
 #   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
+#   sabha pack lint <file.md>...           rejects inline # comments, "..." elisions, non-ASCII and a missing "cd /abs &&" prefix
+#                                          in the command lines of push packs and PR bodies (bin/sabha-pack-lint)
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
@@ -434,5 +436,7 @@ case ${1:-} in
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  pack-lint) shift; exec "$BIN/sabha-pack-lint" "$@" ;;
+  pack) [[ ${2:-} == lint ]] || die "pack: use 'sabha pack lint <file.md>...'"; shift 2; exec "$BIN/sabha-pack-lint" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha pack lint <file.md>..." >&2; exit 2 ;;
 esac
