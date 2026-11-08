@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `sabha decide`: one answer to a question item (the board's "Copy answer" line, or `<id> <letter>`) becomes a closing
+  block in `board-updates/`, a block in the questions file and a numbered line in `decisions.log`. Files only: it prints
+  the command that closes the item and never runs it. Paths: `SABHA_DECIDE_OUT`, `SABHA_DECIDE_QUESTIONS`,
+  `SABHA_DECISION_LOG`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

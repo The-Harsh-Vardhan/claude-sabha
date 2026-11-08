@@ -174,6 +174,10 @@ kill <pid>
 `FOR-ME.md` and `FOR-ME.html` are the board `sabha-for-me` generates from `for-me.items` and the
 status files. Nobody edits them.
 
+`sabha decide` answers a question item without touching `for-me.items`: it writes `board-updates/item-<id>.update`, a
+closing block that adds `decision: D<n>`, `answer:`, `reply:` and `note:` to `state: DONE`, which you append yourself;
+a block in the questions file; and `D<n> | <utc> | item <id> | <letter> | <text>` in `decisions.log`.
+
 ## 8. Status files
 
 `status/<role>.md` is written by its role only, in the handoff shape (`Task:`, `Done:`, `Next:`,
