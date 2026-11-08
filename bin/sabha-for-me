@@ -3,6 +3,8 @@
 
   sabha-for-me            render once
   sabha-for-me --watch    render every 15 s until interrupted
+  sabha-for-me --owe      print what the user owes people: open send-type items, unsent drafts, the board rows they block
+  sabha-for-me --sent <file>  mark a draft sent: writes <file>.sent, nothing else
   sabha-for-me --csv [dir]  also write agents.csv, for-me.csv and inbox.csv (dir, else SABHA_CSV_DIR); a plain
                           render and --watch write them too when SABHA_CSV_DIR is set
 
@@ -1000,6 +1002,78 @@ def export_csv(b, conf, outdir):
                for rs in b["inbox"].values() for r in rs])
 
 
+def owe_stamp(ts):
+    return dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def owe_board(path):
+    """Rows of a board export (a JSON list, or an object holding the list under rows/queue/items), else []."""
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except ValueError:
+        return []
+    if isinstance(data, dict):
+        data = next((data[k] for k in ("rows", "queue", "items") if isinstance(data.get(k), list)), [])
+    return [r for r in data if isinstance(r, dict) and r.get("id")]
+
+
+def owe_blocks(rows, refs):
+    """Ids of the board rows whose dependsOn or unblocks text names one of refs (whole tokens only)."""
+    out = []
+    for r in rows:
+        text = " ".join(str(r.get(k, "")) for k in ("dependsOn", "unblocks"))
+        if any(re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(x), text) for x in refs) and str(r["id"]) not in out:
+            out.append(str(r["id"]))
+    return out
+
+
+def owe_list(conf):
+    """[(timestamp, to, what, where, blocks)], oldest first, from three local read-only sources: open for-me items
+    that read like a send, draft files with no sent: line and no .sent marker, and the board rows they block."""
+    impl, ws = conf["SABHA_IMPL"], conf.get("SABHA_WS", "")
+    words = (conf.get("SABHA_OWE_WORDS") or "send message reply post").replace(",", " ").split()
+    send = re.compile(r"\b(?:%s)\b|\bask [A-Z]" % "|".join(map(re.escape, words)), re.I)
+    name_after = re.compile(r"\b(?:send|message|reply to|reply|post|ask)\s+(?:to\s+)?([A-Z][A-Za-z]+)")
+    rows = owe_board(conf.get("SABHA_OWE_BOARD", ""))
+    out = []
+    for i in parse_items(os.path.join(impl, "for-me.items")):
+        text = i.get("title", "") + " " + i.get("why", "")
+        if i.get("state", "OPEN").startswith(("DONE", "DROPPED")) or not send.search(text):
+            continue
+        m = name_after.search(text)
+        to = i.get("waiting") or i.get("ask") or (m.group(1) if m else "-")
+        blocks = ([short(i["unblocks"], 60)] if i.get("unblocks") else []) + owe_blocks(rows, ["F-" + i["id"]])
+        try:
+            ts = dt.datetime.strptime(i.get("added", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
+        except ValueError:
+            ts = 0.0
+        out.append((ts, to, i.get("title", ""), "for-me " + i["id"], blocks))
+    for d in conf.get("SABHA_OWE_DIRS", "").split():
+        d = d if os.path.isabs(d) else os.path.join(ws, d)
+        for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            f = os.path.join(d, name)
+            if not name.endswith((".md", ".txt")) or not os.path.isfile(f) or os.path.exists(f + ".sent"):
+                continue
+            body = open(f, encoding="utf-8", errors="replace").read()
+            if re.search(r"^sent:", body, re.M):
+                continue
+            to = re.search(r"^to:\s*(.+)$", body, re.M)
+            what = next((l.lstrip("# ").strip() for l in body.splitlines() if l.strip() and not re.match(r"^\w+:", l)), name)
+            out.append((os.path.getmtime(f), to.group(1).strip() if to else "-", what, f, owe_blocks(rows, [name, f])))
+    return sorted(out)
+
+
+def owe_text(conf):
+    rows = owe_list(conf)
+    if not rows:
+        return "nothing owed\n"
+    lines = [" | ".join([rel_time(owe_stamp(ts)) if ts else "-", to, short(what, 70), where, ", ".join(blocks) or "-"])
+             for ts, to, what, where, blocks in rows]
+    return "age | to | what | path | blocks\n" + "\n".join(lines) + "\n"
+
+
 def once(conf, csv_dir=None):
     b = build(conf)
     csv_dir = csv_dir or conf.get("SABHA_CSV_DIR")
@@ -1057,6 +1131,15 @@ def main():
         return
     conf = load_conf()
     argv = sys.argv[1:]
+    if "--owe" in argv:
+        sys.stdout.write(owe_text(conf))
+        return
+    if "--sent" in argv:
+        n = argv.index("--sent") + 1
+        if n >= len(argv) or not os.path.isfile(argv[n]):
+            sys.exit("sabha-for-me: --sent needs an existing draft file")
+        open(argv[n] + ".sent", "a").close()
+        return
     csv_dir = None
     if "--csv" in argv:
         n = argv.index("--csv") + 1
