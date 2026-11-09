@@ -166,6 +166,9 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #SABHA_PRS_AUTHOR=your-github-login
 #SABHA_PRS_ORGS="your-org"
 #SABHA_PRS_REPOS="you/your-repo"
+# `sabha shipped owner/repo#n`: the branches a change is promoted through, in order, one key per repo (the part after
+# the slash, other characters as _). SABHA_GH_USER, SABHA_GH_TTL and SABHA_GH_MIN_LEFT are described in docs/github-layer.md.
+#SABHA_CHAIN_your_repo="dev staging main"
 
 # Example question item for for-me.items (blocks are separated by a line that is exactly ---). Keys: ask, q, explain,
 # opta..opth ("option text | consequence | example"), rec. Plain items need none of them.
