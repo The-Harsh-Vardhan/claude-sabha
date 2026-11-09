@@ -15,6 +15,7 @@
 #                                          (with the "no <model>" lines of the SABHA_ROSTER_CLAIMS files as context);
 #                                          --write rewrites those doc lines from the conf (exit 1 on drift for --check)
 #   sabha stamp                            the time from the clock (UTC, then local) for briefs and status lines
+#   sabha nightly [--date D] [--out DIR] [--stdout] [--force]   draft the day's progress note (bin/sabha-nightly)
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha owe [--sent FILE]                what you owe people: send-type for-me items, unsent drafts, the board rows they block
 #   sabha pack lint <file.md>...           rejects inline # comments, "..." elisions, non-ASCII and a missing "cd /abs &&" prefix
@@ -577,6 +578,7 @@ case ${1:-} in
   doctor) shift; cmd_doctor ;;
   keep-awake) shift; cmd_keep_awake "$@" ;;
   update) shift; cmd_update ;;
+  nightly) shift; exec "$BIN/sabha-nightly" "$@" ;;
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   owe) shift; [[ ${1:-} == --sent ]] || set -- --owe; SABHA_CONF=$CONF exec python3 "$BIN/sabha-for-me" "$@" ;;
@@ -591,5 +593,5 @@ case ${1:-} in
   shipped) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-shipped" "$@" ;;
   decide) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-decide" "$@" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>... | sabha shipped <owner/repo#n> | sabha decide" >&2; exit 2 ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>... | sabha shipped <owner/repo#n> | sabha decide | sabha nightly" >&2; exit 2 ;;
 esac
