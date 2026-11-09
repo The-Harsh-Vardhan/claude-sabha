@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2329  # the chk_ functions are called by name from the checks loop
 # sabha-gate: the gate rule of docs/inbox-protocol.md section 6 as an exit code. Bash 3.2 safe.
 #   sabha-gate [-C DIR] <verdict-file>...      or      sabha-gate [-C DIR] --brief <brief>   (reads its "gate:" line)
 # A file named *-review.md is the reviewer's and needs "verdict: ACCEPT" (at least one such file is required).
@@ -8,48 +9,141 @@
 # Newer wins: a verdict file is an append-only log and its LAST "verdict:" line is the current verdict, so a reviewer
 # who accepted and later finds a problem appends "verdict: BREAK n" and the gate shuts again. An answers file older
 # than its verdict file (mtime) is stale and counts as 0 answers: answer after the newest verdict.
+# Workspace checks (docs/gate-checks.md): "--checks FILE" (or SABHA_GATE_CHECKS) names a list of file tests, one per
+# line; any failed check shuts the gate. With --checks and no verdict file only the checks run.
+#   sabha-gate [-C DIR] --checks FILE [<verdict-file>... | --brief <brief>]
 #   sabha-gate --self-test
 set -u
 if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-gate.sh"; fi
-dir=. brief=""
+
+# c <text>: the one clean function every printed value goes through: printable ASCII, one line
+c() { printf '%s' "$1" | LC_ALL=C tr -c ' -~' '?'; }
+
+dir=. brief="" checks=${SABHA_GATE_CHECKS:-}
 while [[ $# -gt 0 ]]; do
   case $1 in
-    -C) dir=${2:-}; shift 2 ;;
-    --brief) brief=${2:-}; shift 2 ;;
-    -*) echo "sabha-gate: unknown option $1" >&2; exit 2 ;;
+    -C|--brief|--checks)
+      [[ -n ${2:-} ]] || { echo "sabha-gate: $1 needs a value" >&2; exit 2; }
+      case $1 in -C) dir=$2 ;; --brief) brief=$2 ;; *) checks=$2 ;; esac
+      shift 2 ;;
+    -*) echo "sabha-gate: unknown option $(c "$1")" >&2; exit 2 ;;
     *) break ;;
   esac
 done
 files=("$@")
 if [[ -n $brief ]]; then
-  line=$(grep -m1 '^gate:' "$brief") || { echo "sabha-gate: no gate: line in $brief" >&2; exit 2; }
+  line=$(grep -m1 '^gate:' "$brief") || { echo "sabha-gate: no gate: line in $(c "$brief")" >&2; exit 2; }
   IFS=', ' read -r -a files <<<"${line#gate:}"
+  [[ ${#files[@]} -gt 0 ]] || { echo "sabha-gate: empty gate: line in $(c "$brief")" >&2; exit 2; }
 fi
-if [[ ${#files[@]} -eq 0 ]]; then sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; fi
-cd "$dir" || exit 2
+if [[ ${#files[@]} -eq 0 && -z $checks ]]; then sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; fi
+if [[ -n $checks ]]; then
+  [[ -f $checks ]] || { echo "sabha-gate: no checks file $(c "$checks")" >&2; exit 2; }
+  (( $(wc -c <"$checks") <= 1048576 )) || { echo "sabha-gate: checks file larger than 1 MB" >&2; exit 2; }
+  checks=$(cd "$(dirname "$checks")" && pwd)/$(basename "$checks")
+fi
+cd "$dir" 2>/dev/null || { echo "sabha-gate: cannot enter $(c "$dir")" >&2; exit 2; }
 rc=0 accepted=0
-for f in "${files[@]}"; do
+for f in ${files[@]+"${files[@]}"}; do
   [[ -n $f ]] || continue
-  if [[ ! -f $f ]]; then echo "SHUT $f: missing"; rc=1; continue; fi
+  if [[ ! -f $f ]]; then echo "SHUT $(c "$f"): missing"; rc=1; continue; fi
   v=$(grep '^verdict:' "$f" | tail -n 1 | tr -d '\r')
   case $f in
     *-review.md)
-      if [[ $v == "verdict: ACCEPT" ]]; then accepted=1; echo "ok   $f: ACCEPT"
-      else echo "SHUT $f: not ACCEPT ($v)"; rc=1; fi ;;
+      if [[ $v == "verdict: ACCEPT" ]]; then accepted=1; echo "ok   $(c "$f"): ACCEPT"
+      else echo "SHUT $(c "$f"): not ACCEPT ($(c "$v"))"; rc=1; fi ;;
     *)
       case $v in
-        "verdict: NO BREAK") echo "ok   $f: NO BREAK" ;;
+        "verdict: NO BREAK") echo "ok   $(c "$f"): NO BREAK" ;;
         "verdict: BREAK "[0-9]*|"verdict: BLOCK "[0-9]*)
           n=${v##* }; ans=${f%.md}-answer.md
           # a zero or non-numeric count is never "nothing to answer": it shuts the gate
-          if [[ $n == *[!0-9]* ]] || (( 10#$n < 1 )); then echo "SHUT $f: bad count in verdict ($v)"; rc=1; continue; fi
+          if [[ $n == *[!0-9]* ]] || (( 10#$n < 1 )); then echo "SHUT $(c "$f"): bad count in verdict ($(c "$v"))"; rc=1; continue; fi
           have=0; [[ -f $ans ]] && ! [[ $ans -ot $f ]] && have=$(grep -c -E '^(REFUTED|FIXED):' "$ans")
-          if (( have >= n )); then echo "ok   $f: $v, answered ($have in $ans)"
-          else echo "SHUT $f: $v, $have of $n answered"; rc=1; fi ;;
-        *) echo "SHUT $f: unreadable verdict ($v)"; rc=1 ;;
+          if (( have >= n )); then echo "ok   $(c "$f"): $(c "$v"), answered ($have in $(c "$ans"))"
+          else echo "SHUT $(c "$f"): $(c "$v"), $have of $n answered"; rc=1; fi ;;
+        *) echo "SHUT $(c "$f"): unreadable verdict ($(c "$v"))"; rc=1 ;;
       esac ;;
   esac
 done
-if (( ! accepted )); then echo "SHUT: no reviewer ACCEPT (*-review.md)"; rc=1; fi
+if (( ${#files[@]} && ! accepted )); then echo "SHUT: no reviewer ACCEPT (*-review.md)"; rc=1; fi
+
+# ---- workspace checks: one "<check> <path>" line each, paths are read from DIR, "#" starts a comment line ----
+# expand <path>: leading ~ and $VAR / ${VAR} from the environment, never eval; an unset variable fails the check
+expand() {
+  local s=$1 out="" name
+  case $s in [~]) s=$HOME ;; [~]/*) s=$HOME/${s#[~]/} ;; esac
+  while [[ $s =~ \$\{?([A-Za-z_][A-Za-z0-9_]*)\}? ]]; do
+    name=${BASH_REMATCH[1]}
+    [[ -n ${!name+x} ]] || return 1
+    out=$out${s%%"${BASH_REMATCH[0]}"*}${!name}
+    s=${s#*"${BASH_REMATCH[0]}"}
+  done
+  printf '%s' "$out$s"
+}
+# each check takes one path, sets msg and returns 0 (pass) or 1 (shut)
+readable() { # a regular file of at most 8 MB
+  [[ -f $1 ]] || { msg="missing"; return 1; }
+  (( $(wc -c <"$1") <= 8388608 )) || { msg="larger than 8 MB"; return 1; }
+}
+chk_aikido() { # the newest "aikido:" line must carry high=0 critical=0
+  local l h k; readable "$1" || return 1
+  l=$(LC_ALL=C grep '^aikido:' "$1" | tail -n 1 | tr -d '\r')
+  [[ -n $l ]] || { msg="no aikido: line"; return 1; }
+  [[ $l =~ (^|[[:space:]])high=([0-9]+)([[:space:]]|$) ]] || { msg="no high=N in the scan line"; return 1; }
+  h=${BASH_REMATCH[2]}
+  [[ $l =~ (^|[[:space:]])critical=([0-9]+)([[:space:]]|$) ]] || { msg="no critical=N in the scan line"; return 1; }
+  k=${BASH_REMATCH[2]}
+  (( 10#$h == 0 && 10#$k == 0 )) || { msg="scan shows high=$h critical=$k"; return 1; }
+  msg="scan clean"
+}
+chk_screenshots() { # newest "ui:" line: "no" passes; "yes" needs >= 1 "screenshot: FILE" line, each FILE beside the pack
+  local u d n=0 s; readable "$1" || return 1
+  u=$(LC_ALL=C grep '^ui:' "$1" | tail -n 1 | tr -d '\r'); d=$(dirname "$1")
+  case $u in
+    "ui: no") msg="no UI change"; return 0 ;;
+    "ui: yes") ;;
+    *) msg="no ui: yes|no line"; return 1 ;;
+  esac
+  while IFS= read -r s; do
+    s=${s#screenshot:}; s=${s#"${s%%[![:space:]]*}"}; s=${s%"${s##*[![:space:]]}"}
+    case $s in *.png|*.jpg|*.jpeg|*.gif|*.webp) ;; *) msg="screenshot is not an image name: $s"; return 1 ;; esac
+    [[ -f $d/$s ]] || { msg="screenshot missing: $s"; return 1; }
+    n=$((n + 1))
+  done < <(LC_ALL=C grep '^screenshot:' "$1" | tr -d '\r')
+  (( n >= 1 )) || { msg="ui: yes and no screenshot: line"; return 1; }
+  msg="$n screenshot(s)"
+}
+chk_not_in_design() { # n lines holding NOT IN DESIGN need n or more lines starting APPROVED:
+  local n a; readable "$1" || return 1
+  n=$(LC_ALL=C grep -c -F 'NOT IN DESIGN' "$1"); a=$(LC_ALL=C grep -c '^APPROVED:' "$1")
+  msg="$n NOT IN DESIGN, $a APPROVED:"
+  (( a >= n ))
+}
+chk_questions() { # the questions file holds a non-blank line
+  readable "$1" || return 1
+  LC_ALL=C grep -q '[^[:space:]]' "$1" || { msg="empty"; return 1; }
+  msg="present"
+}
+if [[ -n $checks ]]; then
+  ran=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}; line=${line#"${line%%[![:space:]]*}"}; line=${line%"${line##*[![:space:]]}"}
+    [[ -z $line || $line == "#"* ]] && continue
+    name=${line%%[[:space:]]*}; arg=${line#"$name"}; arg=${arg#"${arg%%[![:space:]]*}"}
+    ran=$((ran + 1)); msg=""
+    if [[ -z $arg ]]; then msg="needs a path"; ok=1
+    elif ! path=$(expand "$arg"); then msg="unset variable in path"; ok=1
+    else
+      case $name in
+        aikido|screenshots|not-in-design|questions) "chk_${name//-/_}" "$path"; ok=$? ;;
+        *) msg="unknown check"; ok=1 ;;
+      esac
+    fi
+    if (( ok == 0 )); then echo "ok   check $(c "$name") $(c "$arg"): $(c "$msg")"
+    else echo "SHUT check $(c "$name") $(c "$arg"): $(c "$msg")"; rc=1; fi
+  done < "$checks"
+  if (( ran == 0 )); then echo "SHUT: no checks in $(c "$checks")"; rc=1; fi
+fi
 if (( rc )); then echo "GATE SHUT"; else echo "GATE OPEN"; fi
 exit "$rc"

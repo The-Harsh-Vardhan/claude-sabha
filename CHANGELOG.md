@@ -36,6 +36,10 @@
   block in `board-updates/`, a block in the questions file and a numbered line in `decisions.log`. Files only: it prints
   the command that closes the item and never runs it. Paths: `SABHA_DECIDE_OUT`, `SABHA_DECIDE_QUESTIONS`,
   `SABHA_DECISION_LOG`.
+- Gate: `bin/sabha-gate --checks FILE` (or `SABHA_GATE_CHECKS`) adds workspace file tests to the review gate: an Aikido
+  record, screenshots named in UI packs, an `APPROVED:` line for every `NOT IN DESIGN`, the questions file
+  ([docs/gate-checks.md](docs/gate-checks.md)). A bare `-C`, `--brief` or `--checks` now exits 2 (it looped before);
+  printed values are cleaned to printable ASCII.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
