@@ -110,6 +110,11 @@ SABHA_RELAY_GUARD=1
 # More files the guarded relay may write besides inbox/, its status/<name>.md, for-me.items and memory: absolute
 # paths, space-separated, a glob in the last part only, one directory deep.
 #SABHA_RELAY_WRITE="$SABHA_WS/docs/reviews/*-review.md $SABHA_WS/docs/questions/*"
+# More tools the guarded relay may call: exact tool names, comma-separated, no spaces, no wildcards, case-sensitive.
+# Only tools the guard has no rule for; it never loosens the Read, Write, Edit or Bash rules. A malformed value allows
+# nothing extra. Empty = none. When SABHA_BOARD_URL is set, set it to Artifact,ArtifactData so the relay can publish
+# and update the board (sabha doctor warns otherwise).
+SABHA_RELAY_ALLOW_TOOLS=""
 # The relay's sabha-loop warns (log and a nudge to write the handoff) at SABHA_RELAY_WARN_K thousand tokens and restarts
 # it fresh at SABHA_RELAY_STOP_K once the handoff is saved; SABHA_RELAY_WINDOW_K is its context window size. For the
 # relay these replace SABHA_LOOP_LIMIT, even one you set.

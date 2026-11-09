@@ -31,7 +31,9 @@ account, so the page is theirs; never create a board for someone else's account.
    - With nothing open: one row whose `ask` starts with `EXAMPLE`, state `READY`, so the page shows a card. The human deletes it.
    Fill the row fields as `board-schema.md` lists them. `lastChangeAt` comes from `date -u +%Y-%m-%dT%H:%M:%SZ`.
 6. Write the artifact URL to `sabha.conf` as `SABHA_BOARD_URL="<url>"` (edit the existing line; keep the quotes).
-7. Tell the human the URL and ask them to pin the page in their sidebar. Do not pin it yourself.
+7. Set `SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData` in `sabha.conf` (the relay guard denies these tools otherwise),
+   then restart the relay so it keeps the board current.
+8. Tell the human the URL and ask them to pin the page in their sidebar. Do not pin it yourself.
 
 ## Rules
 

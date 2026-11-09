@@ -41,6 +41,17 @@ echo "$o" | grep -q '^doctor: 0 fail, 1 warn' || fail "the empty board URL is th
 grep -v '^SABHA_BOARD_URL=' "$dir/sabha.conf.keep" >"$dir/sabha.conf"
 o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  SABHA_BOARD_URL is empty' || fail "a missing SABHA_BOARD_URL key must WARN too (rc 0): rc=$rc: $o"
+# a board with the relay guard on: the relay needs Artifact and ArtifactData in SABHA_RELAY_ALLOW_TOOLS
+{ cat "$dir/sabha.conf.keep"; echo "SABHA_RELAY_GUARD=1"; } >"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  .*SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData' || fail "board + guard without the allow list must WARN with the line to set (rc 0): rc=$rc: $o"
+echo 'SABHA_RELAY_ALLOW_TOOLS="Artifact"' >>"$dir/sabha.conf"
+o=$(D); echo "$o" | grep -q '^warn  .*SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData' || fail "an allow list without ArtifactData must WARN: $o"
+echo 'SABHA_RELAY_ALLOW_TOOLS="Artifact ArtifactData"' >>"$dir/sabha.conf"
+o=$(D); echo "$o" | grep -q '^warn  .*SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData' || fail "a malformed allow list must WARN: $o"
+echo 'SABHA_RELAY_ALLOW_TOOLS="WebFetch,ArtifactData,Artifact"' >>"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^doctor: 0 fail, 0 warn' && echo "$o" | grep -q '^ok    .*SABHA_RELAY_ALLOW_TOOLS' || fail "board + guard + both tools listed must be ok with no warning: $o"
 mv "$dir/sabha.conf.keep" "$dir/sabha.conf"
 
 rm "$dir/fakebin/claude"; o=$(D); rc=$?

@@ -63,6 +63,8 @@ rm -rf "$BAD"
 
 echo "--- sabha.conf.example"
 check "sabha.conf.example documents SABHA_BOARD_URL (a comment, then the key)" 'grep -B3 "^SABHA_BOARD_URL=" "$ROOT/sabha.conf.example" | grep -q "^# .*SABHA_BOARD_URL\|^# The progress board"'
+check "sabha.conf.example has SABHA_RELAY_ALLOW_TOOLS empty, after SABHA_RELAY_GUARD, naming Artifact,ArtifactData" 'grep -q "^SABHA_RELAY_ALLOW_TOOLS=\"\"$" "$ROOT/sabha.conf.example" && [[ $(grep -n "^SABHA_RELAY_GUARD=" "$ROOT/sabha.conf.example" | cut -d: -f1) -lt $(grep -n "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | cut -d: -f1) ]] && grep -B6 "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | grep -q "Artifact,ArtifactData"'
+check "sabha-board-create tells the user to set SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData" 'grep -q "SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData" "$ROOT/skills/sabha-board-create/SKILL.md"'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: the board is the default view in the relay text, /sabha-board and the README"
