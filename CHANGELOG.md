@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
+  of each `status/<role>.md` (`UPDATE <n> (`, `UPDATE <n> <Mon>`, `Idle: by design (` count anywhere; looser
+  headers only at file start or after a blank or `---` line); the full
+  original is copied and verified to `status/.bak/<role>-<utc>-<pid>.md` first, then the file is rewritten in place
+  (inode, mode, owner kept); a file changed mid-run is skipped. `.bak/RESTORE.txt` gets one quoted line that puts the
+  full copy back. `--apply` only at a quiet moment with no role writing (Vidur picks it, Q-049). Never deletes; dry
+  run by default, `--keep N`. Test: `tests/test-rotate.sh`.
+- `sabha roster --check|--write` and `sabha stamp`: `SABHA_ROSTER` is the only roster source. The check lists every
+  `PROTOCOL-core.md` table cell and `protocol/<Name>.md` heading whose model or effort differs from the conf (with the
+  `no <model>` lines of `SABHA_ROSTER_CLAIMS` files as context); `sabha doctor` counts drift as FAIL, `sabha-up.sh`
+  prints it; `--write` rewrites those lines. `stamp` prints the clock time (UTC, then local) for briefs.
+- `bin/sabha-gh`, the kit's one read-only GitHub layer (named reads, no flag accepted, account and quota checked, 10-minute
+  cache, stale copy on failure), and `sabha prs`, a PR radar built on it: an author's open PRs across orgs and repos with
+  ARCHIVED, CONFLICT, BEHIND>50, UNKNOWN, CHANGES_REQUESTED and STALE>7d flags. `tests/hermetic-bin/gh` is the fake gh; `hermetic.sh`
+  refuses a test that finds another gh first on PATH. docs/github-layer.md.
+- `sabha pack lint <file.md>...` (also `sabha pack-lint`, `bin/sabha-pack-lint`): checks the command lines of push packs and
+  PR bodies (fenced blocks, indented blocks outside lists) and rejects an inline `#` comment, a `...` or ellipsis
+  elision, a non-ASCII character and a line without a `cd /absolute/path && ` prefix. Exit 1 on a finding, with
+  `file:line: reason`. `tests/test-pack-lint.sh`.
 - `sabha shipped <owner/repo#n>` (`bin/sabha-shipped`, docs/shipped.md): where a merged PR has reached along a branch chain
   (`SABHA_CHAIN_<repo>` or `--chain`): `in`, `NOT IN` or `no such branch` per branch, by commit sha. Read-only, through
   `bin/sabha-gh` (docs/github-layer.md).
@@ -28,6 +47,46 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
+- Durable helpers: long work (builds, tests, a browser, over about 10 minutes) runs as its own headless session that
+  survives a dispatcher restart or `/exit`. `sabha-run --detach <Name>` (front end `bin/sabha-helper start`) starts the
+  existing headless run in a new session and records it in `status/helpers/<id>.json`; `sabha-helper list | reattach
+  [--redispatch] | wait | stop` let a fresh dispatcher find, wait for, restart (as a resume, up to
+  `SABHA_HELPER_RETRIES`, default 2) or stop them. A start is refused (exit 3, with the reason) at the `SABHA_STOP`
+  lines, over `SABHA_HELPER_MAX` (default 4) live runs, or when the 1-minute load is over `SABHA_HELPER_LOAD_MAX`
+  (default 4 x cores). `sabha-down.sh` stops helpers first and records them `stopped`; the dispatcher's opening prompt
+  runs `sabha-helper reattach`. `sabha-run` also accepts a role copy `Name-N` now. Plain `sabha-run` is unchanged. See
+  docs/durable-helpers.md.
+- `SABHA_RELAY_GUARD=1` (default off in `sabha-up.sh`; `sabha.conf.example` sets it to 1, so a new conf has it on):
+  `bin/sabha-relay-guard`, PreToolUse, UserPromptSubmit and Stop hooks that
+  `sabha-up.sh` passes to the relay only (`--settings`). The relay reads, writes briefs and memory, asks and messages;
+  anything else is denied with "relay: brief the dispatcher". "you do it" in the user's prompt lifts it for one turn.
+  The guard fails closed (a crash, an unbound variable or `exit` in the conf, empty or garbage input and a missing field
+  are a deny), and its Bash list is plain words only: any `( ) { } $` backtick, backslash, newline, redirect or word
+  starting with `=` is refused, so zsh's `=(cmd)`, `*(e:cmd:)` and `${(e):-...}` cannot run code.
+  "you do it" is a whole-phrase match, and memory writes are limited to the relay's own project memory dir. `sabha
+  doctor` warns when the guard is on and `disableAllHooks` is set. A discard (`2>&1`, `2>/dev/null`, `>/dev/null`) passes
+  only as a whole word (`echo hi2>&1x` is refused), and a Bash command over 2000 characters is refused before any
+  pattern work (a hook timeout does not block, so the cap is the control). Fix pass (gate 115): the relay may also
+  write its own `status/<name>.md` and `status/<name>-night-*.md` (so the 300k restart can fire), `for-me.items` and
+  the paths in `SABHA_RELAY_WRITE`; paths are resolved; quotes and globs in a Bash word are refused (a quoted
+  `'--output=x'` passed); secret files (`.env*`, `.npmrc`, `*.pem`, `*.key`, `id_*`) are not read; Skill is allowed;
+  the override needs "you do it" as the first line, expires after 10 minutes and is cleared at SessionStart; a missing
+  or broken conf names the escape (`SABHA_RELAY_GUARD=0`, restart). Tests: `tests/test-relay-guard.sh`,
+  `tests/test-doctor.sh`. Second fix pass (gate 116): more secret names (`.envrc`, `*.env*`, `.netrc`, `credentials`,
+  `.aws/`), no recursive grep (Bash `-r`/`-R`/`-d`/`--include`, a directory operand; the Grep tool over a directory
+  needs a glob like `**/*.md`), git refuses `-C`, `-O<file>` and `--no-index`, and the conf runs in its own bash so a
+  conf exiting 100 denies instead of allowing; `HEAD~1` passes as a word. Third pass (gate 117): names match in any
+  case (`cat .ENV` on APFS), the env names are `.env`, `.env.*`, `*.env`, `.envrc` (`.environment` reads again), more
+  names (`.pgpass`, `.git-credentials`, `kubeconfig`, `credentials*`, `creds`, `.git/config`, `.docker/config.json`),
+  a `[` or `{` only refuses a Grep/Glob glob that could match a secret (`[id]` route files read), a Bash word naming a
+  symlink is judged by its target, `grep -f`/`--file` refused, the grep pattern word may name a directory, and
+  `git -C <dir>` passes when the dir's real path is inside `SABHA_WS` (the workspace session start uses it).
+- The relay is code-guarded: `hooks/sabha-guard.sh` no longer exempts the relay, so no role pushes, publishes or posts
+  (the human does). `sabha-loop` warns the relay at `SABHA_RELAY_WARN_K` (250k tokens: a log line and a nudge to write
+  the handoff) and restarts it fresh at `SABHA_RELAY_STOP_K` (300k) once the handoff is saved, as percent of
+  `SABHA_RELAY_WINDOW_K` (1000k); for the relay this replaces any `SABHA_LOOP_LIMIT` the user set.
+  `sabha.conf.example` turns `SABHA_RELAY_GUARD` on and ships a `SABHA_PROMPT_Relay`
+  with no pushes and no pane restarts. Tests: `tests/test-hooks.sh`, `bin/sabha-loop --self-test`.
 
 ## 2.0.1 - 2026-10-20
 
