@@ -137,11 +137,11 @@ pass
 # ---- config values expand $VAR and ~ like the other readers; --questions beats the config
 newws h
 qitem 4; qitem 6
-mkdir -p "$W/home"
+mkdir -p "$W/cfg"
 printf 'SABHA_DECIDE_OUT=~/out\nSABHA_DECISION_LOG=$SABHA_IMPL/logs/dec.log\nSABHA_DECIDE_QUESTIONS=pr-questions.md\n' >>"$W/sabha.conf"
-HOME=$W/home run 4 A
-[[ $rc -eq 0 && -f $W/home/out/item-4.update && -f $W/logs/dec.log && -f $W/pr-questions.md ]] || fail "conf paths: rc $rc $err $(ls -R "$W")"
-HOME=$W/home run 6 B --questions "$W/mine.md" --log "$W/own.log" --out "$W/own"
+HOME=$W/cfg run 4 A
+[[ $rc -eq 0 && -f $W/cfg/out/item-4.update && -f $W/logs/dec.log && -f $W/pr-questions.md ]] || fail "conf paths: rc $rc $err $(ls -R "$W")"
+HOME=$W/cfg run 6 B --questions "$W/mine.md" --log "$W/own.log" --out "$W/own"
 [[ $rc -eq 0 && -f $W/mine.md && -f $W/own.log && -f $W/own/item-6.update ]] || fail "command-line paths must win: rc $rc $err"
 pass
 
