@@ -326,6 +326,7 @@ from the scripts):
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
 | `bin/sabha prs [--org ORG] [--repo OWNER/NAME] [--author LOGIN] [--md FILE] [--json] [--fresh]` | PR radar: an author's open PRs across orgs and repos, worst first (ARCHIVED, CONFLICT, BEHIND>50, UNKNOWN, CHANGES_REQUESTED, STALE>7d); read-only, through `bin/sabha-gh` ([docs/github-layer.md](docs/github-layer.md)); needs `gh` logged in, from a plain terminal |
 | `bin/sabha-gh <read> ...` | The kit's one read-only GitHub layer: named reads (`pr`, `prs-by-author`, `compare`, `repo`, `branch`, `contents`), no flag accepted, account and quota checked, 10-minute cache |
+| `bin/sabha whoami [<Name>]` | One line: role, session id (written by the SessionStart hook to `status/whoami/<Name>.txt`), cwd, conf, impl, pane, live copies; exit 3 with a `WARN duplicate` line when more than one live session holds the name. The relay gets this line before every turn (`hooks/sabha-preturn.sh`, UserPromptSubmit) |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
