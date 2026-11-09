@@ -7,6 +7,9 @@
 # A pass is cheap, so call it right after writing a brief, or let sabha-watch call it (SABHA_RUN_AUTO=1).
 # Served roles: SABHA_RUN_ROLES (lazy | all | Name list; default lazy). The relay is never run headless; an ondemand
 # role only when named. Design and limits: docs/headless-runner.md. Windows: not covered yet.
+#   sabha-run --detach [--cwd DIR] Name   a durable helper: the run starts in its own session and gets a registry
+#                                         entry, so it outlives the session that started it; exit 3 when refused.
+#                                         bin/sabha-helper is the front end (docs/durable-helpers.md).
 set -uo pipefail
 
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -14,6 +17,8 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 . "$(dirname "$SELF")/sabha-lib.sh"
 # shellcheck source-path=SCRIPTDIR source=sabha-limits.sh
 . "$(dirname "$SELF")/sabha-limits.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-helpers.sh
+. "$(dirname "$SELF")/sabha-helpers.sh"
 sabha_load sabha-run
 sabha_theme sabha-run || exit 1
 PROJECT=${SABHA_PROJECT:-this project}
@@ -37,7 +42,7 @@ role_cmd() {
   CMD=(claude -p -n "$name" ${MCP_PRE[@]+"${MCP_PRE[@]}"} --model "$model" --effort "$effort" ${MCP_POST[@]+"${MCP_POST[@]}"})
   # nobody is at a terminal: a prompt must turn into a denial, not a hang until the timeout
   CMD+=(--permission-prompts none)
-  CMD+=("You are $who in $PROJECT session setup, running headless (claude -p): nobody answers you or a permission prompt. Read $(sabha_reads "$name"), then the brief $2 (sabha-run already wrote its $n.ack). Do the brief, update status/$lower.md, write inbox/$name/$n.done (result for $to), then stop. A denied action ends the work: append the denial to $SABHA_IMPL/for-me.items, write $n.done with result: BLOCKED <the denial>, and stop; never work around a denial. Start no other brief.")
+  CMD+=("You are $who in $PROJECT session setup, running headless (claude -p): nobody answers you or a permission prompt. Read $(sabha_reads "$name"), then the brief $2 (sabha-run already wrote its $n.ack). Do the brief, update status/$lower.md, write inbox/$name/$n.done (result for $to), then stop. A denied action ends the work: append the denial to $SABHA_IMPL/for-me.items, write $n.done with result: BLOCKED <the denial>, and stop; never work around a denial. Start no other brief.${SABHA_RUN_RESUME:+ A previous run of this brief died before its done: read status/$lower.md and what is already on disk (worktrees, files, notes) first and resume from there; never redo or overwrite finished work.}")
 }
 
 # served: true when this pass may run <Name> (named = on the command line)
@@ -86,11 +91,26 @@ if [[ ${1:-} == --child ]]; then
   # the child writes its own pid before anything else, so its EXIT trap can never run before the lock names it;
   # the pass waits for this line as its proof that the run started
   echo $$ >|"$dir/run.lock"
-  trap 'rm -f "$dir/run.lock"' EXIT
+  # every way out but SIGKILL ends with the helper's done and its sentinel; rc stays 1 until the run sets it
+  rc=1 hdone=0 cp=""
+  child_exit() {
+    rm -f "$dir/run.lock"
+    [[ -n ${SABHA_HELPER_ID:-} ]] && (( ! hdone )) && { hdone=1; sabha_helper_mark_done "$name" "$n" "$rc" "$log"; }
+  }
+  trap child_exit EXIT
+  # TERM only: the child is started under nohup, so HUP and INT are ignored at entry and bash cannot trap them
+  child_sig() { rc=$1; [[ -n $cp ]] && kill -TERM -- -"$cp" 2>/dev/null; exit "$1"; }
+  trap 'child_sig 143' TERM
+  # a durable helper (docs/durable-helpers.md): the registry names this process as soon as the run has started
+  if [[ -n ${SABHA_HELPER_ID:-} ]]; then
+    sabha_helper_put "$SABHA_HELPER_ID" state=running "pid=$$"
+    sabha_helper_mark_ack "$name" "$n" "durable helper $SABHA_HELPER_ID, pid $$" "$log"
+  fi
   role_cmd "$name" "$brief"
-  { echo "sabha-run: $(utc) start $name $n, timeout ${TIMEOUT}s"; echo "sabha-run: cd $SABHA_WS && ${CMD[*]}"; } >>"$log"
+  cwd=${SABHA_RUN_CWD:-$SABHA_WS}
+  { echo "sabha-run: $(utc) start $name $n, timeout ${TIMEOUT}s"; echo "sabha-run: cd $cwd && ${CMD[*]}"; } >>"$log"
   timed=0 cancelled=0
-  if cd "$SABHA_WS"; then
+  if cd "$cwd"; then
     # set -m gives claude its own process group, so the timeout also stops the builds and servers its tools started
     set -m
     "${CMD[@]}" </dev/null >>"$log" 2>&1 &
@@ -113,7 +133,7 @@ if [[ ${1:-} == --child ]]; then
     wait "$cp"; rc=$?
     why="exit $rc"; (( timed )) && why="timeout after ${TIMEOUT}s"; (( cancelled )) && why="cancelled"
   else
-    why="cannot cd to $SABHA_WS"
+    why="cannot cd to $cwd"
   fi
   echo "sabha-run: $(utc) end $name $n: $why" >>"$log"
   sabha_role "$name" && sabha_cost_log "$name" "$R_MODEL" "brief $n $why"
@@ -124,39 +144,64 @@ if [[ ${1:-} == --child ]]; then
     printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run ended without a done (%s), log %s\ncontext: 0\n' \
       "$(utc)" "$name" "$why" "$log" >"$dir/$n.done"
   fi
+  if [[ -n ${SABHA_HELPER_ID:-} ]]; then
+    # the lock goes first: a reader that sees the final state must not still see a held role
+    rm -f "$dir/run.lock"
+    sabha_helper_finish "$SABHA_HELPER_ID" "$name" "$n" "$rc" "$why" "$timed" "$cancelled"
+  fi
   exit 0
 fi
 
-PRINT=0 WAIT=0
+PRINT=0 WAIT=0 DETACHED=0
 while [[ ${1:-} == --* ]]; do
   case $1 in
     --print) PRINT=1 ;;
     --wait) WAIT=1 ;;
-    *) echo "usage: sabha-run [--print | --wait] [Name...]" >&2; exit 2 ;;
+    --detach) DETACHED=1 ;;
+    --cwd)
+      [[ -d ${2:-} ]] || { echo "sabha-run: --cwd needs an existing directory" >&2; exit 2; }
+      SABHA_RUN_CWD=$(cd "$2" && pwd); export SABHA_RUN_CWD; shift ;;
+    *) echo "usage: sabha-run [--print | --wait | --detach [--cwd DIR]] [Name...]" >&2; exit 2 ;;
   esac
   shift
 done
+if (( DETACHED )); then
+  (( $# )) || { echo "sabha-run: --detach needs a role name" >&2; exit 2; }
+  (( PRINT || WAIT )) && { echo "sabha-run: --detach does not combine with --print or --wait (use sabha-helper wait)" >&2; exit 2; }
+  MAX=${SABHA_HELPER_MAX:-4}
+  LOGS=${SABHA_RUN_LOGS:-$(sabha_helpers_dir)}
+fi
 named=0 want=("${NAMES[@]}")
 if (( $# )); then
   named=1 want=("$@")
-  for w in "${want[@]}"; do [[ " ${NAMES[*]} " == *" $w "* ]] || { echo "sabha-run: unknown role: $w" >&2; exit 2; }; done
+  # a copy Name-N is a role too (sabha_role); a copy past SABHA_MAX_COPIES is not
+  for w in "${want[@]}"; do sabha_role "$w" || { echo "sabha-run: unknown role: $w" >&2; exit 2; }; done
 fi
 
+refused=0
+# skip <text>: one refused role in a pass; a detached start reports it with exit 3
+skip() { echo "sabha-run: $*"; refused=1; }
+
 # a role already running interactively (a pane, a hand start) owns its inbox
-procs=$(sabha_procs) || { echo "sabha-run: cannot read the process list; nothing started" >&2; exit 2; }
+if ! procs=$(sabha_procs); then
+  # a sandboxed dispatcher cannot read the process list; a helper start then goes on without the live-pane check
+  (( DETACHED )) || { echo "sabha-run: cannot read the process list; nothing started" >&2; exit 2; }
+  echo "sabha-run: process list unreadable; the live-pane check is skipped" >&2
+  procs=""
+fi
 running=0
 for l in "$SABHA_IMPL"/inbox/*/run.lock; do live_lock "$l" && running=$(( running + 1 )); done
 
 started=0
 for name in "${want[@]}"; do
-  served "$name" "$named" || { (( named )) && echo "sabha-run: $name: the relay is never run headless"; continue; }
-  brief=$(due "$name") || continue
+  served "$name" "$named" || { (( named )) && skip "$name: the relay is never run headless"; continue; }
+  brief=$(due "$name") || { (( DETACHED )) && skip "$name: no brief is due"; continue; }
   dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
   if awk -v n="$name" '$1 == n { f = 1 } END { exit !f }' <<<"$procs"; then
-    echo "sabha-run: $name $n: a live claude -n $name holds the role; left to it"; continue
+    skip "$name $n: a live claude -n $name holds the role; left to it"; continue
   fi
-  if live_lock "$dir/run.lock"; then echo "sabha-run: $name $n: a run is already on $name (run.lock)"; continue; fi
-  if (( running >= MAX )); then echo "sabha-run: $name $n: cap of $MAX runs reached; next pass"; continue; fi
+  if live_lock "$dir/run.lock"; then skip "$name $n: a run is already on $name (run.lock)"; continue; fi
+  if (( running >= MAX )); then skip "$name $n: cap of $MAX runs reached; next pass"; continue; fi
   log=$LOGS/$name-$n-$(date -u +%Y%m%dT%H%M%SZ).log
   if (( PRINT )); then
     role_cmd "$name" "$brief"
@@ -167,35 +212,62 @@ for name in "${want[@]}"; do
     running=$(( running + 1 )); continue
   fi
   # SABHA_STOP: no new session while a usage window is at the stop line (bin/sabha-limits.sh)
-  if why=$(sabha_limits_stopped); then echo "sabha-run: $name $n: $why"; continue; fi
+  if why=$(sabha_limits_stopped); then skip "$name $n: $why"; continue; fi
+  id=$name-$n resume="" attempts=1
+  if (( DETACHED )); then
+    # a durable helper adds the machine load and a detached start to the lines above (docs/durable-helpers.md)
+    if why=$(sabha_helper_load_refuse); then skip "$name $n: $why"; continue; fi
+    sabha_detach_prefix || { refused=1; continue; }
+    # a helper that reattach found dead runs again as a resume of the same brief
+    if [[ $(sabha_helper_get "$id" state) == dead ]]; then
+      attempts=$(( $(sabha_helper_get "$id" attempts) + 1 )) resume=1
+    fi
+  fi
   # per-role single flight: noclobber, like the brief-number claim (docs/inbox-protocol.md section 2)
-  (set -C; echo $$ >"$dir/run.lock") 2>/dev/null || { echo "sabha-run: $name $n: run.lock taken"; continue; }
+  (set -C; echo $$ >"$dir/run.lock") 2>/dev/null || { skip "$name $n: run.lock taken"; continue; }
   # the ack is the brief's claim: a pane or another pass that acked first wins
   if ! (set -C; printf 'utc: %s\nsession: %s [headless]\nlog: %s\ncontext: 0\n' "$(utc)" "$name" "$log" >"$dir/$n.ack") 2>/dev/null; then
-    rm -f "$dir/run.lock"; echo "sabha-run: $name $n: already acked"; continue
+    rm -f "$dir/run.lock"; skip "$name $n: already acked"; continue
   fi
   mkdir -p "$LOGS"
-  # SABHA_RUN_SELF replaces the child program (tests: a missing one is a spawn that fails)
-  nohup "${SABHA_RUN_SELF:-$SELF}" --child "$name" "$brief" "$log" </dev/null >/dev/null 2>&1 &
+  if (( DETACHED )); then
+    sabha_role "$name"
+    # written before the spawn: a run that ends at once must find its entry and not be overwritten by a late "starting"
+    sabha_helper_put "$id" "id=$id" "role=$name" "brief=$brief" "brief_n=$n" "worktree=${SABHA_RUN_CWD:-$SABHA_WS}" \
+      "model=$R_MODEL" "effort=$R_EFFORT" "started=$(utc)" "started_epoch=$(date +%s)" pid=0 "log=$log" \
+      state=starting "attempts=$attempts" ended= exit= why= stop_reason=
+    # SABHA_RUN_SELF replaces the child program (tests: a missing one is a spawn that fails)
+    SABHA_HELPER_ID=$id SABHA_RUN_RESUME=$resume nohup "${DETACH[@]}" "${SABHA_RUN_SELF:-$SELF}" --child "$name" "$brief" "$log" </dev/null >/dev/null 2>&1 &
+  else
+    nohup "${SABHA_RUN_SELF:-$SELF}" --child "$name" "$brief" "$log" </dev/null >/dev/null 2>&1 &
+  fi
   cpid=$!
-  # started = the child wrote its pid to the lock, or already finished (lock gone, done written); up to 5 s
-  ok=0
-  for _ in $(seq 1 50); do
-    [[ $(cat "$dir/run.lock" 2>/dev/null) == "$cpid" || -e $dir/$n.done ]] && { ok=1; break; }
+  # started = the child wrote its pid to the lock (a helper: to its registry entry), or already finished (done
+  # written); up to 5 s, a helper up to SABHA_HELPER_START_WAIT (30) because a loaded machine starts python slowly
+  started_ok() {
+    if (( DETACHED )); then [[ $(sabha_helper_get "$id" pid) == "$cpid" || -e $dir/$n.done ]]
+    else [[ $(cat "$dir/run.lock" 2>/dev/null) == "$cpid" || -e $dir/$n.done ]]; fi
+  }
+  ok=0 tries=50
+  (( DETACHED )) && tries=$(( ${SABHA_HELPER_START_WAIT:-30} * 10 ))
+  for _ in $(seq 1 "$tries"); do
+    started_ok && { ok=1; break; }
     kill -0 "$cpid" 2>/dev/null || break
     sleep 0.1
   done
-  [[ $(cat "$dir/run.lock" 2>/dev/null) == "$cpid" || -e $dir/$n.done ]] && ok=1
+  started_ok && ok=1
   if (( ! ok )); then
     # never leave an ack with no done and a lock nobody holds: the sender would wait forever
     kill "$cpid" 2>/dev/null
     printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run did not start (child %s), log %s\ncontext: 0\n' \
       "$(utc)" "$name" "${SABHA_RUN_SELF:-$SELF}" "$log" >"$dir/$n.done"
     rm -f "$dir/run.lock"
-    echo "sabha-run: $name $n: run did not start; BLOCKED done written"; continue
+    (( DETACHED )) && sabha_helper_put "$id" state=failed "ended=$(utc)" "why=did not start"
+    skip "$name $n: run did not start; BLOCKED done written"; continue
   fi
   echo "sabha-run: started $name $n (pid $cpid), log $log"
   running=$(( running + 1 )) started=$(( started + 1 ))
 done
 (( WAIT && started )) && wait
+(( DETACHED && ! started && refused )) && exit 3
 exit 0

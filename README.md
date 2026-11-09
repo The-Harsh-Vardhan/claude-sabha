@@ -304,6 +304,7 @@ from the scripts):
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
+| `bin/sabha-helper` | Durable helpers: long work as a headless session that survives a dispatcher restart; `start`, `list`, `reattach`, `wait`, `stop` ([docs/durable-helpers.md](docs/durable-helpers.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |

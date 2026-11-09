@@ -25,6 +25,15 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
+- Durable helpers: long work (builds, tests, a browser, over about 10 minutes) runs as its own headless session that
+  survives a dispatcher restart or `/exit`. `sabha-run --detach <Name>` (front end `bin/sabha-helper start`) starts the
+  existing headless run in a new session and records it in `status/helpers/<id>.json`; `sabha-helper list | reattach
+  [--redispatch] | wait | stop` let a fresh dispatcher find, wait for, restart (as a resume, up to
+  `SABHA_HELPER_RETRIES`, default 2) or stop them. A start is refused (exit 3, with the reason) at the `SABHA_STOP`
+  lines, over `SABHA_HELPER_MAX` (default 4) live runs, or when the 1-minute load is over `SABHA_HELPER_LOAD_MAX`
+  (default 4 x cores). `sabha-down.sh` stops helpers first and records them `stopped`; the dispatcher's opening prompt
+  runs `sabha-helper reattach`. `sabha-run` also accepts a role copy `Name-N` now. Plain `sabha-run` is unchanged. See
+  docs/durable-helpers.md.
 
 ## 2.0.1 - 2026-10-20
 
