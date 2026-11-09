@@ -7,11 +7,39 @@
 #   sabha-check
 #   sabha-check --explain   also asks herdr why each recorded pane shows its state (`herdr agent explain`, read-only;
 #                           it never starts a herdr server)
+#   sabha-check --agents FILE   reads a pasted ListAgents list ("Name [ref]" per row, - for stdin) instead: rows of one
+#                           role (Vidur, Vidur-old) print with a "duplicate role" line naming the newest row (the one
+#                           without -old, else the last listed); exits 1 on a duplicate. Needs no config.
 # Roster from sabha.conf as sabha-up.sh reads it; SABHA_PS_FILE replaces the live process list (see sabha-lib.sh).
 set -uo pipefail
 
 # shellcheck source=sabha-lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh"
+if [[ ${1:-} == --agents ]]; then
+  [[ -n ${2:-} ]] || { echo "sabha-check: --agents needs a file (- for stdin)" >&2; exit 2; }
+  f=$2; [[ $f == - ]] && f=/dev/stdin
+  [[ $f == /dev/stdin || -r $f ]] || { echo "sabha-check: cannot read $f" >&2; exit 2; }
+  # restarts leave "Vidur-old [ref]" beside "Vidur [ref]"; both answer to one role, so the newest has to be named
+  awk '
+    match($0, /[A-Za-z0-9_][A-Za-z0-9_-]* \[[^]]+\]/) {
+      row = substr($0, RSTART, RLENGTH); role = row; sub(/ \[.*/, "", role)
+      old = sub(/-old$/, "", role)
+      if (!(role in n)) order[++k] = role
+      rows[role, ++n[role]] = row
+      if (!old || !(role in fresh)) { newest[role] = row; if (!old) fresh[role] = 1 }
+    }
+    END {
+      for (i = 1; i <= k; i++) {
+        r = order[i]; if (n[r] < 2) continue
+        dup = 1
+        for (j = 1; j <= n[r]; j++) print r ": " rows[r, j]
+        print "duplicate role " r ": " n[r] " rows; newest is " newest[r] "; address it by that exact name, retire the others"
+      }
+      if (!dup) print "no duplicate role rows"
+      exit dup
+    }' "$f"
+  exit
+fi
 explain=0
 [[ ${1:-} == --explain ]] && explain=1
 sabha_load sabha-check

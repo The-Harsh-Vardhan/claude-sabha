@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# sabha-login-helper: run a headed login script once, so a window opened for a login never outlives it. The script
+# (CMD) opens one browser, waits for the app URL after the human logs in, saves the session to FILE and exits; this
+# wrapper prints and records its pid, waits at most SECS, and on success, failure or timeout stops the whole process
+# group, so no browser is left on the human's screen. It never reads or prints the session file, only checks it is
+# non-empty and sets it to mode 600.
+#   sabha-login-helper --session FILE [--timeout SECS] [--pidfile FILE] -- CMD [ARGS...]
+# Exits 0 when CMD exited 0 and FILE is non-empty, 124 on timeout, else 1 (2 on bad usage).
+# A Playwright CMD keeps the shape: chromium.launch({headless: false}); page.goto(login); page.waitForURL(app, {timeout});
+# context.storageState({path: FILE}); browser.close(). Every other agent browser run is headless.
+set -u
+die() { echo "sabha-login-helper: $*" >&2; exit 2; }
+session="" secs=600 pidfile=""
+while [[ $# -gt 0 ]]; do
+  [[ $1 == -- || $# -ge 2 ]] || die "$1 needs a value"
+  case $1 in
+    --session) session=$2; shift 2 ;;
+    --timeout) secs=$2; shift 2 ;;
+    --pidfile) pidfile=$2; shift 2 ;;
+    --) shift; break ;;
+    *) die "unknown option $1" ;;
+  esac
+done
+[[ -n $session && $# -ge 1 ]] || die "usage: sabha-login-helper --session FILE [--timeout SECS] [--pidfile FILE] -- CMD [ARGS...]"
+[[ $secs =~ ^[0-9]+$ ]] || die "--timeout takes seconds"
+# job control: CMD gets its own process group, so the browser it starts is stopped with it
+set -m
+"$@" &
+pid=$!
+set +m
+echo "sabha-login-helper: pid $pid (process group), timeout ${secs}s"
+[[ -z $pidfile ]] || echo "$pid" >"$pidfile"
+stop() { kill -TERM -- "-$pid" 2>/dev/null; sleep 1; kill -KILL -- "-$pid" 2>/dev/null; }
+waited=0
+while kill -0 "$pid" 2>/dev/null && (( waited < secs )); do sleep 1; waited=$((waited + 1)); done
+if kill -0 "$pid" 2>/dev/null; then
+  stop; wait "$pid" 2>/dev/null
+  echo "sabha-login-helper: timed out after ${secs}s; stopped pid $pid and its browser" >&2
+  exit 124
+fi
+wait "$pid"; rc=$?
+# the script exited: anything it left in its group (a browser it did not close) goes too
+stop
+if [[ $rc -eq 0 && -s $session ]]; then
+  chmod 600 "$session"
+  echo "sabha-login-helper: session saved; browser closed"
+  exit 0
+fi
+echo "sabha-login-helper: login failed (exit $rc, session file ${session} $([[ -s $session ]] && echo present || echo missing))" >&2
+exit 1

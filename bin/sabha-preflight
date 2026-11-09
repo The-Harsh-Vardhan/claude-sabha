@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# sabha-preflight: step 0 of a brief that opens a UI or an API behind a login. Runs every check read-only in one pass
+# and reports ALL failures at once, each with the action the human takes, so a run never finds its blockers one full
+# attempt at a time. Never prints or reads a secret: a variable is tested for being set, a file for being non-empty.
+#   sabha-preflight [--var NAME]... [--session FILE] [--status-cmd "CMD"] [--file PATH]... [--port N [--port-owner TEXT]]
+#                   [--server yes|no] [--headless yes|no] [--out FILE]
+#  1 credential  --var NAME (set, non-empty) and --session FILE (exists, non-empty)
+#  2 accepted    --status-cmd prints one HTTP code for one cheap call: 401 = session rejected, 402/403 = account blocked
+#  3 env files   --file PATH exists in the worktree
+#  4 port        --port N is free, or --port-owner names who serves it
+#  5 server      --server no = the brief does not allow starting or stopping the dev server
+#  6 headless    --headless no = the run needs a window (the brief must say headed: yes and why)
+# --status-cmd runs with bash -c: its text must come from the brief author only, never from untrusted input.
+# Exits 0 when every check passes, 1 when any fails, 2 on bad usage. --out also writes the report to FILE.
+set -u
+die() { echo "sabha-preflight: $*" >&2; exit 2; }
+vars=() files=() session="" status_cmd="" port="" owner="" server=yes headless=yes out=""
+while [[ $# -gt 0 ]]; do
+  [[ $# -ge 2 ]] || die "$1 needs a value"
+  case $1 in
+    --var) vars+=("$2") ;;
+    --session) session=$2 ;;
+    --status-cmd) status_cmd=$2 ;;
+    --file) files+=("$2") ;;
+    --port) port=$2 ;;
+    --port-owner) owner=$2 ;;
+    --server) server=$2 ;;
+    --headless) headless=$2 ;;
+    --out) out=$2 ;;
+    *) die "unknown option $1" ;;
+  esac
+  shift 2
+done
+[[ -z $port || $port =~ ^[0-9]+$ ]] || die "--port takes a number"
+[[ $server == yes || $server == no ]] || die "--server takes yes or no"
+[[ $headless == yes || $headless == no ]] || die "--headless takes yes or no"
+report="" bad=0
+ok() { report+="ok    $1"$'\n'; }
+no() { report+="FAIL  $1"$'\n'"      human: $2"$'\n'; bad=$((bad + 1)); }
+
+for v in ${vars[@]+"${vars[@]}"}; do
+  [[ $v =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "bad variable name '$v'"
+  if [[ -n ${!v:-} ]]; then ok "credential: $v is set"; else no "credential: $v is empty or unset" "set $v in the environment the run starts from"; fi
+done
+if [[ -n $session ]]; then
+  if [[ -s $session ]]; then ok "session: $session exists"; else no "session: no session file at $session" "log in once with the login helper (sabha-login-helper) so it writes $session"; fi
+fi
+if [[ -n $status_cmd ]]; then
+  code=$(bash -c "$status_cmd" 2>/dev/null | tr -dc '0-9' | cut -c1-3)
+  case $code in
+    2??|3??) ok "status call: $code" ;;
+    401) no "session rejected: status call returned 401" "log in again with the login helper; the saved session has expired" ;;
+    402|403) no "account blocked: status call returned $code" "renew or unblock the tenant (402 = subscription expired), or name another account" ;;
+    *) no "status call failed (code '${code:-none}')" "start the server or fix the status command in the brief" ;;
+  esac
+fi
+for f in ${files[@]+"${files[@]}"}; do
+  if [[ -e $f ]]; then ok "file: $f exists"; else no "file: $f is missing" "copy it into the worktree, or name in the brief the allowed way to create it"; fi
+done
+if [[ -n $port ]]; then
+  if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+    if [[ -n $owner ]]; then ok "port $port: in use by $owner (named)"; else no "port $port is in use and the brief names no owner" "name who serves port $port, or stop it"; fi
+  else ok "port $port: free"; fi
+fi
+if [[ $server == yes ]]; then ok "server: the brief allows starting or stopping the dev server"
+else no "server: no permission to start or stop the dev server" "start it yourself, or allow it in the brief"; fi
+if [[ $headless == yes ]]; then ok "headless: possible"
+else no "headless: the run needs a window" "say headed: yes and why in the brief, and be ready for one window"; fi
+
+report+="preflight: $bad fail"$'\n'
+printf '%s' "$report"
+[[ -z $out ]] || printf '%s' "$report" >"$out" || die "cannot write $out"
+(( bad == 0 ))
