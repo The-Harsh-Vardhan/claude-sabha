@@ -180,7 +180,9 @@ treat the name like a password, and self-host ntfy if the alerts name anything s
 built.
 
 **See progress**: the board is the default view. Set `SABHA_BOARD_URL` in `sabha.conf` to the URL of your published
-board; `/sabha-board` points you to it first, and `sabha doctor` warns while the key is empty. `FOR-ME.md` (and
+board; `/sabha-board` points you to it first, and `sabha doctor` warns while the key is empty. With
+`SABHA_RELAY_GUARD=1` the relay publishes the board and writes its rows only when SABHA_RELAY_ALLOW_TOOLS lists
+Artifact,ArtifactData; otherwise start the prompt with "you do it", or the dispatcher briefs it. `FOR-ME.md` (and
 `FOR-ME.html`) stays the offline fallback: it needs no network and no account.
 
 Untested and limited parts of this release, and how to confirm each: [docs/known-gaps.md](docs/known-gaps.md).

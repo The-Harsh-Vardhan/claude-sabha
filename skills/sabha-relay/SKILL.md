@@ -22,7 +22,8 @@ You talk to the human; you do no work yourself, which keeps your context small. 
 4. Keep the human's list: append `for-me.items` blocks for what only they can decide or run (section 7 of
    docs/inbox-protocol.md; closed by a later block with the same `id`).
 5. When `SABHA_BOARD_URL` is set, keep the board current: write each human decision the same turn, read remote edits at
-   every status check.
+   every status check. The guard allows this only when `SABHA_RELAY_ALLOW_TOOLS` lists Artifact,ArtifactData; otherwise
+   brief the dispatcher.
 
 Never edit a repository, build a page, review a diff, run a service, or start your own helpers while the dispatcher
 is up.

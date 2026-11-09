@@ -85,5 +85,20 @@ check "sabha.conf.example documents SABHA_BOARD_URL (a comment, then the key)" '
 check "sabha.conf.example has SABHA_RELAY_ALLOW_TOOLS empty, after SABHA_RELAY_GUARD, naming Artifact,ArtifactData" 'grep -q "^SABHA_RELAY_ALLOW_TOOLS=\"\"$" "$ROOT/sabha.conf.example" && [[ $(grep -n "^SABHA_RELAY_GUARD=" "$ROOT/sabha.conf.example" | cut -d: -f1) -lt $(grep -n "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | cut -d: -f1) ]] && grep -B6 "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | grep -q "Artifact,ArtifactData"'
 check "sabha-board-create tells the user to set SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData" 'grep -q "SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData" "$ROOT/skills/sabha-board-create/SKILL.md"'
 
+echo "--- skill placeholders, inbox path and the relay allow line"
+SK=$ROOT/skills/sabha-board-create/SKILL.md
+STEP3=$(sed -n "/^3\. /,/^4\. /p" "$SK" | tr "\n" " " | tr -s " ")
+STEP5=$(sed -n "/^5\. /,/^6\. /p" "$SK" | tr "\n" " " | tr -s " ")
+WHO=$(sed -n "/^## Who runs this/,/^## Steps/p" "$SK" | tr -d "\`" | tr "\n" " " | tr -s " ")
+ALLOW="SABHA_RELAY_ALLOW_TOOLS lists Artifact,ArtifactData"
+check "step 3 forbids a backslash and a newline in the plain-text placeholders" '[[ $STEP3 == *backslash* && $STEP3 == *newline* ]]'
+check "step 3 checks the JSON arrays with python3 -I json.loads and forbids <" '[[ $STEP3 == *"python3 -I -c"*json.loads* && $STEP3 == *"no \`<\`"* ]]'
+check "step 5 names the inbox path and the queue row of board-schema.md" '[[ $STEP5 == *"\$SABHA_IMPL/inbox/<Name>/"* && $STEP5 == *"queue row"*"board-schema.md"* ]]'
+check "Who runs this: the relay only with the allow list, else \"you do it\" or the dispatcher" '[[ $WHO == *"$ALLOW"* && $WHO == *"you do it"* && $WHO == *dispatcher* ]]'
+RP=$(grep "^SABHA_PROMPT_Relay=" "$ROOT/sabha.conf.example")
+check "the relay prompt does not forbid publishing while it keeps the board, and names the allow list" '[[ $RP != *"Never push, post or publish"* && $RP == *"$ALLOW"* ]]'
+check "the sabha-relay skill names the allow list for the board" 'tr -d "\`" <"$ROOT/skills/sabha-relay/SKILL.md" | tr "\n" " " | tr -s " " | grep -qF "$ALLOW"'
+check "README says the relay writes the board only with the allow list" 'sed -n "/^\*\*See progress\*\*/,/^Untested/p" "$ROOT/README.md" | tr "\n" " " | tr -s " " | grep -qF "$ALLOW"'
+
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: the board is the default view in the relay text, /sabha-board and the README"
