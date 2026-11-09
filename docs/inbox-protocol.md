@@ -27,6 +27,7 @@ edited by another; a change is a new file.
 | `inbox/<To>/NNN-<from>-<slug>.md` | the sender | the receiver, `sabha-watch` | every brief; the message says only `see inbox/<To>/NNN` |
 | `inbox/<To>/NNN.ack` | the receiver | the sender at its next wake; `sabha-watch` | first action after reading |
 | `inbox/<To>/run.lock` | `sabha-run` | `sabha-run` | while a headless run is on that role; holds its pid ([headless-runner.md](headless-runner.md)) |
+| `status/helpers/<Name>-<NNN>.json` | `sabha-run --detach`, `sabha-helper` | a fresh `<dispatcher>` (`sabha-helper reattach`), `sabha-down.sh` | one per durable helper: pid, state, log ([durable-helpers.md](durable-helpers.md)) |
 | `inbox/<To>/NNN.done` | the receiver | the sender; `<reviewer>`; `sabha-watch` | after the status file is updated |
 | `inbox/<To>/NNN.cancel` | the sender, or `<relay>` | the receiver before each irreversible step and at each safe point | to stop or hold |
 | `for-me.items` | any role appends | `sabha-for-me` (renders `FOR-ME.md` and `FOR-ME.html`) | whenever something needs the user |
@@ -172,7 +173,9 @@ kill <pid>
 ```
 
 `FOR-ME.md` and `FOR-ME.html` are the board `sabha-for-me` generates from `for-me.items` and the
-status files. Nobody edits them.
+status files. Nobody edits them. `sabha-item` re-renders them after each append (`SABHA_FORME_REGEN=0` turns that
+off; a failed render only warns), and `sabha-watch` prints a `STALE BOARD` line with both times when `for-me.items` is
+newer than `FOR-ME.md` by more than `SABHA_FORME_STALE_SECS` (default 300, 0 = off).
 
 `sabha decide` answers a question item without touching `for-me.items`: it writes `board-updates/item-<id>.update`, a
 closing block that adds `decision: D<n>`, `answer:`, `reply:` and `note:` to `state: DONE`, which you append yourself;

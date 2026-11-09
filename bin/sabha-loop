@@ -30,6 +30,8 @@ BIN=$(cd "$(dirname "$0")" && pwd)
 . "$BIN/sabha-herdr.sh"
 
 mtime() { date -r "$1" +%s 2>/dev/null || echo 0; }
+# k_pct <thousand tokens>: that size as a percent of the relay's window (SABHA_RELAY_WINDOW_K, default 1000 = 1M)
+k_pct() { echo $(( $1 * 100 / ${SABHA_RELAY_WINDOW_K:-1000} )); }
 
 # decide <claude|other> <ctx file> <handoff file> <inbox dir> <last start epoch> [hold file]: prints restart, stale or wait
 decide() {
@@ -47,6 +49,7 @@ decide() {
     echo wait
   else
     for d in "$inbox"/[0-9][0-9][0-9]*.done; do
+      [[ ${d##*/} =~ ^[0-9]+[.]done$ ]] || continue
       [[ -e $d ]] && (( $(mtime "$d") > last )) && { echo restart; return; }
     done
     echo wait
@@ -115,6 +118,9 @@ self_test() {
   check "95% with a reset ahead = stopped" "$(sabha_limits_stopped >/dev/null && echo stopped || echo go)" stopped
   printf 'five_hour 95 %s %s\n' $(( now - 60 )) "$now" >"$SABHA_LIMITS_FILE"
   check "95% with the reset passed = go" "$(sabha_limits_stopped >/dev/null && echo stopped || echo go)" go
+  check "relay 300k of 1M = 30%" "$(k_pct 300)" 30
+  check "relay 250k of 1M = 25%" "$(k_pct 250)" 25
+  check "relay 300k of 200k window = 150%" "$(SABHA_RELAY_WINDOW_K=200 k_pct 300)" 150
   printf 'five_hour 40 %s %s\n' $(( now + 3600 )) "$now" >"$SABHA_LIMITS_FILE"
   check "40% = go" "$(sabha_limits_stopped >/dev/null && echo stopped || echo go)" go
   if (( fails == 0 )); then echo "self-test: all ok"; else echo "self-test: $fails failed"; exit 1; fi
@@ -138,6 +144,12 @@ for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent model 
 # line SABHA_STOP_<NAME> replaces SABHA_STOP; a missing token ends the loop at once instead of failing every restart
 sabha_account_env "$name" || exit 2
 kind=$(kind_of "$agent")
+# the relay is the dearest session: warn at SABHA_RELAY_WARN_K (250k tokens), restart at SABHA_RELAY_STOP_K (300k);
+# this replaces SABHA_LOOP_LIMIT for the relay, even one the user set
+relay_warn=""
+if [[ $name == "$RELAY" && $kind == claude ]]; then
+  SABHA_LOOP_LIMIT=$(k_pct "${SABHA_RELAY_STOP_K:-300}") relay_warn=$(k_pct "${SABHA_RELAY_WARN_K:-250}")
+fi
 lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
 LOOP=$SABHA_IMPL/status/loop; mkdir -p "$LOOP"
 log() { printf '%s %s\n' "$(sabha_utc)" "$*" | tee -a "$LOOP/$lower.log" >&2; }
@@ -170,7 +182,7 @@ while :; do
   "${cmd[@]}" <"$tty_in" & cpid=$!
   # a grid --force covers the first start only; a restart meets the duplicate-name guard again
   unset SABHA_FORCE
-  warned=0 asked=0 cleared=0
+  warned=0 asked=0 cleared=0 rwarned=0
   while kill -0 "$cpid" 2>/dev/null; do
     # 1 s steps, not one long sleep: a launch death must measure as ~1 s so the RETRY_WINDOW check can see it
     for (( i = 0; i < interval; i++ )); do kill -0 "$cpid" 2>/dev/null || break 2; sleep 1; done
@@ -188,6 +200,16 @@ while :; do
         for _ in $(seq 1 "${SABHA_LOOP_GRACE:-15}"); do kill -0 "$cpid" 2>/dev/null || break; sleep 1; done
         kill -0 "$cpid" 2>/dev/null && kill -TERM "$cpid" 2>/dev/null
         break ;;
+      wait)
+        if [[ -n $relay_warn ]] && (( ! rwarned )); then
+          p=$(tr -d ' \n' <"$ctx" 2>/dev/null); p=${p%.*}
+          if [[ $p =~ ^[0-9]+$ ]] && (( p >= relay_warn )); then
+            rwarned=1
+            log "relay warning: context $p% (~$(( p * ${SABHA_RELAY_WINDOW_K:-1000} / 100 ))k tokens); restart at ${SABHA_LOOP_LIMIT}% once the handoff is saved"
+            # in the background: sabha_nudge waits for the pane to settle and must not stall the loop
+            ( sabha_nudge "$name" "Context ${p}%: write your handoff in status/$lower.md now; sabha-loop restarts you fresh at ${SABHA_LOOP_LIMIT}%." >/dev/null 2>&1 || true ) &
+          fi
+        fi ;;
       stale) (( warned )) || { log "warning: $ctx older than ${SABHA_LOOP_STALE:-120}s, keeping the session"; warned=1; } ;;
     esac
   done

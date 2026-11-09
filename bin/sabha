@@ -10,9 +10,22 @@
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
 #   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
+#   sabha roster [--check|--write]         SABHA_ROSTER is the only roster source: --check (default) prints a FAIL per
+#                                          PROTOCOL-core table cell or protocol/<Name>.md heading whose model differs,
+#                                          (with the "no <model>" lines of the SABHA_ROSTER_CLAIMS files as context);
+#                                          --write rewrites those doc lines from the conf (exit 1 on drift for --check)
+#   sabha stamp                            the time from the clock (UTC, then local) for briefs and status lines
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
+#   sabha owe [--sent FILE]                what you owe people: send-type for-me items, unsent drafts, the board rows they block
+#   sabha pack lint <file.md>...           rejects inline # comments, "..." elisions, non-ASCII and a missing "cd /abs &&" prefix
+#                                          in the command lines of push packs and PR bodies (bin/sabha-pack-lint)
+#   sabha upstream [args]                  upstream move watcher: archived, renamed, layout moved, reverse-merged (bin/sabha-upstream)
 #   sabha decide "Answer <id>: <B - text>" | <id> <B|text> [--note T]   one answer -> board update file, questions file, decision log line
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
+#   sabha prs [args]                       PR radar: open PRs of an author across orgs and repos, worst first (bin/sabha-prs)
+#   sabha whoami [Name]                    one line: role, session id, cwd, conf, impl, pane, live copies; exit 3 when
+#                                          more than one live session carries the name (role: Name, else SABHA_ROLE)
+#   sabha shipped <owner/repo#n>           how far a merged PR has been promoted along its branch chain (bin/sabha-shipped)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -262,12 +275,14 @@ warn() { echo "warn  $*"; WARNS=$((WARNS + 1)); }
 bad()  { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
 
 cmd_doctor() {
-  local ka ka_eff ka_src sd ca c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
+  local ka ka_eff ka_src sd ca c v impl="" remote="" push="" guard="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
   if [[ -f $CONF ]]; then
     # shellcheck disable=SC1090
     impl=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
     remote=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_REMOTE:-}" )
     push=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_PUSH:-}" )
+    # shellcheck disable=SC1090
+    guard=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_RELAY_GUARD:-}" )
     ok "config $CONF"
     local shared ws keys
     shared=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_SHARED:-}" )
@@ -391,12 +406,121 @@ cmd_doctor() {
   else
     ok "Remote Control: off (SABHA_REMOTE unset); Pro/Max only, Team/Enterprise seats and org policy block it"
   fi
+  # hooks that never load fail open: the relay would run unguarded
+  [[ $guard == 1 && -f $settings ]] && jq -e '.disableAllHooks == true' "$settings" >/dev/null 2>&1 &&
+    warn "SABHA_RELAY_GUARD=1 but disableAllHooks is true in $settings: the relay guard hooks will not run (managed settings are not checked)"
   [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
+
+  if [[ -f $CONF ]]; then
+    local ro
+    ro=$("${BASH:-bash}" "$BIN/sabha" roster --check 2>&1)
+    case $ro in
+      *"roster: "*) while IFS= read -r c; do [[ $c == "FAIL  "* ]] && bad "roster drift: ${c#FAIL  } (fix: sabha roster --write)"; done <<<"$ro"
+                    [[ $ro == *"FAIL  "* ]] || ok "${ro##*$'\n'}" ;;
+      *) warn "roster check did not run: ${ro##*$'\n'}" ;;
+    esac
+  fi
 
   echo "doctor: $FAILS fail, $WARNS warn"
   command -v python3 >/dev/null 2>&1 && python3 "$BIN/sabha-for-me" --tip-of-day 2>/dev/null
   [[ $FAILS -eq 0 ]]
 }
+
+# SABHA_ROSTER is the only roster source (audit Q7). The docs repeat each role's model in two places: the "Model[,
+# effort]" cell of a PROTOCOL-core table row and the "# Name (Model, effort)" first line of protocol/<Name>.md.
+RX_ROW='^\|([^|]*)\|[[:space:]]*([A-Za-z][A-Za-z0-9.-]*)(,[[:space:]]*([a-z]+))?[[:space:]]*\|'
+RX_CARD='^#[^(]*\(([^;()]*;[[:space:]]*)?([A-Za-z][A-Za-z0-9.-]*)(,[[:space:]]*([a-z]+))?\)'
+lc() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
+
+# roster_docs: one "<file>|<line>|<name>|<model>|<effort>" per model claim in the docs (effort empty when not given)
+roster_docs() {
+  local core=$SABHA_DOCS/${SABHA_PROTOCOL_CORE:-PROTOCOL-core.md} dir=$SABHA_DOCS/${SABHA_ROLE_DIR:-protocol} line n=0 c1 m e nm
+  if [[ -f $core ]]; then
+    while IFS= read -r line || [[ -n $line ]]; do
+      n=$((n + 1))
+      [[ $line =~ $RX_ROW ]] || continue
+      c1=${BASH_REMATCH[1]} m=${BASH_REMATCH[2]} e=${BASH_REMATCH[4]}
+      c1=${c1//\*/}; c1=${c1//,/ }; c1=${c1//\// }
+      for nm in $c1; do [[ " ${NAMES[*]} " == *" $nm "* ]] && echo "$core|$n|$nm|$(lc "$m")|$e"; done
+    done <"$core"
+  fi
+  for nm in "${NAMES[@]}"; do
+    [[ -f $dir/$nm.md ]] || continue
+    IFS= read -r line <"$dir/$nm.md"
+    [[ $line =~ $RX_CARD ]] && echo "$dir/$nm.md|1|$nm|$(lc "${BASH_REMATCH[2]}")|${BASH_REMATCH[4]}"
+  done
+  return 0
+}
+
+# drifts <model> <effort>: true when that doc claim differs from the role sabha_role last loaded
+drifts() { [[ $1 != "$R_MODEL" || ( -n $2 && $2 != "$R_EFFORT" ) ]]; }
+
+# roster_check: a FAIL line per doc claim that differs from SABHA_ROSTER. Where the model itself differs, each line of
+# a SABHA_ROSTER_CLAIMS file (notes or memory, prose, read only) that says "no <either model>" follows as context: prose
+# cannot be parsed into a verdict, so it never counts as drift on its own. Last line: the counts.
+roster_check() {
+  local rows src ln nm m e w drift=0 docs=0
+  for w in ${SABHA_ROSTER_CLAIMS:-}; do [[ -f $w ]] || { echo "FAIL  claims file $w not found"; drift=$((drift + 1)); }; done
+  rows=$(roster_docs)
+  while IFS='|' read -r src ln nm m e; do
+    [[ -n $nm ]] || continue
+    docs=$((docs + 1))
+    sabha_role "$nm"
+    drifts "$m" "$e" || continue
+    echo "FAIL  $nm: conf $R_MODEL $R_EFFORT, ${src#"$SABHA_DOCS"/}:$ln $m${e:+ $e}"; drift=$((drift + 1))
+    [[ $m == "$R_MODEL" ]] && continue
+    for w in ${SABHA_ROSTER_CLAIMS:-}; do
+      [[ -f $w ]] && grep -niwE "no ($m|$R_MODEL)" "$w" | cut -c1-120 | sed "s|^|      $nm: $w:|"
+    done
+  done <<<"$rows"
+  echo "roster: ${#NAMES[@]} roles, $docs doc claims, $drift drift"
+  (( drift == 0 ))
+}
+
+# roster_write: rewrites each drifting doc claim to the conf's "Model, effort". A table row that names several roles
+# whose conf profiles differ is left alone (split it by hand). Claims files are never written.
+roster_write() {
+  local rows src ln nm m e want mine other s l o changed=0 tmp
+  rows=$(roster_docs)
+  while IFS='|' read -r src ln nm m e; do
+    [[ -n $nm ]] || continue
+    sabha_role "$nm"
+    drifts "$m" "$e" || continue
+    mine="$R_MODEL $R_EFFORT"
+    want="$(tr '[:lower:]' '[:upper:]' <<<"${R_MODEL:0:1}")${R_MODEL:1}, $R_EFFORT"
+    other=$(while IFS='|' read -r s l o _; do
+      [[ $s == "$src" && $l == "$ln" && $o != "$nm" ]] || continue
+      sabha_role "$o"; [[ "$R_MODEL $R_EFFORT" != "$mine" ]] && echo "$o"
+    done <<<"$rows")
+    if [[ -n $other ]]; then
+      echo "skip  ${src#"$SABHA_DOCS"/}:$ln: $nm and ${other//$'\n'/ } differ in the conf; split the row by hand"; continue
+    fi
+    tmp=$src.tmp.$$
+    if [[ $ln == 1 && $src == */"$nm".md ]]; then
+      awk -v want="$want" 'NR == 1 && match($0, /\(([^;()]*; *)?[A-Za-z][A-Za-z0-9.-]*(, *[a-z]+)?\)/) {
+        i = substr($0, RSTART, RLENGTH); p = index(i, ";"); pre = p ? substr(i, 2, p - 2) "; " : ""
+        $0 = substr($0, 1, RSTART - 1) "(" pre want ")" substr($0, RSTART + RLENGTH) } { print }' "$src" >"$tmp"
+    else
+      awk -v ln="$ln" -v want="$want" 'NR == ln { n = split($0, a, "|"); a[3] = " " want " "; s = a[1]
+        for (k = 2; k <= n; k++) s = s "|" a[k]; $0 = s } { print }' "$src" >"$tmp"
+    fi
+    if cmp -s "$tmp" "$src"; then rm -f "$tmp"
+    else mv "$tmp" "$src" && { echo "wrote ${src#"$SABHA_DOCS"/}:$ln $nm -> $want"; changed=$((changed + 1)); }; fi
+  done <<<"$rows"
+  echo "roster: $changed line(s) rewritten"
+}
+
+cmd_roster() {
+  sabha_load sabha
+  case ${1:---check} in
+    --check) roster_check ;;
+    --write) roster_write ;;
+    *) die "roster: use --check or --write" ;;
+  esac
+}
+
+# stamp: the time for a brief or a status line, from the clock, never hand-typed (audit Q7)
+cmd_stamp() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ($(date '+%Y-%m-%d %H:%M %Z'))"; }
 
 # keep-awake [auto|off|open|lid]: no argument prints the setting; a mode rewrites SABHA_KEEP_AWAKE in the config
 # (a running sabha-loop picks it up on its next poll). lid still needs the user's sudo step (docs/keep-awake.md).
@@ -427,6 +551,27 @@ cmd_sheet() {
   exec python3 "$BIN/sabha-sheet" "${c#sheet-}" "$@"
 }
 
+# whoami [Name]: the one-line answer to "who and where am I". The session id is the one the SessionStart hook wrote to
+# status/whoami/<Name>.txt; live copies counts claude processes started with that name (sabha_procs).
+cmd_whoami() {
+  local role=${1:-${SABHA_ROLE:-}} impl session='' pane copies
+  [[ -n $role ]] || { echo "usage: sabha whoami <Name> (or set SABHA_ROLE)" >&2; exit 2; }
+  case $role in *[!A-Za-z0-9_-]*) die "whoami: bad role name '$role'" ;; esac
+  impl=${SABHA_IMPL:-$( set +u; sabha_conf_read whoami >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )}
+  [[ -n $impl && -f $impl/status/whoami/$role.txt ]] &&
+    session=$(sed -n 's/^session_id=//p' "$impl/status/whoami/$role.txt" | head -n 1)
+  pane=${HERDR_PANE_ID:-${TMUX_PANE:--}}
+  if copies=$(sabha_procs 2>/dev/null); then
+    copies=$(awk -v n="$role" '$1 == n { c++ } END { print c + 0 }' <<<"$copies")
+  else copies=unknown; fi
+  echo "role: $role | session: ${session:-unknown} | cwd: $PWD | conf: $CONF | impl: ${impl:--} | pane: $pane | live copies: $copies"
+  if [[ $copies != unknown ]] && (( copies > 1 )); then
+    echo "WARN duplicate: $copies live sessions are named $role; close all but one before acting"
+    exit 3
+  fi
+  return 0
+}
+
 case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
@@ -434,7 +579,17 @@ case ${1:-} in
   update) shift; cmd_update ;;
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
+  owe) shift; [[ ${1:-} == --sent ]] || set -- --owe; SABHA_CONF=$CONF exec python3 "$BIN/sabha-for-me" "$@" ;;
+  upstream) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-upstream" "$@" ;;
+  sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
+  roster) shift; cmd_roster "$@" ;;
+  stamp) cmd_stamp ;;
+  prs) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-prs" "$@" ;;
+  whoami) shift; cmd_whoami "$@" ;;
+  pack-lint) shift; exec "$BIN/sabha-pack-lint" "$@" ;;
+  pack) [[ ${2:-} == lint ]] || die "pack: use 'sabha pack lint <file.md>...'"; shift 2; exec "$BIN/sabha-pack-lint" "$@" ;;
+  shipped) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-shipped" "$@" ;;
   decide) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-decide" "$@" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha decide | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>... | sabha shipped <owner/repo#n> | sabha decide" >&2; exit 2 ;;
 esac
