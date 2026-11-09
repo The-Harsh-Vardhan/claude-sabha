@@ -35,6 +35,53 @@ Environment first, then `SABHA_CONF` when set (the conf runs in its own bash; on
 A safety net for honest mistakes, as the push guard is (SECURITY.md); a session set on breaking a rule can get round it.
 The hook and its settings file are not protected: a session can edit them.
 
+Status: a best-effort guard against accidents by an agent, NOT a security boundary. It is opt-in and nothing is
+installed (it is not in `hooks/hooks.json`). The shared-branch push rule does not rest on this hook: it stays enforced
+by the other layers (branch protection on the shared branches, and the standing rule that agents never push to them).
+Do not rely on the hook alone for it.
+
+### Open after review 235 (round 5, tip 4b632c4)
+
+The round-5 review (5 reviews, 4 fix rounds so far) still holds 4 MUST and 3 SHOULD. Code rounds stopped here on
+purpose; these are written down instead. Every probe is made-up text for the hook's stdin (a tool-call JSON with this
+command string), run by the reviewer on scratch repos. Do not run them in a shell.
+
+MUST (each one lets a push to a shared branch through):
+
+1. The scanner is fed text with every backslash already deleted (`sed` at the scanner call), so it sees a different
+   command than the shell. `\#` becomes a comment, and `\\` before a closing quote turns that quote into an escaped one.
+   Probes: `echo \#; git push origin main` and `echo "x\\"; git push origin main; echo "y\\"` are allowed.
+   The first is a regression of round 4 (denied on e94f084); the second is the old quote-swallow class.
+2. `<<` inside arithmetic is taken for a heredoc, so the next lines are scanned one at a time with fresh quotes.
+   Probe: `echo $((1<<2))`, then a line `echo "a`, a line `b"; git push origin main; echo "c`, a line `d"`, is allowed.
+3. The current-branch exception (`$(git branch --show-current)` as the refspec) is judged against the directory of the
+   push, but the shell runs the substitution in its own directory. From a main checkout that sits on `main`:
+   `git -C <feature worktree> push origin "$(git branch --show-current)"` is allowed and pushes `main`.
+   Same for `env -C <worktree> git push origin "$(git branch --show-current)"`.
+4. The push judge only runs when the lowercase text `push`, ` api` or `config-env` is in the command, so a config
+   write that lacks it is never judged. Probes, each allowed as a command of its own: `git config remote.origin.Push
+   HEAD:main`, `git config remote.origin.mirror true`, `git config Push.Default matching`, `git config alias.p x`,
+   `git -c remote.origin.mirror=true status`. A later plain `git push` then goes where the config says. Also
+   `gh<TAB>api repos/o/r/merges -f base=main -f head=x` (a tab, not a space, before `api`).
+
+SHOULD:
+
+1. A command just under the 16 KB guard is not judged in time, and a hook timeout lets the call through. Measured at
+   load 41-51 with the 5 s timeout of the example settings: 1 KB 0.24 s, 4 KB 0.82 s, 8 KB 3.68 s, 15 KB 62.7 s (time
+   is quadratic in size). Pre-existing; the checkable size is about 8 KB at load 40, not 16 KB. Adversary-only (a
+   padded command).
+2. More gap classes, all allowed (the first is listed above already):
+   `git -c push.default=upstream -c branch.feat/x.merge=refs/heads/main push`; a pushed string piped into a shell
+   (`echo "git push origin main" | bash`, `printf 'git push origin main' | sh`); only the first quoted string of an
+   `eval` or `sh -c` is read (`eval "git push origin" main`, `sh -c "git push origin "main`); a command word from a
+   substitution or variable (`$(which git) push origin main`, `G=git; $G push origin main`).
+3. Timing and test hygiene: the current-branch path is about 2x slower (0.47-0.95 s against a 0.5 s budget at load 50),
+   and the 18 quote rows assert only a denial, not that the rule is `shared-push`, so one could pass on another rule.
+
+Fixes the reviewer proposed (not applied): hand the scanner the command with only line continuations joined; treat `<<`
+as a heredoc only outside `((`; accept the current-branch form only when no `-C`, `--git-dir`, `--work-tree` or `env -C`
+applies; widen the gate to a case-insensitive `*push*|*api*|*config*|*alias*|*mirror*`; lower the size guard to about 6 KB.
+
 - `ascii` and `attribution` miss text built at run time: a split string (`"Co-Author""ed-By"`), a variable
   (`T=...; -m "$T"`), `$(printf ...)`, `g=git; $g commit`, `git-commit`, a git alias for `commit`, `git merge -m`,
   `git tag -m`, `gh pr merge --body`, `gh api ... -f body=`.
