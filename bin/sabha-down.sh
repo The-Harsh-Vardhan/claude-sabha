@@ -53,6 +53,11 @@ stop_session() {
 }
 FOOTER="(ps sees only claude -n/--name sessions; cross-check ListAgents)"
 
+# durable helpers (docs/durable-helpers.md) first: each gets a .cancel and is recorded "stopped", so the process list
+# read next no longer shows them as roles to save and kill. A dry run only says what it would stop.
+helper_stop=("$(dirname "$0")/sabha-helper" stop --all --reason sabha-down --timeout "${SABHA_DOWN_HELPER_TIMEOUT:-30}")
+if (( YES )); then "${helper_stop[@]}" || echo "sabha-down: a helper did not stop in time; see sabha-helper list" >&2
+else "${helper_stop[@]}" --dry-run; fi
 procs=$(sabha_procs) || { echo "sabha-down: cannot read the process list; nothing done" >&2; exit 2; }
 relay_ttys=" $(awk -v r="$RELAY" '$1 == r { printf "%s ", $3 }' <<<"$procs")"
 # this script's own ancestors, so a run from inside a pane never kills the shell running it

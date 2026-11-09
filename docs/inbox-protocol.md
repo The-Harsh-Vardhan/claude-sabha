@@ -27,6 +27,7 @@ edited by another; a change is a new file.
 | `inbox/<To>/NNN-<from>-<slug>.md` | the sender | the receiver, `sabha-watch` | every brief; the message says only `see inbox/<To>/NNN` |
 | `inbox/<To>/NNN.ack` | the receiver | the sender at its next wake; `sabha-watch` | first action after reading |
 | `inbox/<To>/run.lock` | `sabha-run` | `sabha-run` | while a headless run is on that role; holds its pid ([headless-runner.md](headless-runner.md)) |
+| `status/helpers/<Name>-<NNN>.json` | `sabha-run --detach`, `sabha-helper` | a fresh `<dispatcher>` (`sabha-helper reattach`), `sabha-down.sh` | one per durable helper: pid, state, log ([durable-helpers.md](durable-helpers.md)) |
 | `inbox/<To>/NNN.done` | the receiver | the sender; `<reviewer>`; `sabha-watch` | after the status file is updated |
 | `inbox/<To>/NNN.cancel` | the sender, or `<relay>` | the receiver before each irreversible step and at each safe point | to stop or hold |
 | `for-me.items` | any role appends | `sabha-for-me` (renders `FOR-ME.md` and `FOR-ME.html`) | whenever something needs the user |

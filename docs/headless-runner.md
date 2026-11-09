@@ -46,4 +46,10 @@ that exact line per due brief and writes nothing.
 - An acked brief with no `.done` (a run killed with `kill -9` on the runner itself) is not retried; the role's later
   briefs still run, and `sabha-watch` shows the role mid-task. Resume it by hand with `sabha-up.sh <Name>`.
 - `sabha-down.sh` sees a headless run as a running role (it carries `-n <Name>`) and sends it a save brief it never
-  reads; such a run ends on its own or at its timeout, and a later pass then runs that save brief headless.
+  reads; such a run ends on its own or at its timeout, and a later pass then runs that save brief headless. (A run
+  started as a durable helper is stopped by `sabha-down.sh` first, so this does not apply to it.)
+
+## Durable helpers
+
+`sabha-run --detach <Name>` is the same run started in its own session with a registry entry, so it outlives the
+session that started it; see [durable-helpers.md](durable-helpers.md).
