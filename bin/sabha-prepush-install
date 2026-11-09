@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Installs hooks/git-pre-push.sh as the pre-push hook of the ONE repository that contains <path>, only when you run it.
+# It installs where git looks for hooks: .git/hooks, or the directory core.hooksPath names (chitragupt: .githooks,
+# guardians: .husky/_); it says which. No git config is written, no template dir. Refuses when a different pre-push hook
+# is there already. Undo: rm the file it names.
+# Usage: bin/sabha-prepush-install <path>
+set -eu
+repo=${1:?usage: sabha-prepush-install <path>}
+src=$(cd "$(dirname "$0")/../hooks" && pwd)/git-pre-push.sh
+git -C "$repo" rev-parse --git-dir >/dev/null || exit 1
+hp=$(cd "$repo" && git rev-parse --git-path hooks)
+hooks=$(cd "$repo" && mkdir -p "$hp" && cd "$hp" && pwd)
+dst=$hooks/pre-push
+# sourced, not exec'd: one bash start per push. -p: bash then ignores BASH_ENV from the push's environment.
+want=$(printf '#!/bin/bash -p\n. %q' "$src")
+cfg=$(git -C "$repo" config --get core.hooksPath || true)
+shared_warning() {
+  [[ -n $cfg && -z $(git -C "$repo" config --local --get core.hooksPath || true) ]] || return 0
+  echo "WARNING: core.hooksPath comes from a global or system git config ($(git -C "$repo" config --show-origin --get core.hooksPath | cut -f1)): $hooks is shared by every repository that uses it, so this hook now runs on their pushes too. Undo: rm $dst" >&2
+}
+if [[ -f $dst && ! -L $dst && $(cat "$dst") == "$want" ]]; then shared_warning; echo "already installed: $dst -> $src"; exit 0; fi
+if [[ -e $dst || -L $dst ]]; then
+  echo "sabha-prepush-install: kept the existing pre-push hook $dst; nothing was installed or changed. To run both, add a line to that hook, after it saves its stdin once (in=\$(cat)), that pipes the saved lines to ours: echo \"\$in\" | bash $src \"\$@\" (git sends the ref lines only once, so a second reader that reads stdin gets nothing); to replace it on purpose, move it aside (mv) and run this again. (An older stub of this hook is replaced the same way.)" >&2
+  exit 1
+fi
+if [[ -n $cfg ]]; then
+  echo "note: core.hooksPath is set (${cfg}); installing there, not in .git/hooks. If that directory is tracked, the new file shows up as untracked: do not commit it." >&2
+  shared_warning
+fi
+printf '%s\n' "$want" >"$dst"
+chmod +x "$dst"
+echo "installed $dst -> $src"

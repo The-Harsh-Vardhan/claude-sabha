@@ -27,6 +27,11 @@
 - Morning digest: `sabha-for-me --digest [--since <utc>]` writes `DIGEST-<date>.md` and `.html` (finished, blocked, the
   commands you owe, roles). Run it by hand or from your own cron or launchd entry (docs/morning-digest.md); sabha-watch
   does not build it and stays read-only.
+- Rule hooks: `hooks/sabha-rules.sh`, an opt-in PreToolUse hook for four working rules (ASCII only, no AI
+  attribution, no push to a shared branch, no reading of secret files). Shipped as a file, not in `hooks/hooks.json`;
+  `hooks/rules.settings.example.json` is the block to paste, docs/rule-hooks.md the rules and keys, `tests/test-rules.sh`
+  the checks.
+
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
