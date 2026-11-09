@@ -7,19 +7,25 @@ HK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 hk_lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # hk_rule_conf: the one place the rule hooks (sabha-rules.sh, git-pre-push.sh) read their settings. Sets HK_RULES,
-# HK_SHARED and HK_EXEMPT from the environment, else SABHA_CONF; HK_SHARED falls back to the default list.
+# HK_SHARED and HK_EXEMPT from the environment, else SABHA_CONF; HK_SHARED falls back to the default list when it is
+# empty or has no non-space character. "hk_rule_conf prepush" does not trust the push's own environment: SABHA_CONF is
+# ignored (only the sabha.conf beside the scripts is read) and SABHA_SHARED_BRANCHES and that conf can only ADD to the
+# default list, never replace it.
 hk_rule_conf() {
-  local vals
-  HK_RULES=${SABHA_RULES:-} HK_SHARED=${SABHA_SHARED_BRANCHES:-} HK_EXEMPT=${SABHA_ASCII_EXEMPT:-}
-  if [[ -n ${SABHA_CONF:-} && -f $SABHA_CONF ]]; then
+  local vals conf=${SABHA_CONF:-} def="main master dev develop staging release/*" envs=${SABHA_SHARED_BRANCHES:-} cfgs=
+  [[ ${1:-} == prepush ]] && conf=$HK_DIR/../sabha.conf
+  HK_RULES=${SABHA_RULES:-} HK_SHARED=$envs HK_EXEMPT=${SABHA_ASCII_EXEMPT:-}
+  if [[ -n $conf && -f $conf ]]; then
     # the conf runs in its own bash and hands back only these three values
     # shellcheck disable=SC2016  # expanded by the inner bash
-    vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_RULES:-}" "${SABHA_SHARED_BRANCHES:-}" "${SABHA_ASCII_EXEMPT:-}"' _ "$SABHA_CONF" 2>/dev/null) || vals=
+    vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_RULES:-}" "${SABHA_SHARED_BRANCHES:-}" "${SABHA_ASCII_EXEMPT:-}"' _ "$conf" 2>/dev/null) || vals=
     [[ -n $HK_RULES ]] || HK_RULES=$(printf '%s\n' "$vals" | sed -n 1p)
-    [[ -n $HK_SHARED ]] || HK_SHARED=$(printf '%s\n' "$vals" | sed -n 2p)
+    cfgs=$(printf '%s\n' "$vals" | sed -n 2p)
+    [[ -n $HK_SHARED ]] || HK_SHARED=$cfgs
     [[ -n $HK_EXEMPT ]] || HK_EXEMPT=$(printf '%s\n' "$vals" | sed -n 3p)
   fi
-  [[ -n $HK_SHARED ]] || HK_SHARED="main master dev develop staging release/*"
+  [[ ${1:-} == prepush ]] && HK_SHARED="$def $envs $cfgs"
+  [[ $HK_SHARED == *[![:space:]]* ]] || HK_SHARED=$def
 }
 
 # hk_init: reads the hook JSON from stdin into HK_INPUT, then sets HK_ROLE (as written in the roster, or Name-N for a

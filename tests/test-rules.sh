@@ -526,6 +526,11 @@ check "a tool the hook does not know passes" 'allows run WebFetch url "https://e
 printf 'SABHA_RULES="secret-read"\nSABHA_SHARED_BRANCHES="x"\n' >"$dir/sabha.conf"
 check "conf SABHA_RULES is read" 'SABHA_CONF=$dir/sabha.conf allows bash_in "git push origin main"'
 check "env wins over the conf" 'SABHA_CONF=$dir/sabha.conf SABHA_RULES=shared-push SABHA_SHARED_BRANCHES=main denies bash_in "git push origin main"'
+for v in ' ' $'\t' $'\n'; do
+  check "env SABHA_SHARED_BRANCHES=$(printf %q "$v") (no word) falls back to the default (review 242 M2)" 'SABHA_SHARED_BRANCHES=$v denies bash_in "git push origin main"'
+  printf 'SABHA_SHARED_BRANCHES="%s"\n' "$v" >"$dir/ws.conf"
+  check "conf SABHA_SHARED_BRANCHES=$(printf %q "$v") (no word) falls back to the default (review 242 M2)" 'SABHA_CONF=$dir/ws.conf denies bash_in "git push origin main"'
+done
 mkdir -p "$dir/nojq"
 check "no jq denies" 'err=$(printf "{}" | PATH=$dir/nojq /bin/bash "$hook" 2>&1 >/dev/null); [[ $? == 2 && $err == *"jq is missing"* ]]'
 

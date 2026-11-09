@@ -23,6 +23,7 @@ A=$(printf 'a%.0s' {1..40}) Z=0000000000000000000000000000000000000000
 feed() { err=$(printf "$1" | /bin/bash "$hook" origin /x/remote.git 2>&1 >/dev/null); rc=$?; }
 refuses() { feed "$1"; (( rc == 1 )) && [[ $err == "sabha pre-push: shared-push:"* ]]; }
 passes() { feed "$1"; (( rc == 0 )) && [[ -z $err ]]; }
+refuses_c() { err=$(printf "$1" | /bin/bash "$dir/c/hooks/git-pre-push.sh" origin /x/remote.git 2>&1 >/dev/null); rc=$?; (( rc == 1 )) && [[ $err == "sabha pre-push: shared-push:"* ]]; }
 for r in refs/heads/main heads/main main :main +main +refs/heads/main HEAD:main refs/heads/master refs/heads/dev \
   refs/heads/develop refs/heads/staging refs/heads/release/x refs/heads/release/arcus-automation-sprint-3; do
   check "stdin: remote ref $r refused" "refuses 'refs/heads/feat/x $A $r $Z\n'"
@@ -33,7 +34,9 @@ check "stdin: last line without a newline judged" 'refuses "refs/heads/main $A r
 check "stdin: feature branch passes" 'passes "refs/heads/feat/x $A refs/heads/feat/x $Z\n"'
 check "stdin: delete of a feature branch passes" 'passes "(delete) $Z refs/heads/feat/old $A\n"'
 check "stdin: tag passes" 'passes "refs/tags/v1 $A refs/tags/v1 $Z\n"'
-check "stdin: names are case-sensitive as in git (Main passes)" 'passes "refs/heads/Main $A refs/heads/Main $Z\n"'
+for r in Main MAIN mAin Release/x refs/heads/Main +refs/heads/MASTER; do
+  check "stdin: case-folded $r refused (APFS moves main for Main)" "refuses 'x $A $r $Z\n'"
+done
 check "stdin: mainline and feat/main pass" 'passes "refs/heads/x $A refs/heads/mainline $Z\nrefs/heads/x $A refs/heads/feat/main $Z\n"'
 check "stdin: sha256 ids accepted" 'passes "refs/heads/feat/x ${A}${A:0:24} refs/heads/feat/x ${Z}${Z:0:24}\n"'
 check "stdin: empty passes" 'passes ""'
@@ -41,13 +44,33 @@ for bad in "refs/heads/main $A refs/heads/main" "refs/heads/x $A refs/heads/x $Z
   "refs/heads/x\t$A\trefs/heads/main\t$Z" "refs/heads/x $A refs/heads/x $Z\r" " " "refs/heads/x $A refs/heads/ $Z"; do
   check "stdin: malformed line refused: $bad" "refuses '$bad\n'"
 done
-check "stdin: SABHA_SHARED_BRANCHES replaces the list" 'SABHA_SHARED_BRANCHES="sprint*" refuses "x $A refs/heads/sprint-9 $Z\n" && SABHA_SHARED_BRANCHES="sprint*" passes "x $A refs/heads/main $Z\n"'
+check "stdin: SABHA_SHARED_BRANCHES adds to the default list (review 242 M1)" 'SABHA_SHARED_BRANCHES="sprint*" refuses "x $A refs/heads/sprint-9 $Z\n" && SABHA_SHARED_BRANCHES="sprint*" refuses "x $A refs/heads/main $Z\n"'
+for v in none qa; do
+  check "stdin: SABHA_SHARED_BRANCHES=$v does not switch main off (review 242 M1)" "SABHA_SHARED_BRANCHES=$v refuses 'x $A refs/heads/main $Z\n'"
+done
 printf 'SABHA_SHARED_BRANCHES="qa"\n' >"$dir/sabha.conf"
-check "stdin: SABHA_CONF list is read (the same one the Claude hook reads)" 'SABHA_CONF=$dir/sabha.conf refuses "x $A refs/heads/qa $Z\n" && {
+check "stdin: SABHA_CONF in the push's environment is ignored by the pre-push hook (review 242 M1); the Claude hook still reads it" 'SABHA_CONF=$dir/sabha.conf passes "x $A refs/heads/qa $Z\n" && SABHA_CONF=$dir/sabha.conf refuses "x $A refs/heads/main $Z\n" && {
   printf "{\"tool_name\":\"Bash\",\"cwd\":\"/\",\"tool_input\":{\"command\":\"git push origin qa\"}}" | SABHA_CONF=$dir/sabha.conf bash "$root/hooks/sabha-rules.sh" 2>/dev/null; [[ $? == 2 ]]; }'
+# review 242 M2: a list with no word must fall back to the default, from the env and from a conf
+for v in ' ' $'\t' $'\n' $' \t\n'; do
+  check "stdin: SABHA_SHARED_BRANCHES=$(printf %q "$v") (no word) falls back to the default (review 242 M2)" 'SABHA_SHARED_BRANCHES=$v refuses "x $A refs/heads/main $Z\n"'
+done
 if [[ -z ${PREPUSH_NOHOOK:-} ]]; then
   mkdir "$dir/alone" && cp "$hook" "$dir/alone/"
   check "stdin: lib.sh missing refuses" 'err=$(printf "x $A refs/heads/feat/x $Z\n" | /bin/bash "$dir/alone/git-pre-push.sh" 2>&1); [[ $? == 1 && $err == *"lib.sh is missing"* ]]'
+  # a sabha.conf beside the scripts is the only conf the pre-push hook reads
+  mkdir -p "$dir/c/hooks" && cp "$root/hooks/git-pre-push.sh" "$root/hooks/lib.sh" "$dir/c/hooks/"
+  printf 'SABHA_SHARED_BRANCHES="qa"\n' >"$dir/c/sabha.conf"
+  check "stdin: conf beside the scripts adds qa and keeps main" 'refuses_c "x $A refs/heads/qa $Z\n" && refuses_c "x $A refs/heads/main $Z\n"'
+  for v in ' ' $'\t' $'\n'; do
+    printf 'SABHA_SHARED_BRANCHES="%s"\n' "$v" >"$dir/c/sabha.conf"
+    check "stdin: conf holding $(printf %q "$v") (no word) falls back to the default (review 242 M2)" 'refuses_c "x $A refs/heads/main $Z\n"'
+  done
+  printf 'SABHA_SHARED_BRANCHES="none"\n' >"$dir/c/sabha.conf"
+  check "stdin: conf holding none does not switch main off" 'refuses_c "x $A refs/heads/main $Z\n"'
+  if [[ $(/bin/bash -c 'echo ${BASH_VERSINFO[0]}') == 3 ]]; then
+    check "stdin: NUL in a line refused (bash 3.2: read keeps the NUL)" 'refuses "refs/heads/f\0eat $A refs/heads/feat/x $Z\n"'
+  fi
 fi
 
 # ---- real pushes ----
@@ -117,17 +140,35 @@ git -C "$dir/clone2" commit -q --allow-empty -m y
 check "push: --all with feature branches only lands" 'push "$dir/clone2" "git push --all origin"; (( rc == 0 )) && [[ $(rref refs/heads/feat/y) == "$(git -C "$dir/clone2" rev-parse feat/y)" ]]'
 # known gaps, written down in docs/rule-hooks.md: these skip the hook, so the push lands
 check "known gap: --no-verify skips the hook" 'landed $M "git push --no-verify origin HEAD:main" "" feat/x'
-check "known gap: SABHA_SHARED_BRANCHES in the push's environment replaces the list" 'landed $M "SABHA_SHARED_BRANCHES=none git push origin HEAD:main" "" feat/x'
 check "known gap: -c core.hooksPath skips the hook" 'landed $M "git -c core.hooksPath=/nonexistent push origin HEAD:main" "" feat/x'
+# review 242 M1: the push's own environment no longer switches the hook off
+check "push: SABHA_SHARED_BRANCHES=none in the push's environment refused (review 242 M1)" 'refused $M "SABHA_SHARED_BRANCHES=none git push origin HEAD:main" "" feat/x'
+printf 'SABHA_SHARED_BRANCHES="none"\n' >"$dir/none.conf"
+check "push: SABHA_CONF=<conf holding none> in the push's environment refused (review 242 M1)" 'refused $M "SABHA_CONF=$dir/none.conf git push origin HEAD:main" "" feat/x'
+printf 'exit 0\n' >"$dir/exit0.sh"
+check "push: BASH_ENV=<file holding exit 0> in the push's environment refused (review 242 M1, bash -p stub)" 'refused $M "BASH_ENV=$dir/exit0.sh git push origin HEAD:main" "" feat/x'
+check "push: --atomic refused" 'refused $M "git push --atomic origin HEAD:main"'
+check "push: --force-with-lease=main:<the remote sha> refused (git's own lease check passes, so the hook decides)" 'refused $M "git push --force-with-lease=main:\$(git -C \"$dir/remote.orig\" rev-parse main) origin HEAD:main"'
+check "push: a tag named main lands (judged by its full ref)" 'git -C "$dir/clone2" tag main && push "$dir/clone2" "git push origin refs/tags/main"; (( rc == 0 )) && [[ $(rref refs/tags/main) == "$(git -C "$dir/clone2" rev-parse refs/tags/main)" ]]'
+check "push: a second ref (main) after a feature ref refused" 'refused $M "git push origin feat/x HEAD:main"'
 if [[ -z ${PREPUSH_NOHOOK:-} ]]; then
-  check "install: refuses when a pre-push hook exists" '! "$root/bin/sabha-prepush-install" "$dir/clone" 2>/dev/null'
-  best=99999
+  check "install: the stub runs under bash -p (BASH_ENV is not read)" '[[ $(sed -n 1p "$dir/clone/.git/hooks/pre-push") == "#!/bin/bash -p" ]]'
+  check "install: a second run says already installed, rc 0" 'out=$("$root/bin/sabha-prepush-install" "$dir/clone" 2>&1); [[ $? == 0 && $out == "already installed:"* ]]'
+  check "install: a path that is not a repository fails with no stray mkdir error" 'out=$("$root/bin/sabha-prepush-install" "$dir" 2>&1); [[ $? != 0 && $out == *"not a git repository"* && $out != *mkdir* ]]'
+  git init -q -b main "$dir/hp" && git -C "$dir/hp" config core.hooksPath .githooks && mkdir "$dir/hp/.githooks"
+  check "install: follows core.hooksPath and says so" 'out=$("$root/bin/sabha-prepush-install" "$dir/hp" 2>&1); [[ $? == 0 && $out == *"core.hooksPath is set (.githooks)"* && -x $dir/hp/.githooks/pre-push && ! -e $dir/hp/.git/hooks/pre-push ]]'
+fi
+if [[ -z ${PREPUSH_NOHOOK:-} ]]; then
+  git init -q -b main "$dir/foreign" && printf '#!/bin/sh\nexit 0\n' >"$dir/foreign/.git/hooks/pre-push"
+  check "install: refuses when a different pre-push hook exists, and keeps it" '! "$root/bin/sabha-prepush-install" "$dir/foreign" 2>/dev/null && grep -q "exit 0" "$dir/foreign/.git/hooks/pre-push"'
+  times=
   for _ in 1 2 3 4 5; do
     t=$( { TIMEFORMAT=%3R; time printf "refs/heads/feat/x $A refs/heads/feat/x $Z\n" | /bin/bash "$hook" origin u; } 2>&1 >/dev/null)
-    t=${t/./}; t=$((10#$t))
-    (( t < best )) && best=$t
+    t=${t/./}; times="$times $((10#$t))"
   done
-  check "hook time on a feature line under 100 ms (best of 5: $best ms)" '(( best < 100 ))'
+  read -r best _ median _ worst <<<"$(printf '%s' "$times" | tr ' ' '\n' | grep . | sort -n | tr '\n' ' ')"
+  # wall time of the hook alone, 5 runs at the load of the day: the row asserts the best, the label shows the spread
+  check "hook time on a feature line: best of 5 under 100 ms (best $best, median $median, worst $worst ms; load: $(uptime | sed 's/.*averages*: //'))" '(( best < 100 ))'
 fi
 
 echo

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # git pre-push hook: refuses a push whose remote ref is a shared branch (SABHA_SHARED_BRANCHES, the same list the Claude
-# rule hook uses, read by hk_rule_conf in lib.sh). Git hands it the real refs of the push, not the command text, so
+# rule hook uses, read by hk_rule_conf in lib.sh; here the push's environment can only add branches to the default list
+# and SABHA_CONF is ignored). Git hands it the real refs of the push, not the command text, so
 # quoting, aliases, config and command words built at run time do not matter here. Opt-in for one repository:
 # bin/sabha-prepush-install <repo> (docs/rule-hooks.md). Not a boundary: git push --no-verify skips it.
 # Stdin: one line per ref, "<local ref> <local sha> <remote ref> <remote sha>"; args: remote name, url.
 set -u
-shopt -u nocasematch
+shopt -s nocasematch  # a case-insensitive remote disk moves main for Main, so names are compared case-folded
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh" || { echo "sabha pre-push: hooks/lib.sh is missing; push refused" >&2; exit 1; }
-hk_rule_conf
+hk_rule_conf prepush
 
 refuse() { echo "sabha pre-push: shared-push: $1" >&2; cat >/dev/null; exit 1; }
 re='^([^ ]+) ([0-9a-f]{40}|[0-9a-f]{64}) ([^ ]+) ([0-9a-f]{40}|[0-9a-f]{64})$'

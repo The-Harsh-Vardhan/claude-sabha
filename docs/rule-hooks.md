@@ -27,7 +27,7 @@ Environment first, then `SABHA_CONF` when set (the conf runs in its own bash; on
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `SABHA_RULES` | `ascii attribution shared-push secret-read` | space-separated rules to enforce |
-| `SABHA_SHARED_BRANCHES` | `main master dev develop staging release/*` | globs the `shared-push` rule protects; put your sprint branches here |
+| `SABHA_SHARED_BRANCHES` | `main master dev develop staging release/*` | globs the `shared-push` rule protects; put your sprint branches here. The Claude hook: a value REPLACES the default (`SABHA_SHARED_BRANCHES="qa"` leaves `main` unprotected, so list `main` again). The pre-push hook: a value only ADDS to the default. Empty or only spaces, tabs or newlines means the default, in both hooks |
 | `SABHA_ASCII_EXEMPT` | empty | path globs the `ascii` rule skips (vendored or imported files) |
 
 ## Pre-push layer (git hook)
@@ -39,25 +39,46 @@ the hook judges the real refs of the push, not the command text: quoting, backsl
 piped string or a command word from a variable all end in the same lines.
 
 - Refused (exit 1, `sabha pre-push: shared-push: ...` on stderr naming the branch, the remote ref and the remote): any
-  line whose remote ref is a shared branch. The list is `SABHA_SHARED_BRANCHES` read by `hk_rule_conf` in
-  `hooks/lib.sh`, the one function both hooks use (environment, else `SABHA_CONF`, else the default). The remote ref is
-  normalised first: `refs/heads/main`, `heads/main` and `main` are the same branch; a delete (local sha all zeros) and
+  line whose remote ref is a shared branch. The list is read by `hk_rule_conf` in `hooks/lib.sh`, the one function both
+  hooks use, but the pre-push hook does not trust the environment of the push: the default list (`main master dev
+  develop staging release/*`) is always on, `SABHA_SHARED_BRANCHES` from the environment and from the `sabha.conf`
+  beside the scripts can only ADD branches (so `SABHA_SHARED_BRANCHES=none` adds a branch called `none`), and a
+  `SABHA_CONF` in the environment is ignored. A git-run hook does not get your shell's `SABHA_CONF` anyway, so put
+  your sprint branches in `sabha.conf` beside the scripts, or export `SABHA_SHARED_BRANCHES` in the shell that pushes.
+  The remote ref is normalised first: `refs/heads/main`, `heads/main` and `main` are the same branch; a delete (local sha all zeros) and
   a force (`+main`, non-fast-forward) count the same as a push. `--all` and `--mirror` are refused when they touch a
   shared ref.
-- Names are compared exactly as git does, case-sensitive: `Main` and `mainline` are not `main`.
+- Names are compared case-folded: `Main`, `MAIN` and `Release/x` are refused too, because on a case-insensitive disk
+  (APFS, a local or `file://` bare repo on this Mac) a remote ref `Main` moves `main` (probed by review 242). Cost: a
+  branch really called `Main` on a case-sensitive remote (GitHub) is refused as well. `mainline` and `feat/main` pass.
+  The Claude hook still compares case-sensitively.
 - Passed: tags and other `refs/*` that are not `refs/heads/*`, branches not on the list, and an empty stdin.
-- A line that is not four fields with 40- or 64-hex ids is refused (fail closed), as is a missing `hooks/lib.sh`.
-- Cost: about 20-50 ms per push (best of 5 in tests/test-prepush.sh: 21 ms). Bash 3.2, no new dependency.
+- A line that is not four fields with 40- or 64-hex ids is refused (fail closed), as is a missing `hooks/lib.sh`. A NUL
+  byte in a line is refused on bash 3.2 (the macOS `/bin/bash`, which the hook runs under); bash 4 and later drop the
+  NUL and judge the rest of the line. A very long line is not refused: it is judged like any other, and git never sends
+  one that could hide a shared ref.
+- Cost, measured (tests/test-prepush.sh, the hook alone on a feature line, wall time, 5 runs): best 21-40 ms at low
+  load; at load average 13 on 9 Nov: best 40, median 67, worst 143 ms (review 242 saw 49-128 ms at load 12). Under load
+  it can pass 100 ms; the whole push takes 0.2-0.4 s. The test row asserts the best of 5 is under 100 ms and prints
+  the median and worst. Bash 3.2, no new dependency.
 
-Install it in ONE repository, only when you choose to (nothing global: no `core.hooksPath`, no template dir):
+Install it in the ONE repository that contains the path, only when you choose to (nothing global: no git config is
+written, no template dir):
 
 ```bash
 bin/sabha-prepush-install /path/to/repo
 ```
 
-It writes `<repo>/.git/hooks/pre-push` (the path `git rev-parse --git-path hooks` gives, so the worktrees of that
-repository share it), a two-line script that sources `hooks/git-pre-push.sh` from this clone. It refuses when a
-`pre-push` hook is there already. Undo: delete that file.
+It installs where git looks for hooks, the path `git rev-parse --git-path hooks` gives: `<repo>/.git/hooks/pre-push`
+(shared by the worktrees of that repository), or, when `core.hooksPath` is set, THAT directory. It prints which. The
+real repositories are the second case: chitragupt sets `core.hooksPath=.githooks`, a tracked directory (the new file
+would show up as untracked, with the absolute path of your clone in it: do not commit it), and guardians sets
+`.husky/_`, which husky regenerates (the hook can vanish). The file is a two-line script (`#!/bin/bash -p`, then a line
+that sources `hooks/git-pre-push.sh` from this clone). `-p` makes bash ignore a `BASH_ENV` in the push's environment
+(proved on bash 3.2.57 with a `BASH_ENV` file holding `exit 0`: without `-p` the hook is skipped, with it the hook
+runs). A second run on an installed repository says `already installed`; a different `pre-push` hook, or a stub of the
+older kind (`#!/usr/bin/env bash`), is kept and refused with a message: remove the old file and run again. Undo: delete
+the file it names.
 
 ## Known gaps
 
@@ -79,9 +100,14 @@ tests/test-prepush.sh ("known gap" rows):
   push when the refspec it reads names a shared branch, but not the text-level bypasses listed below.
 - `core.hooksPath` (`git -c core.hooksPath=/x push`, `git config core.hooksPath ...`) and a removed or renamed
   `.git/hooks/pre-push` skip the hook. The Claude hook flags none of them.
-- `SABHA_SHARED_BRANCHES` (or `SABHA_CONF`) in the environment of the push replaces the list, so
-  `export SABHA_SHARED_BRANCHES=none` earlier in a session switches the pre-push check off. The Claude hook does not
-  flag the export.
+- Environment of the push. Closed in round 6 (review 242 M1) for the pre-push hook: `SABHA_SHARED_BRANCHES` can only add
+  to the default list, `SABHA_CONF` is ignored, and the stub runs under `bash -p`, so `BASH_ENV` does nothing (rows in
+  tests/test-prepush.sh). Still open: `PATH` (a fake `dirname` ahead of the real one makes the hook source another
+  `lib.sh`; probed, the push to `main` passes), and anything else that changes what the hook runs. The Claude hook
+  itself still takes its list from the environment (`export SABHA_SHARED_BRANCHES=none` or `SABHA_SHARED_BRANCHES=none
+  git push ...` switches it off) and flags neither; only the whitespace-only list was closed there.
+- An installer that follows `core.hooksPath` puts the hook where that setting points; if you later change
+  `core.hooksPath`, the hook is no longer on the path (it falls under the `core.hooksPath` bullet above).
 - A repository where the hook is not installed (a fresh clone, another repository), and tools that do not run git
   hooks (an IDE on JGit, go-git, libgit2).
 - Server-side moves never reach a local hook: `gh api` writes on refs or merges (`gh<TAB>api ...` of review 235 MUST 4 is
