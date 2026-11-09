@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# Stale pane reaper. Lists every named claude session (oldest first) with its age, idle time, last context % (the cost
+# proxy) and herdr pane state, marks resumed duplicates (STALE? = an older copy of a role that has a newer one), and
+# lists ORPHAN panes (a pane the pane map names for a role that has no live claude). It closes nothing by itself.
+#   sabha-reap                    list (read-only)
+#   sabha-reap --close <id>...    close what you name: a pid (TERM to that claude) or an orphan pane id (herdr pane
+#                                 close). A role's last live copy is refused; so is any id the list does not show.
+# Idle = time since status/context/<name>.txt was last written by the status line (a session that renders no more is
+# idle). Exit 0 listed or closed, 1 something named was refused or failed, 2 bad usage or an unreadable process list.
+# Tests: SABHA_PS_FILE replaces the process list (see sabha-lib.sh), --close with it needs SABHA_KILL (a stub for kill),
+# SABHA_NOW fixes the clock, SABHA_KILL_GRACE is the TERM wait (default 3 s).
+set -uo pipefail
+
+# shellcheck source=sabha-lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/sabha-lib.sh"
+# shellcheck source=sabha-herdr.sh
+. "$(cd "$(dirname "$0")" && pwd)/sabha-herdr.sh"
+
+# every printed line goes through here: printable ASCII only, so ps, file or herdr data cannot carry escape sequences
+emit() { printf '%s\n' "$*" | LC_ALL=C tr -cd ' -~\n'; }
+usage() { echo "usage: sabha-reap [--close <pid-or-pane-id>...]" >&2; exit 2; }
+
+ids=""
+case ${1:-} in
+  "") ;;
+  --close)
+    shift
+    (( $# )) || usage
+    for a in "$@"; do
+      [[ $a =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]*$ ]] || usage
+      ids+="$a "
+    done ;;
+  *) usage ;;
+esac
+
+sabha_load sabha-reap
+KILL=${SABHA_KILL:-kill}
+[[ -n $ids && -n ${SABHA_PS_FILE:-} && -z ${SABHA_KILL:-} ]] && { echo "sabha-reap: --close with SABHA_PS_FILE needs SABHA_KILL (a fake list is never signalled)" >&2; exit 2; }
+
+procs=$(sabha_procs) || { echo "sabha-reap: cannot read the process list" >&2; exit 2; }
+now=${SABHA_NOW:-$(date +%s)}
+epoch() { date -j -f '%Y-%b-%d %H:%M:%S' "$1" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null || echo 0; }
+mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+span() {
+  local s=$1
+  (( s < 0 )) && s=0
+  if (( s >= 86400 )); then echo "$((s / 86400))d$((s % 86400 / 3600))h"
+  elif (( s >= 3600 )); then echo "$((s / 3600))h$((s % 3600 / 60))m"
+  else echo "$((s / 60))m"; fi
+}
+
+# herdr view: the pane map and the live panes. Any failure leaves panes_ok=0 and says so; it never proves a pane gone.
+mapf=$SABHA_IMPL/status/herdr-panes.txt
+panes_ok=0 panes_json="" panes_note=""
+if [[ $(sabha_backend) != herdr ]]; then panes_note="pane view needs the herdr backend"
+elif [[ ! -s $mapf ]]; then panes_note="no status/herdr-panes.txt: no panes recorded"
+elif ! command -v herdr >/dev/null 2>&1; then panes_note="herdr not found: could not read panes"
+elif ! sabha_herdr_guard; then panes_note="herdr refused: could not read panes"
+elif panes_json=$(sabha_h pane list 2>/dev/null </dev/null) && [[ $panes_json == *'"pane_id"'* ]]; then panes_ok=1
+else panes_note="could not read herdr panes (is the sabha session running?)"; fi
+pane_of() { awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$mapf" 2>/dev/null; }
+pane_live() { grep -qF "\"pane_id\":\"$1\"" <<<"$panes_json" || grep -qE "\"pane_id\" *: *\"$1\"" <<<"$panes_json"; }
+pane_state() {
+  local o
+  o=$(grep -o '{[^{}]*}' <<<"$panes_json" | grep -E "\"pane_id\" *: *\"$1\"" | head -1)
+  [[ -n $o ]] && o=$(sabha_jid "$o" agent_status)
+  echo "${o:--}"
+}
+
+# rows: "start_epoch pid role tty" for every copy, oldest first
+rows=""
+while read -r name pid tty day time; do
+  [[ -n $name ]] || continue
+  rows+="$(epoch "$day $time") $pid $name $tty"$'\n'
+done <<<"$procs"
+rows=$(sort -n <<<"$rows" | sed '/^$/d')
+
+emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' pid role age idle ctx pane state note)"
+while read -r st pid name tty; do
+  [[ -n $name ]] || continue
+  n=$(awk -v r="$name" '$3 == r' <<<"$rows" | wc -l | tr -d ' ')
+  newest=$(awk -v r="$name" '$3 == r { s = $1 } END { print s }' <<<"$rows")
+  note="" pane=- state=-
+  if (( n > 1 )); then
+    if [[ $st == "$newest" ]]; then note="newest of $n"; else note="STALE?"; fi
+  else note="only copy"; fi
+  idle=- ctx=-
+  # a name from ps is a file name here: only plain names, never a path
+  if [[ $name =~ ^[A-Za-z0-9_-]+$ ]]; then
+    cf=$SABHA_IMPL/status/context/$(tr '[:upper:]' '[:lower:]' <<<"$name").txt
+    if [[ -f $cf ]]; then
+      idle=$(span $(( now - $(mtime "$cf") )))
+      c=$(head -c 16 "$cf" | tr -cd '0-9.')
+      [[ -n $c ]] && ctx=$c%
+    fi
+  fi
+  if [[ $st == "$newest" ]] && (( panes_ok )); then
+    p=$(pane_of "$name")
+    if [[ -n $p ]] && pane_live "$p"; then pane=$p state=$(pane_state "$p"); fi
+  fi
+  emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' "$pid" "$name" "$(span $(( now - st )))" "$idle" "$ctx" "$pane" "$state" "$note")"
+done <<<"$rows"
+
+orphans=" "
+if (( panes_ok )); then
+  while read -r name p _; do
+    [[ -n $name && -n $p ]] || continue
+    awk -v r="$name" '$3 == r { f = 1 } END { exit !f }' <<<"$rows" && continue
+    pane_live "$p" || continue
+    orphans+="$p "
+    emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' ORPHAN "$name" - - - "$p" "$(pane_state "$p")" "pane with no live claude")"
+  done <"$mapf"
+else emit "panes: $panes_note"; fi
+emit "(ps sees only claude -n/--name sessions; nothing was closed. Close with: sabha-reap --close <pid-or-pane-id>...)"
+
+[[ -n $ids ]] || exit 0
+
+# --- close: only the ids named on this command line --------------------------------------------------------------
+rc=0 pids=" "
+for id in $ids; do [[ $id =~ ^[0-9]+$ ]] && pids+="$id "; done
+ancestors=" $$ "
+if [[ -z ${SABHA_PS_FILE:-} ]]; then
+  p=$PPID
+  while (( p > 1 )); do ancestors+="$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); [[ -n $p ]] || break; done
+fi
+killed=""
+for id in $ids; do
+  if [[ $id =~ ^[0-9]+$ ]]; then
+    name=$(awk -v p="$id" '$2 == p { print $3 }' <<<"$rows")
+    if [[ -z $name ]]; then emit "refused $id: not a pid in the list above"; rc=1; continue; fi
+    if [[ $ancestors == *" $id "* ]]; then emit "refused $id: it runs this command"; rc=1; continue; fi
+    left=$(awk -v r="$name" -v s="$pids" '$3 == r && !index(s, " " $2 " ")' <<<"$rows" | wc -l | tr -d ' ')
+    if (( left < 1 )); then emit "refused $id: that would close every live copy of $name"; rc=1; continue; fi
+    if $KILL -TERM "$id" 2>/dev/null; then emit "sent TERM to $id ($name)"; killed+="$id "; else emit "could not signal $id"; rc=1; fi
+  else
+    if [[ $orphans != *" $id "* ]]; then emit "refused $id: not an ORPHAN pane in the list above"; rc=1; continue; fi
+    if sabha_h pane close "$id" >/dev/null 2>&1 </dev/null; then emit "closed pane $id"; else emit "could not close pane $id"; rc=1; fi
+  fi
+done
+if [[ -n $killed ]]; then
+  sleep "${SABHA_KILL_GRACE:-3}"
+  for id in $killed; do $KILL -0 "$id" 2>/dev/null && { emit "$id is still running after TERM: stop it by hand"; rc=1; }; done
+fi
+exit "$rc"

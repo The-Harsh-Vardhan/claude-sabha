@@ -296,6 +296,7 @@ from the scripts):
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the sabha-loop restart line (`SABHA_EFFICIENCY` on; `--print --raw` the bare claude line), else the claude line, then a `pane:` line |
 | `bin/sabha-heavy check\|acquire\|release\|run\|status` | Heavy-job gate: load1 against 2 x cores, memory pressure, `SABHA_HEAVY_MAX` slots; exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
 | `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
+| `bin/sabha-reap [--close <pid-or-pane-id>...]` | Lists every named claude session oldest first with age, idle time, last context % and herdr pane state; marks a resumed older copy STALE? and a pane with no live claude ORPHAN. Closes nothing unless you name an id with `--close` (TERM to a pid, `herdr pane close` for an orphan pane); a role's last copy is refused |
 | `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |
 | `bin/sabha-nudge <Name> "text"` | Wakes one pane (`herdr agent prompt --wait`) |
 | `bin/sabha-alert [<Name>...]` | Toast when a pane blocks at a prompt; copies the prompt to `status/blocked/`; never answers |
