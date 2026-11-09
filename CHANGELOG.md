@@ -9,6 +9,10 @@
   (inode, mode, owner kept); a file changed mid-run is skipped. `.bak/RESTORE.txt` gets one quoted line that puts the
   full copy back. `--apply` only at a quiet moment with no role writing (Vidur picks it, Q-049). Never deletes; dry
   run by default, `--keep N`. Test: `tests/test-rotate.sh`.
+- `sabha roster --check|--write` and `sabha stamp`: `SABHA_ROSTER` is the only roster source. The check lists every
+  `PROTOCOL-core.md` table cell and `protocol/<Name>.md` heading whose model or effort differs from the conf (with the
+  `no <model>` lines of `SABHA_ROSTER_CLAIMS` files as context); `sabha doctor` counts drift as FAIL, `sabha-up.sh`
+  prints it; `--write` rewrites those lines. `stamp` prints the clock time (UTC, then local) for briefs.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
