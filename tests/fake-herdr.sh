@@ -27,14 +27,26 @@ case "$1 $2" in
   "workspace create") echo "{\"result\":{\"workspace\":{\"workspace_id\":\"w1\"},\"tab\":{\"tab_id\":\"w1:t1\"},\"root_pane\":{\"pane_id\":\"w1:p$(next)\",\"tab_id\":\"w1:t1\",\"terminal_id\":\"t\",\"workspace_id\":\"w1\",\"cwd\":\"/\",\"agent_status\":\"unknown\"}}}" ;;
   "workspace list") echo '{"result":{"workspaces":[{"workspace_id":"w1","label":"x","number":1,"pane_count":1,"tab_count":1,"agent_status":"unknown","active_tab_id":"w1:t1","focused":true}],"type":"workspace_list"}}' ;;
   "workspace close") echo '{"result":{}}' ;;
+  "pane close") [[ ${FAKE_HERDR_FAIL_CLOSE:-} == 1 ]] && { echo '{"error":{"code":"pane_not_found"}}'; exit 1; }; echo '{"result":{}}' ;;
   "tab create") echo "{\"result\":{\"tab\":{\"tab_id\":\"w1:t2\"},\"root_pane\":{\"pane_id\":\"w1:p$(next)\"}}}" ;;
   "pane split") echo "{\"result\":{\"pane\":{\"pane_id\":\"w1:p$(next)\"}}}" ;;
   "pane list")
     [[ ${FAKE_HERDR_FAIL_PANELIST:-} == 1 ]] && { echo '{"error":"internal"}'; exit 1; }
+    # FAKE_HERDR_PANELIST_OK_ONCE=1: the first pane list answers, every later one fails (herdr dies between two calls)
+    if [[ ${FAKE_HERDR_PANELIST_OK_ONCE:-} == 1 ]]; then
+      [[ -e $FAKE_HERDR_DIR/pl-once ]] && { echo '{"error":"internal"}'; exit 1; }
+      : >"$FAKE_HERDR_DIR/pl-once"
+    fi
+    [[ ${FAKE_HERDR_GARBAGE:-} == 1 ]] && { echo 'not json'; exit 0; }
     # FAKE_HERDR_PANES="w1:p1 w1:p2": the live panes of the test (default: the one pane below)
     if [[ -n ${FAKE_HERDR_PANES:-} ]]; then
       printf '{"result":{"panes":['; sep=""
-      for id in $FAKE_HERDR_PANES; do printf '%s{"pane_id":"%s","tab_id":"w1:t1","workspace_id":"w1","agent_status":"unknown"}' "$sep" "$id"; sep=","; done
+      # FAKE_HERDR_STATUS="w1:p5=idle w1:p6=working": the agent_status of a pane (default unknown)
+      for id in $FAKE_HERDR_PANES; do
+        st=unknown
+        for kv in ${FAKE_HERDR_STATUS:-}; do [[ ${kv%%=*} == "$id" ]] && st=${kv#*=}; done
+        printf '%s{"pane_id":"%s","tab_id":"w1:t1","workspace_id":"w1","agent_status":"%s"}' "$sep" "$id" "$st"; sep=","
+      done
       printf '],"type":"pane_list"}}\n'
     else
       echo '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","terminal_id":"t","workspace_id":"w1","cwd":"/","foreground_cwd":"/","agent_status":"unknown"}],"type":"pane_list"}}'

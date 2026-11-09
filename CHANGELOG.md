@@ -45,6 +45,13 @@
   file, a brief header `mcp: full` gives one headless run the full set. `QUEUE.md` template and the queue rules in the
   dispatcher and relay role files. `SABHA_READS_<Name>` replaces a role's opening read list. Optional load meter:
   docs/load-meter.md.
+- New `bin/sabha-reap`: lists named claude sessions by age, idle time and context % with their herdr pane state, marks
+  resumed duplicates (STALE?) and panes with no live claude (ORPHAN). It closes only what `--close <pid-or-pane-id>`
+  names, and never a role's last live copy (leading zeros are stripped first, so `0101` is pid 101). A pane is closed
+  only when herdr reports it idle or done, it is not the pane the command runs in (HERDR_PANE_ID must be set), it
+  belongs to a claude role of the roster, ps shows at least one named claude, and the pane map names it in exactly one
+  row (a pane two rows name, in any spelling of the id, is AMBIGUOUS and a row without a role is MALFORMED: never closed); role names compare case-insensitively; otherwise `--close`
+  refuses.
 - Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
   `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
   read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never
