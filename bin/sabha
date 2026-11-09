@@ -9,6 +9,7 @@
 #                given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
+#   sabha prune [--date D] [--out DIR] [--stdout]   weekly worktree clean-up candidates as a report file (bin/sabha-prune)
 #   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
 #   sabha roster [--check|--write]         SABHA_ROSTER is the only roster source: --check (default) prints a FAIL per
 #                                          PROTOCOL-core table cell or protocol/<Name>.md heading whose model differs,
@@ -577,6 +578,7 @@ case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
   keep-awake) shift; cmd_keep_awake "$@" ;;
+  prune) shift; exec "$BIN/sabha-prune" "$@" ;;
   update) shift; cmd_update ;;
   nightly) shift; exec "$BIN/sabha-nightly" "$@" ;;
   tips) python3 "$BIN/sabha-for-me" --tips ;;
