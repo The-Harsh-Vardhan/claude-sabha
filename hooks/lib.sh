@@ -1,7 +1,9 @@
 # Sourced by the sabha hooks, never run. Every function fails soft: a hook must never break a session.
 # shellcheck shell=bash disable=SC2034  # HK_* are read by the hooks that source this file
 
-HK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+HK_DIR=${BASH_SOURCE[0]}
+if [[ $HK_DIR == */* ]]; then HK_DIR=${HK_DIR%/*}; HK_DIR=${HK_DIR:-/}; else HK_DIR=.; fi  # no dirname: PATH must not pick the lib
+HK_DIR=$(cd "$HK_DIR" && pwd)
 
 # hk_lower <text>: bash 3.2 has no ${x,,}
 hk_lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
@@ -19,10 +21,15 @@ hk_rule_conf() {
     # the conf runs in its own bash and hands back only these three values
     # shellcheck disable=SC2016  # expanded by the inner bash
     vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_RULES:-}" "${SABHA_SHARED_BRANCHES:-}" "${SABHA_ASCII_EXEMPT:-}"' _ "$conf" 2>/dev/null) || vals=
-    [[ -n $HK_RULES ]] || HK_RULES=$(printf '%s\n' "$vals" | sed -n 1p)
-    cfgs=$(printf '%s\n' "$vals" | sed -n 2p)
+    # lines 1-3 of $vals by expansion: no sed (PATH is not trusted in the pre-push hook) and no here-string (it needs a temp file)
+    local v1 v2 v3 r nl=$'\n'
+    v1=${vals%%"$nl"*}; r=${vals#"$v1"}; r=${r#"$nl"}
+    v2=${r%%"$nl"*}; r=${r#"$v2"}; r=${r#"$nl"}
+    v3=${r%%"$nl"*}
+    [[ -n $HK_RULES ]] || HK_RULES=$v1
+    cfgs=$v2
     [[ -n $HK_SHARED ]] || HK_SHARED=$cfgs
-    [[ -n $HK_EXEMPT ]] || HK_EXEMPT=$(printf '%s\n' "$vals" | sed -n 3p)
+    [[ -n $HK_EXEMPT ]] || HK_EXEMPT=$v3
   fi
   [[ ${1:-} == prepush ]] && HK_SHARED="$def $envs $cfgs"
   [[ $HK_SHARED == *[![:space:]]* ]] || HK_SHARED=$def

@@ -37,6 +37,11 @@ check "stdin: tag passes" 'passes "refs/tags/v1 $A refs/tags/v1 $Z\n"'
 for r in Main MAIN mAin Release/x refs/heads/Main +refs/heads/MASTER; do
   check "stdin: case-folded $r refused (APFS moves main for Main)" "refuses 'x $A $r $Z\n'"
 done
+for r in refs/Heads/Main Heads/Main REFS/HEADS/MAIN Refs/heads/main refs/HEADS/main +refs/Heads/Main; do
+  check "stdin: prefix case-folded $r refused (review 244 S1)" "refuses 'x $A $r $Z\n'"
+done
+check "stdin: refs/heads/feature/main, refs/heads/devops, refs/heads/Devops-x pass (review 244 S1)" 'passes "x $A refs/heads/feature/main $Z\nx $A refs/heads/devops $Z\nx $A refs/heads/Devops-x $Z\n"'
+check "stdin: refs/tags/Main and refs/Tags/Main are not branches and pass, as before (review 244 S1)" 'passes "x $A refs/tags/Main $Z\nx $A refs/Tags/Main $Z\n"'
 check "stdin: mainline and feat/main pass" 'passes "refs/heads/x $A refs/heads/mainline $Z\nrefs/heads/x $A refs/heads/feat/main $Z\n"'
 check "stdin: sha256 ids accepted" 'passes "refs/heads/feat/x ${A}${A:0:24} refs/heads/feat/x ${Z}${Z:0:24}\n"'
 check "stdin: empty passes" 'passes ""'
@@ -161,6 +166,20 @@ fi
 if [[ -z ${PREPUSH_NOHOOK:-} ]]; then
   git init -q -b main "$dir/foreign" && printf '#!/bin/sh\nexit 0\n' >"$dir/foreign/.git/hooks/pre-push"
   check "install: refuses when a different pre-push hook exists, and keeps it" '! "$root/bin/sabha-prepush-install" "$dir/foreign" 2>/dev/null && grep -q "exit 0" "$dir/foreign/.git/hooks/pre-push"'
+  check "install: the foreign-hook message says it was kept, nothing changed, and how to chain or replace it (review 244 S3b)" 'out=$("$root/bin/sabha-prepush-install" "$dir/foreign" 2>&1); [[ $out == *"kept the existing pre-push hook $dir/foreign/.git/hooks/pre-push"* && $out == *"nothing was installed or changed"* && $out == *"add a line to that hook"* && $out == *"move it aside"* && $out != *"remove it first"* ]]'
+  git init -q -b main "$dir/gl" && printf '[core]\n\thooksPath = %s\n' "$dir/shared-hooks" >"$dir/global.gitconfig" && mkdir "$dir/shared-hooks"
+  check "install: a global core.hooksPath says where it installed and warns the directory is shared (review 244 S3a)" 'out=$(GIT_CONFIG_GLOBAL=$dir/global.gitconfig "$root/bin/sabha-prepush-install" "$dir/gl" 2>&1); [[ $? == 0 && -x $dir/shared-hooks/pre-push && $out == *"installed $dir/shared-hooks/pre-push -> "* && $out == *"WARNING: core.hooksPath comes from a global or system git config (file:$dir/global.gitconfig)"* && $out == *"shared by every repository that uses it"* ]]'
+  check "install: a repository-local core.hooksPath gives no shared-directory warning (review 244 S3a)" 'rm -f "$dir/hp/.githooks/pre-push"; out=$("$root/bin/sabha-prepush-install" "$dir/hp" 2>&1); [[ $out == *"installed $dir/hp/.githooks/pre-push"* && $out != *WARNING* ]]'
+  # review 244 S2: the pre-push path runs no external command that a PATH prefix could replace
+  mkdir "$dir/fakebin" "$dir/fakelib" && printf 'hk_rule_conf() { HK_SHARED=zzz; HK_RULES=; HK_EXEMPT=; }\n' >"$dir/fakelib/lib.sh"
+  printf '#!/bin/sh\necho "%s"\n' "$dir/fakelib" >"$dir/fakebin/dirname"; printf '#!/bin/sh\nexit 0\n' >"$dir/fakebin/sed"
+  for c in tr cat awk cut head grep; do printf '#!/bin/sh\nexit 0\n' >"$dir/fakebin/$c"; done
+  chmod +x "$dir"/fakebin/*
+  check "install: fake dirname, sed, tr, cat, awk, cut, head, grep ahead on PATH: the installed hook still refuses main (review 244 S2)" 'err=$(printf "x $A refs/heads/main $Z\n" | PATH=$dir/fakebin:$PATH "$dir/clone/.git/hooks/pre-push" origin u 2>&1); [[ $? == 1 && $err == "sabha pre-push: shared-push:"* ]]'
+  check "install: the same fake PATH, a feature line still passes (review 244 S2)" 'err=$(printf "x $A refs/heads/feat/x $Z\n" | PATH=$dir/fakebin:$PATH "$dir/clone/.git/hooks/pre-push" origin u 2>&1); [[ $? == 0 && -z $err ]]'
+  printf 'SABHA_SHARED_BRANCHES="qa"\n' >"$dir/c/sabha.conf"
+  check "stdin: fake sed on PATH does not drop the conf's qa (review 244 S2)" 'err=$(printf "x $A refs/heads/qa $Z\n" | PATH=$dir/fakebin:$PATH /bin/bash "$dir/c/hooks/git-pre-push.sh" origin u 2>&1); [[ $? == 1 && $err == "sabha pre-push: shared-push:"* ]]'
+  check "stdin: a bare script name (no slash) still finds lib.sh; main refused, feature passes (review 244 S2, coverage)" '(cd "$dir/c/hooks" && printf "x $A refs/heads/main $Z\n" | /bin/bash git-pre-push.sh origin u 2>/dev/null; [[ $? == 1 ]] && printf "x $A refs/heads/feat/x $Z\n" | /bin/bash git-pre-push.sh origin u 2>/dev/null)'
   times=
   for _ in 1 2 3 4 5; do
     t=$( { TIMEFORMAT=%3R; time printf "refs/heads/feat/x $A refs/heads/feat/x $Z\n" | /bin/bash "$hook" origin u; } 2>&1 >/dev/null)

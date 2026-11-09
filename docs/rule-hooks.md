@@ -45,7 +45,9 @@ piped string or a command word from a variable all end in the same lines.
   beside the scripts can only ADD branches (so `SABHA_SHARED_BRANCHES=none` adds a branch called `none`), and a
   `SABHA_CONF` in the environment is ignored. A git-run hook does not get your shell's `SABHA_CONF` anyway, so put
   your sprint branches in `sabha.conf` beside the scripts, or export `SABHA_SHARED_BRANCHES` in the shell that pushes.
-  The remote ref is normalised first: `refs/heads/main`, `heads/main` and `main` are the same branch; a delete (local sha all zeros) and
+  The remote ref is normalised first, the prefixes `refs/heads/` and `heads/` in any letter case (`refs/Heads/Main`,
+  `REFS/HEADS/MAIN` and `Heads/Main` are `main`; review 244 S1; `refs/tags/...` is not a branch and is judged by its
+  full ref, so it passes): `refs/heads/main`, `heads/main` and `main` are the same branch; a delete (local sha all zeros) and
   a force (`+main`, non-fast-forward) count the same as a push. `--all` and `--mirror` are refused when they touch a
   shared ref.
 - Names are compared case-folded: `Main`, `MAIN` and `Release/x` are refused too, because on a case-insensitive disk
@@ -76,9 +78,13 @@ would show up as untracked, with the absolute path of your clone in it: do not c
 `.husky/_`, which husky regenerates (the hook can vanish). The file is a two-line script (`#!/bin/bash -p`, then a line
 that sources `hooks/git-pre-push.sh` from this clone). `-p` makes bash ignore a `BASH_ENV` in the push's environment
 (proved on bash 3.2.57 with a `BASH_ENV` file holding `exit 0`: without `-p` the hook is skipped, with it the hook
-runs). A second run on an installed repository says `already installed`; a different `pre-push` hook, or a stub of the
-older kind (`#!/usr/bin/env bash`), is kept and refused with a message: remove the old file and run again. Undo: delete
-the file it names.
+runs). A second run on an installed repository says `already installed`. A different `pre-push` hook, or a stub of the
+older kind (`#!/usr/bin/env bash`), is never touched: the installer says it kept that hook, that nothing was installed
+or changed, and how to proceed on purpose (add a line to the existing hook that runs `hooks/git-pre-push.sh` with the
+same stdin and arguments, or move the old file aside and run the installer again). When `core.hooksPath` comes from a
+global or system git config (not from the repository), the directory it names is shared by every repository that uses
+it: the installer prints `installed <file> -> <script>` and a `WARNING` that the hook now runs on all of their pushes
+(review 244 S3). Undo: delete the file it names.
 
 ## Known gaps
 
@@ -102,8 +108,14 @@ tests/test-prepush.sh ("known gap" rows):
   `.git/hooks/pre-push` skip the hook. The Claude hook flags none of them.
 - Environment of the push. Closed in round 6 (review 242 M1) for the pre-push hook: `SABHA_SHARED_BRANCHES` can only add
   to the default list, `SABHA_CONF` is ignored, and the stub runs under `bash -p`, so `BASH_ENV` does nothing (rows in
-  tests/test-prepush.sh). Still open: `PATH` (a fake `dirname` ahead of the real one makes the hook source another
-  `lib.sh`; probed, the push to `main` passes), and anything else that changes what the hook runs. The Claude hook
+  tests/test-prepush.sh). `PATH` closed in round 8 (review 244 S2): the decision path of the pre-push hook (the
+  installed stub, `hooks/git-pre-push.sh`, `hk_rule_conf` and the `cd`/`pwd` of `hooks/lib.sh`) runs bash builtins only
+  and finds `lib.sh` by `${BASH_SOURCE[0]%/*}`, no `dirname`, `sed`, `cat` or `tr`; rows put a fake `dirname`, `sed`, `tr`,
+  `cat`, `awk`, `cut`, `head` and `grep` first on `PATH` and the push to `main` is still refused. External commands that
+  remain are not on that path: `bin/sabha-prepush-install` (run by you, not by a push) uses `dirname`, `cat`, `cut`
+  and `git`, and `git` itself runs the hook. The conf beside the scripts runs in a child `"$BASH" -c` that reads
+  `BASH_ENV` and sources your `sabha.conf`, so what that file calls is yours to keep clean; it can only add branches.
+  Still open: anything else that changes what the hook runs. The Claude hook
   itself still takes its list from the environment (`export SABHA_SHARED_BRANCHES=none` or `SABHA_SHARED_BRANCHES=none
   git push ...` switches it off) and flags neither; only the whitespace-only list was closed there.
 - An installer that follows `core.hooksPath` puts the hook where that setting points; if you later change

@@ -7,11 +7,12 @@
 # Stdin: one line per ref, "<local ref> <local sha> <remote ref> <remote sha>"; args: remote name, url.
 set -u
 shopt -s nocasematch  # a case-insensitive remote disk moves main for Main, so names are compared case-folded
+hk_d=${BASH_SOURCE[0]}; if [[ $hk_d == */* ]]; then hk_d=${hk_d%/*}; hk_d=${hk_d:-/}; else hk_d=.; fi  # no dirname: a fake one on PATH must not pick lib.sh
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh" || { echo "sabha pre-push: hooks/lib.sh is missing; push refused" >&2; exit 1; }
+. "$hk_d/lib.sh" || { echo "sabha pre-push: hooks/lib.sh is missing; push refused" >&2; exit 1; }
 hk_rule_conf prepush
 
-refuse() { echo "sabha pre-push: shared-push: $1" >&2; cat >/dev/null; exit 1; }
+refuse() { echo "sabha pre-push: shared-push: $1" >&2; while read -r _; do :; done; exit 1; }
 re='^([^ ]+) ([0-9a-f]{40}|[0-9a-f]{64}) ([^ ]+) ([0-9a-f]{40}|[0-9a-f]{64})$'
 set -f
 while IFS= read -r line || [[ -n $line ]]; do
@@ -20,8 +21,8 @@ while IFS= read -r line || [[ -n $line ]]; do
   # git sends refs/heads/<b>; the short forms are accepted too, so a hand-fed line is judged the same way
   b=${rref#+}; b=${b##*:}; b=${b#+}
   case $b in
-    refs/heads/*) b=${b#refs/heads/} ;;
-    heads/*) b=${b#heads/} ;;
+    refs/heads/*) b=${b:11} ;;  # by length: nocasematch matches Refs/Heads/ but ${b#refs/heads/} would not strip it
+    heads/*) b=${b:6} ;;
     refs/*) continue ;;
   esac
   [[ -n $b ]] || refuse "the remote ref '$rref' names no branch; push refused"
