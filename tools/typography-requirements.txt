@@ -1,0 +1,2 @@
+# the only dependency of the PDF path; install into the repo-local .venv with uv, never globally
+pdfminer.six==20251107

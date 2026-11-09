@@ -42,6 +42,16 @@
   printed values are cleaned to printable ASCII.
 - `sabha nightly` (`bin/sabha-nightly`): drafts the day's progress note into `SABHA_NIGHTLY_DIR/<date>.md` from the day's `NNN.done` markers (shipped, or BLOCKED) and `for-me.items` blocks (opened, closed, still waiting). Draft only: it never sends, never overwrites a draft you edited (`--force` does), and a rerun with nothing new changes nothing.
 - `sabha prune` (`bin/sabha-prune`): runs the inventory script named by `SABHA_PRUNE_CMD` with `--actions` (read-only) and writes its candidate lines to `SABHA_PRUNE_DIR/<date>.md`. Report only: it archives and removes nothing, never passes `--apply`, and a failed inventory run writes nothing.
+- `bin/sabha-typography-check`: checks a PDF, an HTML page or an artifact against an allow-list of font families, sizes,
+  weights, text colours, line heights and a minimum contrast, and reports off-list values, silent fallbacks (a face
+  that did not load), low contrast, clipped, ellipsised or overflowing text and one role styled two ways, each with where,
+  the value found and the nearest allowed value. PDF input needs `pdfminer.six` in a repo-local `.venv`; HTML has a
+  static CSS lint and a `--browser` mode that runs a runner only through `sabha-heavy run typography --`. Linked
+  stylesheets and font files are read only inside the input's folder; page scripts are off in `--browser` unless
+  `--allow-scripts`; `@import` files are followed inside that folder (depth 5, loops noted), URL schemes are noted as not
+  read, a NUL byte in a path is skipped with a note and any internal error exits 2 with one line; hsl, alpha and percent colours are resolved and what cannot be resolved prints as UNKNOWN
+  (`--strict` counts it); empty input is exit 2. Skill
+  `skills/sabha-typography-check`, example list `template/typography.example.json`, test `tests/test-typography-check.sh`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

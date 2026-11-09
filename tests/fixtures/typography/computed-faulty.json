@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "page": {"scroll_w": 2000, "inner_w": 1440},
+  "elements": [
+    {"selector": "p.ok", "tag": "p", "text": "Fine text", "family": "Inter, sans-serif", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "line_height_px": 22.4, "scroll_w": 100, "client_w": 100, "scroll_h": 22, "client_h": 22, "overflow_x": "visible", "overflow_y": "visible", "text_overflow": "clip", "face_loaded": true},
+    {"selector": "p.serif", "tag": "p", "text": "Wrong family", "family": "Georgia, serif", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "line_height_px": 22.4, "face_loaded": true},
+    {"selector": "p.big", "tag": "p", "text": "Odd size", "family": "Inter", "size_px": 13, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "face_loaded": true},
+    {"selector": "p.heavy", "tag": "p", "text": "Heavy", "family": "Inter", "size_px": 16, "weight": 800, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "face_loaded": true},
+    {"selector": "p.red", "tag": "p", "text": "Red", "family": "Inter", "size_px": 16, "weight": 400, "color": "rgb(255, 0, 0)", "bg": "rgb(255, 255, 255)", "face_loaded": true},
+    {"selector": "p.pale", "tag": "p", "text": "Pale on white", "family": "Inter", "size_px": 16, "weight": 400, "color": "rgb(204, 204, 204)", "bg": "rgb(255, 255, 255)", "face_loaded": true},
+    {"selector": "p.tight", "tag": "p", "text": "Tight lines", "family": "Inter", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "line_height_px": 14.4, "face_loaded": true},
+    {"selector": "p.nofont", "tag": "p", "text": "Face missing", "family": "\"Roboto Mono\", monospace", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "face_loaded": false},
+    {"selector": "div.over", "tag": "div", "text": "Overflowing", "family": "Inter", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "scroll_w": 300, "client_w": 100, "overflow_x": "visible"},
+    {"selector": "div.clip", "tag": "div", "text": "Clipped", "family": "Inter", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "scroll_w": 300, "client_w": 100, "overflow_x": "hidden"},
+    {"selector": "div.ell", "tag": "div", "text": "Ellipsised", "family": "Inter", "size_px": 16, "weight": 400, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)", "scroll_w": 300, "client_w": 100, "overflow_x": "hidden", "text_overflow": "ellipsis"},
+    {"selector": "h2.a", "tag": "h2", "text": "Heading one", "family": "Inter", "size_px": 24, "weight": 600, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)"},
+    {"selector": "h2.b", "tag": "h2", "text": "Heading two", "family": "Inter", "size_px": 16, "weight": 600, "color": "rgb(23, 44, 79)", "bg": "rgb(255, 255, 255)"}
+  ]
+}

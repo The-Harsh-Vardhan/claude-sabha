@@ -1,0 +1,15 @@
+{
+  "name": "test allow-list",
+  "families": [
+    {"name": "Inter", "fallbacks": ["sans-serif"]},
+    {"name": "Roboto Mono", "fallbacks": ["monospace"]},
+    {"name": "Helvetica", "system": true, "fallbacks": ["Arial", "sans-serif"]}
+  ],
+  "sizes": ["9pt", "12pt", "18pt"],
+  "weights": [400, 600],
+  "colors": {"ink": "#172c4f", "muted": "#435370", "pale": "#cccccc", "white": "#ffffff"},
+  "line_height": {"min": 1.1, "max": 1.8},
+  "min_contrast": 4.5,
+  "tolerance": {"size_px": 0.3},
+  "page_background": "#ffffff"
+}
