@@ -113,7 +113,8 @@ SABHA_RELAY_GUARD=1
 # More tools the guarded relay may call: exact tool names, comma-separated, no spaces, no wildcards, case-sensitive.
 # Only tools the guard has no rule for; it never loosens the Read, Write, Edit or Bash rules. A malformed value allows
 # nothing extra. Empty = none. When SABHA_BOARD_URL is set, set it to Artifact,ArtifactData so the relay can publish
-# and update the board (sabha doctor warns otherwise).
+# and update the board (sabha doctor warns otherwise). Agent, Task and NotebookEdit are refused even when listed.
+# Names are [A-Za-z0-9_] only: a hyphenated mcp tool cannot be listed, and one such name voids the whole list.
 SABHA_RELAY_ALLOW_TOOLS=""
 # The relay's sabha-loop warns (log and a nudge to write the handoff) at SABHA_RELAY_WARN_K thousand tokens and restarts
 # it fresh at SABHA_RELAY_STOP_K once the handoff is saved; SABHA_RELAY_WINDOW_K is its context window size. For the

@@ -226,9 +226,11 @@ read_only() {
 
 # extra <tool>: the tool is named in SABHA_RELAY_ALLOW_TOOLS, a comma-separated list of exact, case-sensitive names.
 # Asked only at the default deny, so the list adds tools no rule above handles and never loosens the Read, Grep, Glob,
-# Write, Edit or Bash rules (those branches end in allow or deny). A malformed list allows nothing and says so
+# Write, Edit or Bash rules (those branches end in allow or deny). A malformed list allows nothing and says so.
+# Agent, Task and NotebookEdit stay denied even when listed: the relay does no work itself
 extra() {
   local v=${SABHA_RELAY_ALLOW_TOOLS:-} t LC_ALL=C re='^[A-Za-z][A-Za-z0-9_]*(,[A-Za-z][A-Za-z0-9_]*)*$' names
+  case $1 in Agent|Task|NotebookEdit) why="; $1 is never allowed to the relay, even when listed"; return 1 ;; esac
   while [[ $v == [[:blank:]]* ]]; do v=${v:1}; done
   while [[ $v == *[[:blank:]] ]]; do v=${v%?}; done
   [[ -n $v ]] || return 1

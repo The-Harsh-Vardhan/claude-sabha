@@ -151,14 +151,28 @@ check "a listed Bash does not widen the read-only Bash rule" 'with denies Bash c
 check "a listed Write does not widen the Write paths" 'with denies Write file_path "$dir/ws/main.go"'
 check "a listed Edit does not widen the Edit paths" 'with denies Edit file_path "$dir/ws/main.go"'
 check "a listed tool still allows Artifact" 'with allows Artifact x y'
+allowconf "Artifact,MultiEdit,Read,Grep,Glob"
+check "a listed MultiEdit does not widen the Edit paths" 'with denies MultiEdit file_path "$dir/ws/main.go"'
+check "a listed Read still denies a secret file" 'with denies Read file_path "$dir/ws/.env"'
+check "a listed Grep still denies a directory without a narrow glob" 'with denies Grep path "$dir/ws"'
+check "a listed Glob still denies a glob for .env.*" 'with denies Glob glob ".env.*"'
+# the relay does no work itself: a listed Agent, Task or NotebookEdit stays denied, the rest of the list still works
+allowconf "Artifact,Agent,Task,NotebookEdit,mcp__x__y"
+for t in Agent Task NotebookEdit; do
+  check "a listed $t is refused" 'with denies $t x y && [[ $err == *"never allowed to the relay"* ]]'
+done
+check "a list naming a refused tool still allows Artifact" 'with allows Artifact x y'
+check "a listed mcp name is allowed" 'with allows mcp__x__y x y'
 allowconf "Artifact,ArtifactData"
+check "a tool name with a newline in it is denied" 'with denies "$(printf "Artifact\nArtifactData")" x y'
 check "an unlisted tool is denied with a list set" 'with denies Agent x y'
 allowconf "Artifac"
 check "a prefix of a name does not allow it" 'with denies Artifact x y'
 allowconf "artifact"
 check "names are case-sensitive" 'with denies Artifact x y'
 for v in "Artifact,,ArtifactData" "Artifact ArtifactData" "Artifact*" "*" "Artifact,ArtifactData," "'Artifact'" \
-         $'Artifact\nArtifactData' $'Artifact,ArtifactData\n' "Artifact;ArtifactData"; do
+         $'Artifact\nArtifactData' $'Artifact,ArtifactData\n' "Artifact;ArtifactData" $'Artifact\tArtifactData' \
+         "Artifact,mcp__x__a-b"; do
   allowconf "$v"
   check "malformed allow list fails closed: $(printf %q "$v")" \
     'with denies Artifact x y && [[ $err == *"SABHA_RELAY_ALLOW_TOOLS is malformed"* ]]'
