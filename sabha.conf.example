@@ -132,7 +132,7 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 # Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
 #SABHA_TASK_FALLBACK="Name=task text"
 
-# sabha fill: all optional. Percent points kept free below the stop line, the load5 above which heavy briefs wait, the cost in
+# sabha fill: all optional; read from the environment first, else from here (the environment wins, as for SABHA_STOP). Percent points kept free below the stop line, the load5 above which heavy briefs wait, the cost in
 # points of a size S, M or L brief, and the words that mark a brief heavy when it has no "heavy: yes|no" header line.
 #SABHA_FILL_RESERVE=10
 #SABHA_FILL_LOAD5_MAX=20

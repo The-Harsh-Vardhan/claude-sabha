@@ -302,7 +302,7 @@ from the scripts):
 | `bin/sabha-herdr-config` | Prints suggested herdr settings (restore stagger, sidebar rows, sounds, keys) to merge by hand; writes nothing |
 | `bin/sabha-loop <Name>` | The restart supervisor for one pane |
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
-| `bin/sabha fill` | Read-only night planner: spare usage, load5 and the heavy gate decide an order for the un-acked briefs (light first, heavy queued); it starts nothing |
+| `bin/sabha fill` | Night planner: spare usage, load5 and the heavy gate decide an order for the un-acked briefs (light first, heavy queued apart, no points spent on them); it starts nothing and writes nothing itself. It runs `bin/sabha-heavy check`, which creates its slot folder and removes stale slots (dead pid, old heartbeat). A stale, missing or malformed window means no plan (exit 3). Settings `SABHA_FILL_*` and `SABHA_STOP` come from the environment, else sabha.conf (the environment wins). Not checked: battery, and memory or load for light briefs |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |

@@ -195,4 +195,131 @@ out=$(SABHA_CONF=$W/sabha.conf bash "$G/bin/sabha" fill --reserve 2>&1); rc=$?
 [[ $rc -eq 2 ]] || fail "G: sabha fill with a bare option must exit 2, got $rc: $out"
 pass
 
+# lim <five pct> <five reset> <five written> <seven pct> <seven reset> <seven written>: the limits file of the current workspace
+lim() { printf 'five_hour %s %s %s\nseven_day %s %s %s\n' "$@" >"$W/status/limits.txt"; }
+F=$((NOW + 3600)); S=$((NOW + 86400)); OK=$((NOW - 60))
+
+# ---- H: settings come from sabha.conf too; the environment wins (review 233 MUST 1)
+newws h; brief Bhima 001 x M
+printf 'SABHA_FILL_RESERVE=95\n' >>"$W/sabha.conf"; run
+[[ $rc -eq 0 && $out == *"reserve 95,"* ]] || fail "H: SABHA_FILL_RESERVE set only in sabha.conf must count: $out"
+pass
+SABHA_FILL_RESERVE=5 run
+[[ $out == *"reserve 5,"* && $out == *"budget 30 points"* ]] || fail "H: the environment must win over sabha.conf: $out"
+pass
+newws h; printf 'SABHA_FILL_RESERVE=5\n' >>"$W/sabha.conf"
+SABHA_FILL_RESERVE=5 run
+[[ $out == *"reserve 5,"* ]] || fail "H: a key set in both: $out"
+pass
+newws h; printf 'SABHA_STOP=80\n' >>"$W/sabha.conf"; run
+[[ $out == *"stop line 80"* && $out == *"budget 15 points"* ]] || fail "H: SABHA_STOP set only in sabha.conf (the grid stops there too): $out"
+pass
+SABHA_STOP=70 run
+[[ $out == *"stop line 70"* ]] || fail "H: SABHA_STOP in the environment must win: $out"
+pass
+newws h; printf 'SABHA_FILL_COST_M=9\n' >>"$W/sabha.conf"; brief Bhima 001 x M; run
+printf '%s\n' "$out" | grep -q '9 pts' || fail "H: SABHA_FILL_COST_M set only in sabha.conf: $out"
+pass
+newws h; printf 'SABHA_FILL_NOW=1000\nSABHA_FILL_LOAD5=99\n' >>"$W/sabha.conf"; unset SABHA_FILL_NOW SABHA_FILL_LOAD5; run
+[[ $out == *"proposal at 20"* && $out != *"load5: 99.0"* ]] || fail "H: the test hooks must not be read from sabha.conf: $out"
+export SABHA_FILL_NOW=$NOW SABHA_FILL_LOAD5=5
+pass
+
+# ---- I: a stale, missing or odd window is never ignored in the safe direction (MUST 2)
+newws i; brief Bhima 001 x S
+lim 10 "$F" "$OK" 88 "$S" $((NOW - 99999)); run
+[[ $rc -eq 3 && $out == *"seven_day stale"* && $out != *"Bhima/001"* ]] || fail "I: stale seven_day 88 with fresh five_hour 10: rc $rc: $out"
+pass
+lim 88 "$F" $((NOW - 99999)) 10 "$S" "$OK"; run
+[[ $rc -eq 3 && $out == *"five_hour stale"* ]] || fail "I: stale five_hour 88 with fresh seven_day 10: rc $rc: $out"
+pass
+lim 10 "$F" $((NOW - 99999)) 10 "$S" $((NOW - 99999)); run
+[[ $rc -eq 3 && $out == *"five_hour stale"* && $out == *"seven_day stale"* ]] || fail "I: both stale must name both: rc $rc: $out"
+pass
+printf 'five_hour 10 %s %s\n' "$F" "$OK" >"$W/status/limits.txt"; run
+[[ $rc -eq 3 && $out == *"seven_day missing"* ]] || fail "I: a missing seven_day must give exit 3 and name it: rc $rc: $out"
+pass
+printf 'seven_day 10 %s %s\n' "$S" "$OK" >"$W/status/limits.txt"; run
+[[ $rc -eq 3 && $out == *"five_hour missing"* ]] || fail "I: a missing five_hour: rc $rc: $out"
+pass
+lim 10 "$F" $((NOW - 21600)) 10 "$S" "$OK"; run
+[[ $rc -eq 0 ]] || fail "I: a reading exactly SABHA_FILL_STALE old is still fresh: rc $rc: $out"
+pass
+lim 10 "$F" $((NOW - 21601)) 10 "$S" "$OK"; run
+[[ $rc -eq 3 ]] || fail "I: a reading one second over SABHA_FILL_STALE is stale: rc $rc: $out"
+pass
+lim 10 "$F" $((NOW + 60)) 10 "$S" "$OK"; run
+[[ $rc -eq 0 ]] || fail "I: a stamp 60 s ahead is clock skew, accepted: rc $rc: $out"
+pass
+lim 10 "$F" $((NOW + 61)) 10 "$S" "$OK"; run
+[[ $rc -eq 3 && $out == *"future"* ]] || fail "I: a stamp from the future must give exit 3: rc $rc: $out"
+pass
+
+# ---- J: odd numbers fail closed with one line, never a traceback (MUST 3, SHOULD 2 and 4)
+for bad in 99999999999999999999 -5 1.5 abc 1_0 0x10 ""; do
+  lim 10 "$bad" "$OK" 10 "$S" "$OK"; run
+  [[ $rc -eq 3 && $err == "" && $out != *Traceback* && $out == *"five_hour "* ]] || fail "J: resets_at '$bad': rc $rc, err $err: $out"
+  lim 10 "$F" "$bad" 10 "$S" "$OK"; run
+  [[ $rc -eq 3 && $err == "" && $out != *Traceback* ]] || fail "J: written '$bad': rc $rc, err $err: $out"
+done
+pass
+for bad in -50 101 100.5 nan inf 1e2 abc 1_0; do
+  lim "$bad" "$F" "$OK" 10 "$S" "$OK"; run
+  [[ $rc -eq 3 && $err == "" && $out != *Traceback* ]] || fail "J: percent '$bad': rc $rc, err $err: $out"
+done
+pass
+lim 0 "$F" "$OK" 0 "$S" "$OK"; run
+[[ $rc -eq 0 && $out == *"highest 0%"* && $out == *"budget 80 points"* ]] || fail "J: 0 percent is valid: $out"
+lim 100 "$F" "$OK" 3 "$S" "$OK"; run
+[[ $rc -eq 0 && $out == *"highest 100%"* && $out == *"budget -20 points"* && $out == *"Plan: none"* ]] || fail "J: 100 percent is valid and leaves no budget: $out"
+pass
+lim 80 "$NOW" "$OK" 3 "$S" "$OK"; run
+[[ $out == *"five_hour 80% (window reset)"* && $out == *"highest 3%"* ]] || fail "J: resets_at exactly now is a passed window: $out"
+lim 80 $((NOW + 1)) "$OK" 3 "$S" "$OK"; run
+[[ $out == *"highest 80%"* ]] || fail "J: resets_at one second ahead is not passed: $out"
+pass
+lim 10 "$F" "$OK" 10 "$S" "$OK"
+{ head -c 100000 /dev/zero | tr '\0' 'a'; echo; cat "$W/status/limits.txt"; } >"$W/status/limits.big"; mv "$W/status/limits.big" "$W/status/limits.txt"; run
+[[ $rc -eq 3 && $out == *"five_hour missing"* ]] || fail "J: readings after the 64 KB cut are not read: rc $rc: $out"
+pass
+
+# ---- K: the budget edges (SHOULD 2)
+newws k; brief Bhima 001 x M
+SABHA_FILL_COST_M=25 run
+[[ $out == *"Planned 25 of 25 points, 1 of 1"* ]] || fail "K: a brief that fits the budget exactly must be planned: $out"
+pass
+SABHA_FILL_COST_M=26 run
+[[ $out == *"Plan: none"* && $out == *"Over budget"* ]] || fail "K: one point over must not be planned: $out"
+pass
+SABHA_FILL_RESERVE=35 SABHA_FILL_COST_M=0 run
+[[ $out == *"budget 0 points"* && $out == *"Plan: none"* && $out == *"Planned 0 of 0 points, 0 of 1"* ]] || fail "K: no spare plans nothing even at cost 0: $out"
+pass
+
+# ---- L: briefs: none at all, hostile header, unreadable (SHOULD 3)
+newws l; run
+[[ $rc -eq 0 && $out == *"backlog: no un-acked briefs"* ]] || fail "L: no briefs: rc $rc: $out"
+pass
+mkdir -p "$W/inbox/Bhima"
+printf 'from: x\nsize: S\ngo: rm -rf %s/marker\ntask: `touch %s/marker` $(touch %s/marker) ../../etc/passwd\n\nbody\n' "$top" "$top" "$top" >"$W/inbox/Bhima/001-x-hostile.md"
+run
+[[ $rc -eq 0 && ! -e "$top/marker" && $out == *"Bhima/001"* ]] || fail "L: a hostile header must be printed, never run: $out"
+pass
+brief Bhima 002 secret S; chmod 000 "$W/inbox/Bhima/002-boss-secret.md"; run; chmod 644 "$W/inbox/Bhima/002-boss-secret.md"
+[[ $rc -eq 0 && $out == *"1 brief file(s) could not be read"* && $out != *"Bhima/002"* ]] || fail "L: an unreadable brief must be reported: $out"
+pass
+
+# ---- M: a heavy brief that must wait spends no budget and sits apart (SHOULD 5)
+newws m; brief Karna 136 gates L "slice: none" "run the gradle suite"; brief Bhima 001 x S
+echo WAIT >"$top/gate"; run
+echo GO >"$top/gate"
+[[ $out == *"Queued (heavy"* && $out == *"Planned 2 of 25 points, 1 of 2"* && $out == *"Queued 8 points, 1 briefs"* ]] || fail "M: a queued heavy brief must sit apart and spend nothing: $out"
+printf '%s\n' "$out" | sed -n '/^Plan, light first/,/^Queued/p' | grep -q 'Karna/136' && fail "M: a queued heavy brief must not be in the plan: $out"
+pass
+
+# ---- N: what the docs say (SHOULD 1, 6, 7): fill must not claim read-only for the gate, and must name what it does not check
+grep -q 'removes stale slots' "$BIN/sabha-fill" || fail "N: the header must say sabha-heavy check removes stale slots"
+grep -q 'TESTS ONLY' "$BIN/sabha-fill" || fail "N: the header must say SABHA_FILL_NOW and SABHA_FILL_LOAD5 are tests only"
+grep -q 'Not checked: battery' "$BIN/sabha-fill" || fail "N: the header must say battery is not checked"
+pass
+
 echo "test-fill: $n ok"

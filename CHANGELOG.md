@@ -4,7 +4,11 @@
 
 - `sabha fill`: read-only night planner. From the highest usage window (`status/limits.txt`), the load5 and `bin/sabha-heavy check` it
   proposes an order for the un-acked briefs, light first, heavy ones queued until load5 <= `SABHA_FILL_LOAD5_MAX` (20) and the gate
-  says GO, and lists what does not fit the budget. Stale or missing usage = no plan (exit 3). It starts nothing.
+  says GO (queued apart, no budget spent on them), and lists what does not fit the budget. A stale, missing, future-dated or malformed
+  window (both five_hour and seven_day are needed) = no plan (exit 3) with the window named. It starts nothing and writes nothing
+  itself; the one command it runs, `bin/sabha-heavy check`, creates its slot folder and removes stale slots. `SABHA_FILL_*` and
+  `SABHA_STOP` are read from the environment, else sabha.conf (the environment wins). Not checked: battery, and memory or load for
+  light briefs.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

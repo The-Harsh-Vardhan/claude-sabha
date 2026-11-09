@@ -4,11 +4,18 @@
   sabha-fill [--reserve N]       read-only; prints the proposal and starts nothing (the dispatcher starts)
   --reserve N                    percent points of usage kept free below the stop line (default SABHA_FILL_RESERVE, 10)
 
-Inputs, all read, none written (except that bin/sabha-heavy check creates its empty slot folder):
+Settings: the environment, else sabha.conf (SABHA_FILL_*, SABHA_STOP, SABHA_LIMITS_FILE); the environment wins.
+SABHA_FILL_NOW and SABHA_FILL_LOAD5 are TESTS ONLY (environment only, never read from sabha.conf): set in a shell they
+change a real plan.
+
+Inputs, all read, none written. The one command it runs, bin/sabha-heavy check, is not read-only: it creates its empty slot
+folder and removes stale slots (a dead pid or an old heartbeat), as it does for every caller; fill hides its stderr.
   usage     status/limits.txt (SABHA_LIMITS_FILE): the highest of the five_hour and seven_day readings. The stop line is
             SABHA_STOP (default 90; off or 0 = 100). budget = stop line - highest reading - reserve, in percent points.
-            A window whose resets_at has passed counts as 0; a reading written over SABHA_FILL_STALE (21600) seconds ago,
-            or no readable reading at all, means no plan (exit 3): a guess would spend what may not be there.
+            A window whose resets_at has passed counts as 0. Both windows must be present, fresh (written within
+            SABHA_FILL_STALE, 21600 s, and not in the future) and well formed (digits only, percent 0 to 100): a stale,
+            missing or malformed window means no plan (exit 3, the reason names the window), never a plan from the
+            other window alone: a guess would spend what may not be there.
   backlog   inbox/<Role>/NNN-*.md with no NNN.ack, NNN.done or NNN.cancel beside it. Header (lines up to the first blank
             line): "size: S|M|L" (default M; costs SABHA_FILL_COST_S/M/L points, default 2/4/8), "task:" (else the first
             body line), "heavy: yes|no". Without "heavy:" a brief is heavy when its header or task names a word of
@@ -16,7 +23,9 @@ Inputs, all read, none written (except that bin/sabha-heavy check creates its em
   load      the 5-minute load average (SABHA_FILL_LOAD5 overrides); heavy briefs are ready only at or under
             SABHA_FILL_LOAD5_MAX (20) AND while "bin/sabha-heavy check" (SABHA_FILL_HEAVY_BIN) says GO (exit 0).
 Order: light briefs first, then heavy, each oldest number first; a brief that does not fit the budget is listed under
-"Over budget". Exit 0 proposal printed, 2 usage, 3 usage unreadable or stale.
+"Over budget". A heavy brief that must wait for load or the gate is listed apart under "Queued (heavy)" and its points
+are not spent from the budget. Not checked: battery, and the memory or load of a light brief (the heavy gate covers
+heavy briefs only). Exit 0 proposal printed, 2 usage, 3 usage unreadable or stale.
 """
 import importlib.machinery
 import importlib.util
@@ -31,8 +40,13 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_READ = 64 * 1024
 MAX_FILES = 5000
+MAX_EPOCH = 10 ** 11
+NUM = re.compile(r"^[0-9]{1,3}(\.[0-9]{1,6})?$")
+INT = re.compile(r"^[0-9]{1,12}$")
 WINDOWS = ("five_hour", "seven_day")
 OPTS = ("--reserve",)
+ENV0 = dict(os.environ)  # before load_conf: read_conf writes every conf key into os.environ, which would hide the real environment
+CFG = {}
 
 
 def clean(s):
@@ -70,9 +84,14 @@ def parse_args(argv):
     return opts
 
 
-def envnum(name, default, lo, hi, override=None):
-    """A number from the option or SABHA_FILL_*, inside lo..hi; a bad value is refused loudly, never defaulted."""
-    raw = override if override is not None else os.environ.get(name)
+def setting(name, env_only=False):
+    """The environment, else sabha.conf (env wins); an empty value counts as unset."""
+    return ENV0.get(name) or (None if env_only else CFG.get(name))
+
+
+def envnum(name, default, lo, hi, override=None, env_only=False):
+    """A number from the option, the environment or sabha.conf, inside lo..hi; a bad value is refused loudly, never defaulted."""
+    raw = override if override is not None else setting(name, env_only)
     if raw is None or raw == "":
         return default
     try:
@@ -103,30 +122,33 @@ def read_head(path):
 
 
 def read_limits(path, now, stale):
-    """({window: (pct, resets_at, state)}, why-empty). state: ok | reset. Bad lines and stale readings are dropped."""
+    """({window: (pct, resets_at, state)}, [problem lines]). state: ok | reset. A window that is missing, stale, in the
+    future or malformed is a problem, never silently dropped: the caller plans nothing while any window has one."""
     text = read_head(path)
     if text is None:
-        return {}, "no readable %s" % os.path.basename(path)
-    got, dropped = {}, 0
+        return {}, ["no readable %s" % os.path.basename(path)]
+    lines = {}
     for line in text.splitlines():
         f = line.split()
-        if len(f) < 4 or f[0] not in WINDOWS:
-            continue
-        try:
-            pct, reset, written = float(f[1]), int(f[2]), int(f[3])
-        except ValueError:
-            dropped += 1
-            continue
-        if not (math.isfinite(pct) and 0 <= pct <= 100) or reset < 0 or written < 0:
-            dropped += 1
-            continue
-        if now - written > stale:
-            dropped += 1
-            continue
-        got[f[0]] = (pct, reset, "reset" if reset <= now else "ok")
-    if not got:
-        return {}, "no fresh reading in %s (%d dropped as stale or malformed)" % (os.path.basename(path), dropped)
-    return got, ""
+        if f and f[0] in WINDOWS:
+            lines.setdefault(f[0], f)
+    got, bad = {}, []
+    for w in WINDOWS:
+        f = lines.get(w)
+        if f is None:
+            bad.append("%s missing" % w)
+        elif len(f) < 4 or not (NUM.match(f[1]) and INT.match(f[2]) and INT.match(f[3])):
+            bad.append("%s malformed" % w)
+        elif not 0 <= float(f[1]) <= 100 or int(f[2]) > MAX_EPOCH or int(f[3]) > MAX_EPOCH:
+            bad.append("%s out of range" % w)
+        elif int(f[3]) > now + 60:
+            bad.append("%s written in the future" % w)
+        elif now - int(f[3]) > stale:
+            bad.append("%s stale (%d s old, limit %d s)" % (w, now - int(f[3]), stale))
+        else:
+            reset = int(f[2])
+            got[w] = (float(f[1]), reset, "reset" if reset <= now else "ok")
+    return got, bad
 
 
 def brief_info(path, role, nnn, slug, heavy_words):
@@ -162,11 +184,11 @@ def brief_info(path, role, nnn, slug, heavy_words):
 
 def backlog(impl, heavy_words):
     root = os.path.join(impl, "inbox")
-    items, truncated, seen = [], False, 0
+    items, truncated, seen, unread = [], False, 0, 0
     try:
         roles = sorted(os.listdir(root))
     except OSError:
-        return items, truncated
+        return items, truncated, unread
     for role in roles:
         d = os.path.join(root, role)
         if os.path.islink(d) or not os.path.isdir(d):
@@ -182,7 +204,7 @@ def backlog(impl, heavy_words):
                 continue
             seen += 1
             if seen > MAX_FILES:
-                return items, True
+                return items, True, unread
             if any(os.path.lexists(os.path.join(d, m.group(1) + s)) for s in (".ack", ".done", ".cancel")):
                 continue
             p = os.path.join(d, n)
@@ -192,12 +214,14 @@ def backlog(impl, heavy_words):
             if info:
                 info["busy"] = busy
                 items.append(info)
-    return items, truncated
+            else:
+                unread += 1
+    return items, truncated, unread
 
 
 def heavy_gate():
     """(GO?, text). Anything but exit 0 from the gate, or no gate, is not a GO."""
-    b = os.environ.get("SABHA_FILL_HEAVY_BIN") or os.path.join(HERE, "sabha-heavy")
+    b = setting("SABHA_FILL_HEAVY_BIN") or os.path.join(HERE, "sabha-heavy")
     if not os.path.isfile(b):
         return False, "no gate at bin/sabha-heavy"
     try:
@@ -214,33 +238,32 @@ def hhmm(epoch):
 
 def main(argv):
     opts = parse_args(argv)
+    CFG.update(load_conf())
     reserve = envnum("SABHA_FILL_RESERVE", 10, 0, 100, opts.get("reserve"))
     stale = envnum("SABHA_FILL_STALE", 21600, 1, 10 ** 7)
     load_max = envnum("SABHA_FILL_LOAD5_MAX", 20, 0, 10 ** 4)
     cost = {s: envnum("SABHA_FILL_COST_" + s, d, 0, 1000) for s, d in (("S", 2), ("M", 4), ("L", 8))}
-    now = int(envnum("SABHA_FILL_NOW", time.time(), 0, 10 ** 11))
-    stop_raw = os.environ.get("SABHA_STOP", "90")
+    now = int(envnum("SABHA_FILL_NOW", time.time(), 0, 10 ** 11, env_only=True))
+    stop_raw = setting("SABHA_STOP") or "90"
     stop = 100 if stop_raw in ("off", "0") else envnum("SABHA_STOP", 90, 1, 100)
-    words = (os.environ.get("SABHA_FILL_HEAVY_WORDS") or "gradle jest docker playwright e2e pnpm").lower().split()
+    words = (setting("SABHA_FILL_HEAVY_WORDS") or "gradle jest docker playwright e2e pnpm").lower().split()
 
-    conf = load_conf()
-    impl = conf["SABHA_IMPL"]
-    limits_path = os.environ.get("SABHA_LIMITS_FILE") or os.path.join(impl, "status", "limits.txt")
+    impl = CFG["SABHA_IMPL"]
+    limits_path = setting("SABHA_LIMITS_FILE") or os.path.join(impl, "status", "limits.txt")
     print("sabha fill: proposal at %s (nothing is started; the dispatcher starts)" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)))
 
-    got, why = read_limits(limits_path, now, stale)
-    if not got:
-        print("usage: unreadable (%s)" % clean(why))
-        print("plan: none (no usage reading, so no spare is assumed)")
+    got, bad = read_limits(limits_path, now, stale)
+    if bad:
+        print("usage: unreadable (%s)" % clean("; ".join(bad)))
+        print("plan: none (a window is stale, missing or malformed, so no spare is assumed)")
         return 3
     top = max(0 if v[2] == "reset" else v[0] for v in got.values())
     budget = stop - top - reserve
-    parts = ["%s %g%% (%s)" % (w, got[w][0], "window reset" if got[w][2] == "reset" else "resets " + hhmm(got[w][1])) for w in WINDOWS if w in got]
+    parts = ["%s %g%% (%s)" % (w, got[w][0], "window reset" if got[w][2] == "reset" else "resets " + hhmm(got[w][1])) for w in WINDOWS]
     print("usage: %s; highest %g%%, stop line %g, reserve %g, budget %g points" % (", ".join(parts), top, stop, reserve, budget))
 
-    env_load = os.environ.get("SABHA_FILL_LOAD5")
-    if env_load not in (None, ""):
-        load5 = envnum("SABHA_FILL_LOAD5", 0, 0, 10 ** 4)
+    if setting("SABHA_FILL_LOAD5", True):
+        load5 = envnum("SABHA_FILL_LOAD5", 0, 0, 10 ** 4, env_only=True)
     else:
         try:
             load5 = os.getloadavg()[1]
@@ -251,17 +274,21 @@ def main(argv):
     print("load5: %s (heavy briefs wait above %g); heavy gate: %s" % ("unreadable" if load5 is None else "%.1f" % load5, load_max, gate))
     heavy_ready = load_ok and go
 
-    items, truncated = backlog(impl, words)
+    items, truncated, unread = backlog(impl, words)
     if truncated:
         print("backlog: only the first %d brief files were read" % MAX_FILES)
+    if unread:
+        print("backlog: %d brief file(s) could not be read and are not planned" % unread)
     if not items:
         print("backlog: no un-acked briefs")
         return 0
     items.sort(key=lambda i: (i["heavy"], i["nnn"], i["role"]))
-    planned, over, spent = [], [], 0.0
+    planned, over, queued, spent = [], [], [], 0.0
     for it in items:
         c = cost[it["size"]]
-        if budget > 0 and spent + c <= budget:
+        if it["heavy"] and not heavy_ready:
+            queued.append(it)
+        elif budget > 0 and spent + c <= budget:
             spent += c
             planned.append(it)
         else:
@@ -283,7 +310,13 @@ def main(argv):
         print("Over budget (not planned):")
         for it in over:
             print(row("-", it))
+    if queued:
+        print("Queued (heavy, not planned until load5 <= %g and the gate says GO; points not spent from the budget):" % load_max)
+        for it in queued:
+            print(row("-", it))
     print("Planned %g of %g points, %d of %d briefs." % (spent, max(budget, 0), len(planned), len(items)))
+    if queued:
+        print("Queued %g points, %d briefs, counted apart." % (sum(cost[i["size"]] for i in queued), len(queued)))
     return 0
 
 
