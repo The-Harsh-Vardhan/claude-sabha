@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# sabha-rotate: keep the top block and the newest N (10) entries of each status/<role>.md; the full pre-rotation file
+# is copied to status/.bak/<role>-<utc>-<pid>.md first. Never deletes. Dry run is the default; --apply writes.
+# An entry starts at a line "UPDATE <n> (", "UPDATE <n> <Mon> " or "Idle: by design (" anywhere, or "UPDATE <n>", "Current:", "Idle:" or "# HANDOFF" at file
+# start or after a blank or "---" line (the shapes the live files use; newest first). Anything before the first entry stays with the top block.
+# --apply is only safe at a quiet moment with no role writing (Vidur picks it, Q-049). The file is rewritten in place
+# (same inode, mode and owner; an open >> fd keeps working) after a verified full copy; a file that changed since the
+# copy is skipped. Restore: its line in .bak/RESTORE.txt puts the full pre-rotation copy back over the live file,
+# which drops anything written after the rotation.
+# Usage: sabha-rotate [--dry-run|--apply] [--keep N] [<status-dir> | <file.md>...]   (default dir: $SABHA_IMPL/status)
+set -u
+mode=dry keep=10 args=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dry-run) mode=dry ;;
+    --apply) mode=apply ;;
+    --keep) keep=${2:-}; shift ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -*) echo "sabha-rotate: unknown flag $1" >&2; exit 2 ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+[[ $keep =~ ^[0-9]+$ ]] || { echo "sabha-rotate: --keep needs a number" >&2; exit 2; }
+if [[ ${#args[@]} -eq 0 ]]; then
+  [[ -n ${SABHA_IMPL:-} ]] || { echo "sabha-rotate: name a status dir or set SABHA_IMPL" >&2; exit 2; }
+  args=("$SABHA_IMPL/status")
+fi
+files=()
+for a in "${args[@]}"; do
+  if [[ -d $a ]]; then for f in "$a"/*.md; do [[ -f $f ]] && files+=("$f"); done
+  elif [[ -f $a ]]; then files+=("$a")
+  else echo "sabha-rotate: no such file or dir: $a" >&2; exit 2; fi
+done
+[[ ${#files[@]} -gt 0 ]] || { echo "sabha-rotate: no status files"; exit 0; }
+
+# prints "<line where entry keep+2 starts> <entries from there on>"; nothing = nothing to move
+cut_line() {
+  awk -v want=$((keep + 2)) '
+    /^(UPDATE [0-9]+ (\(|[A-Z][a-z][a-z] )|Idle: by design \()/ || ((NR == 1 || prev == "" || prev == "---") && /^(UPDATE [0-9]+|Current:|Idle:|# HANDOFF)/) {
+      if (++n == want) c = NR }
+    { prev = $0 } END { if (c) print c, n - want + 1 }' "$1"
+}
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)-$$
+tot_before=0 tot_after=0 moved=0 rc=0
+for f in "${files[@]}"; do
+  n='' entries=''
+  read -r n entries <<<"$(cut_line "$f")"
+  [[ -n $n ]] || continue
+  before=$(wc -c <"$f" | tr -d ' ')
+  kept=$(head -n $((n - 1)) "$f" | wc -c | tr -d ' ')
+  echo "$f: $before -> $kept bytes, move $entries entries ($((before - kept)) bytes)"
+  tot_before=$((tot_before + before)) tot_after=$((tot_after + kept)) moved=$((moved + 1))
+  [[ $mode == apply ]] || continue
+  bak=$(dirname "$f")/.bak
+  arc=$bak/$(basename "$f" .md)-$stamp.md
+  mkdir -p "$bak" || { rc=1; continue; }
+  if [[ -e $arc ]]; then echo "$arc exists, skipped" >&2; rc=1; continue; fi
+  sum=$(cksum <"$f")
+  cp "$f" "$arc" && head -n $((n - 1)) "$f" >"$arc.keep" || { rm -f "$arc" "$arc.keep"; rc=1; continue; }
+  # in-place rewrite is not atomic, so the archive must hold the whole original before it starts
+  if [[ $(cksum <"$arc") != "$sum" ]]; then
+    echo "$f: archive not verified, skipped, nothing changed" >&2; rm -f "$arc" "$arc.keep"; rc=1; continue
+  fi
+  # test seam (no exec): lets a test write to the file between the copy and the re-check
+  if [[ -n ${SABHA_ROTATE_PAUSE_DIR:-} ]]; then
+    touch "$SABHA_ROTATE_PAUSE_DIR/ready"
+    for _ in $(seq 100); do [[ -e $SABHA_ROTATE_PAUSE_DIR/go ]] && break; sleep 0.1; done
+  fi
+  if [[ $(cksum <"$f") != "$sum" ]]; then
+    echo "$f: changed while rotating, skipped" >&2; rm -f "$arc" "$arc.keep"; rc=1; continue
+  fi
+  if cat "$arc.keep" >"$f"; then
+    printf 'cat %q > %q\n' "$arc" "$f" >>"$bak/RESTORE.txt" || rc=1
+  else
+    echo "$f: in-place write failed; full original is in $arc" >&2; rc=1
+  fi
+  rm -f "$arc.keep"
+done
+echo "sabha-rotate ($mode): $moved file(s), $tot_before -> $tot_after bytes"
+[[ $mode == dry && $moved -gt 0 ]] && echo "sabha-rotate: dry run, nothing written; --apply to rotate"
+exit $rc
