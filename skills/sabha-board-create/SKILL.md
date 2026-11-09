@@ -34,9 +34,11 @@ only from the human's own account, so the page is theirs; never create a board f
      `BLOCKED-HUMAN`; each brief in `$SABHA_IMPL/inbox/<Name>/` with an ack and no done becomes a `RUNNING` row.
    - With nothing open: one row whose `ask` starts with `EXAMPLE`, state `READY`, so the page shows a card. The human deletes it.
    Fill the fields of each row as the queue row section (`## queue row`) of `board-schema.md` lists them. `lastChangeAt` comes from `date -u +%Y-%m-%dT%H:%M:%SZ`.
-6. Write the artifact URL to `sabha.conf` as `SABHA_BOARD_URL="<url>"` (edit the existing line; keep the quotes).
-7. Set `SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData` in `sabha.conf` (the relay guard denies these tools otherwise),
-   then restart the relay so it keeps the board current.
+6. The human adds the artifact URL to `sabha.conf` as `SABHA_BOARD_URL="<url>"` (edit the existing line; keep the
+   quotes). Give them the exact line: the guarded relay cannot edit `sabha.conf`.
+7. The human also sets `SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData` in `sabha.conf` before the relay publishes
+   (the relay guard denies these tools otherwise; it re-reads the conf on each call). Restart the relay once the URL is
+   set, so its prompt tells it to keep the board current.
 8. Tell the human the URL and ask them to pin the page in their sidebar. Do not pin it yourself.
 
 ## Rules

@@ -98,6 +98,10 @@ check "Who runs this: the relay only with the allow list, else \"you do it\" or 
 RP=$(grep "^SABHA_PROMPT_Relay=" "$ROOT/sabha.conf.example")
 check "the relay prompt does not forbid publishing while it keeps the board, and names the allow list" '[[ $RP != *"Never push, post or publish"* && $RP == *"$ALLOW"* ]]'
 check "the sabha-relay skill names the allow list for the board" 'tr -d "\`" <"$ROOT/skills/sabha-relay/SKILL.md" | tr "\n" " " | tr -s " " | grep -qF "$ALLOW"'
+STEP67=$(sed -n "/^6\. /,/^8\. /p" "$SK" | tr -d "\`" | tr "\n" " " | tr -s " ")
+check "steps 6-7: the human adds both conf lines, the relay cannot edit sabha.conf" '[[ $STEP67 == "6. The human adds"* && $STEP67 == *"7. The human also sets SABHA_RELAY_ALLOW_TOOLS"* && $STEP67 == *"cannot edit sabha.conf"* ]]'
+check "step 7: the restart is for the prompt; the guard re-reads the conf" '[[ $STEP67 == *"re-reads the conf on each call"* && $STEP67 == *"so its prompt"* ]]'
+check "doctor matches the allow list under LC_ALL=C, as the guard does" 'grep -q "(LC_ALL=C; \[\[ \$tools =~" "$ROOT/bin/sabha"'
 check "README says the relay writes the board only with the allow list" 'sed -n "/^\*\*See progress\*\*/,/^Untested/p" "$ROOT/README.md" | tr "\n" " " | tr -s " " | grep -qF "$ALLOW"'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
