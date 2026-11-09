@@ -514,7 +514,7 @@ check "R4 S2 push of \$(git rev-parse --abbrev-ref HEAD) allowed" 'allows bash_i
 check "R4 S2 the same from a shared checkout denied" 'denies bash_in "git push origin \"\$(git branch --show-current)\"" "$dir/shared" && rule shared-push'
 check "R4 S2 only the whole refspec: HEAD:\$(git branch --show-current) denied" 'denies bash_in "git push origin HEAD:\$(git branch --show-current)" && rule shared-push'
 check "R4 allowed: a comment with an apostrophe after a push" 'allows bash_in "git push origin feat/x # don${q}t push main"'
-check "R4 allowed: push to Harsh's own feature branch" 'allows bash_in "git push -u origin feat/x"'
+check "R4 allowed: push to an own feature branch" 'allows bash_in "git push -u origin feat/x"'
 check "R4 allowed: .env.example read" 'allows bash_in "cat .env.example; git push origin feat/x"'
 check "R4 allowed: cp a \$(pwd)/b" 'allows bash_in "cp a \$(pwd)/b"'
 check "R4 allowed: git and gh reads beside a push" 'allows bash_in "git log --oneline -n 3; gh pr list; git push origin feat/x"'
