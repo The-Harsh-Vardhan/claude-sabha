@@ -61,6 +61,11 @@ for tag in non-ascii:index.html artifact-url:index.html leak-name:index.html cap
 done
 rm -rf "$BAD"
 
+T=$ROOT/template/board/index.html
+check "the page reads the legacy bhishma collection as well as architect" 'grep -q "watch(\"architect\"" "$T" && grep -q "watch(\"bhishma\"" "$T"'
+check "the page never writes to bhishma" '! grep -E "bhishma/|collection\(\"bhishma\"\)\.(add|doc)" "$T" | grep -q .'
+check "board-schema.md documents bhishma as an alias of architect" 'grep -q "legacy collection .bhishma. is read as an alias of .architect." "$ROOT/template/board/board-schema.md"'
+
 echo "--- sabha.conf.example"
 check "sabha.conf.example documents SABHA_BOARD_URL (a comment, then the key)" 'grep -B3 "^SABHA_BOARD_URL=" "$ROOT/sabha.conf.example" | grep -q "^# .*SABHA_BOARD_URL\|^# The progress board"'
 check "sabha.conf.example has SABHA_RELAY_ALLOW_TOOLS empty, after SABHA_RELAY_GUARD, naming Artifact,ArtifactData" 'grep -q "^SABHA_RELAY_ALLOW_TOOLS=\"\"$" "$ROOT/sabha.conf.example" && [[ $(grep -n "^SABHA_RELAY_GUARD=" "$ROOT/sabha.conf.example" | cut -d: -f1) -lt $(grep -n "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | cut -d: -f1) ]] && grep -B6 "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | grep -q "Artifact,ArtifactData"'

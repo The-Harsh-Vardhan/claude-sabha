@@ -75,6 +75,8 @@ decisions), `status` (`OPEN-APPLY`, `APPLIED`, `SUPERSEDED`), `ref`, `cited`, `c
 
 - `activity`: `at` (ISO), `agent`, `kind` (`done`, `verdict`, `blocked`, `cancel`, `restart`, `nudge`, `ack`, or other), `project`, `ref`, `line`.
 - `architect`: `ref`, `from`, `askedAt` (ISO), `state` (`done`, `cancelled`, `open`), `pushback` (true when the role flagged a conflict), `minutesToDone`, `project`, `title`.
+  The legacy collection `bhishma` is read as an alias of `architect`: the page reads both and merges them by `ref`
+  (else the doc id), an `architect` row wins, and nothing writes to `bhishma`.
 - `agents`: `agent`, `task`, `statusMtime`.
 - `artifacts`: `title`, `url` (shown as a link only when it is an `https` artifact URL), `kind`, `project`, `audience` (`shared: <who>` or empty), `status` (`superseded`), `supersededBy`, `note`, `createdAt`, `updatedAt`.
 - `daily`: one doc per day with `date`, `projects` (each: `project`, `highlights`, `moved`, `blockers` as arrays of text), `tomorrow` (array of text), `marked` (array of `project|section|index` keys). Only append lines: the keys are positions, so reordering moves the human's highlights.

@@ -811,7 +811,7 @@ function dayHighlights(doc) {
     return n;
   }
   // ---- Decisions, Agents and Artifacts tabs
-  var dec = {}, act = {}, art = {}, bh = {}, ag = {}, ld = {}, lf = {};
+  var dec = {}, act = {}, art = {}, bh = {}, bhNew = {}, bhOld = {}, ag = {}, ld = {}, lf = {};
   var dWho = "me", dProj = "All", dStat = "all", openDec = {}, bAll = false;
   var aProj = "All", aKind = "all", aLimit = 40, xProj = "All", xOldOpen = {};
   var dly = {}, dOpenDay = {}, wBusy = {}, wMsg = "";
@@ -1625,7 +1625,10 @@ function dayHighlights(doc) {
       });
       watch("decisions", function (n) { dec = n; });
       watch("activity", function (n) { act = n; });
-      watch("architect", function (n) { bh = n; });
+      // bhishma is the legacy name of architect, read only: rows merge by ref (else id), an architect row wins
+      var mergeBh = function () { bh = {}; [bhOld, bhNew].forEach(function (src) { Object.keys(src).forEach(function (k) { bh[src[k].ref || k] = src[k]; }); }); };
+      watch("architect", function (n) { bhNew = n; mergeBh(); });
+      watch("bhishma", function (n) { bhOld = n; mergeBh(); });
       watch("agents", function (n) { ag = n; });
       watch("artifacts", function (n) { art = n; });
       watch("daily", function (n) { dly = n; });
