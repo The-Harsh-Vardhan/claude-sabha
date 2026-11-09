@@ -28,6 +28,13 @@ SABHA_USER="the user"
 #SABHA_HERDR_SESSION=sabha
 # 1 passes --remote-control to Claude panes (Pro/Max only; an org policy can block it).
 #SABHA_REMOTE=0
+# sabha owe: open for-me items whose title or why holds one of these words; drafts (.md or .txt, no sent: line, no
+# <file>.sent marker) in these folders (space-separated, relative = under SABHA_WS); an optional board export (JSON
+# list of rows with id, dependsOn, unblocks) names the rows each one blocks.
+#SABHA_OWE_WORDS="send message reply post"
+# Add words such as "tell" here; "ask <Name>" (capital N) always counts.
+#SABHA_OWE_DIRS="docs/drafts"
+#SABHA_OWE_BOARD=$SABHA_WS/path/to/board.json
 # Plan: the roster, panes, copies and labels of sabha.<plan>.conf beside this file (pro, max5, max20) replace the ones
 # below. `sabha-up.sh --plan pro` does the same for one run. Leave it unset to use the roster written here.
 #SABHA_PLAN=pro
