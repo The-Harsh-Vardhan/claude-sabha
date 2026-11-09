@@ -297,6 +297,7 @@ from the scripts):
 | `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
 | `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
 | `SABHA_CHAIN_<repo>` | unset | `sabha shipped`: the promotion chain of a repo, branches in order, space separated (`<repo>` = the name after the slash, other characters as `_`) |
+| `SABHA_NIGHTLY_DIR` | `$SABHA_IMPL/nightly` | `sabha nightly`: where the dated drafts are written |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_UPSTREAM_CONF`, `SABHA_UPSTREAM_ORG`, `SABHA_UPSTREAM_PROBE_<repo>`, `SABHA_UPSTREAM_PAIRS`, `SABHA_UPSTREAM_TO` | unset | `sabha upstream`: the repos list, the owner of a repo with no clone, layout paths, `repo:base:upstream` pairs, the brief receiver ([docs/upstream-watch.md](docs/upstream-watch.md)) |
@@ -333,6 +334,7 @@ from the scripts):
 | `bin/sabha-gh <read> ...` | The kit's one read-only GitHub layer: named reads (`pr`, `prs-by-author`, `compare`, `repo`, `branch`, `contents`), no flag accepted, account and quota checked, 10-minute cache |
 | `bin/sabha whoami [<Name>]` | One line: role, session id (written by the SessionStart hook to `status/whoami/<Name>.txt`), cwd, conf, impl, pane, live copies; exit 3 with a `WARN duplicate` line when more than one live session holds the name. The relay gets this line before every turn (`hooks/sabha-preturn.sh`, UserPromptSubmit) |
 | `bin/sabha shipped [--fresh] [--chain "b1 b2"] <owner/repo#n>` | How far a merged PR has been promoted: `in`, `NOT IN` or `no such branch` per branch of its chain; by commit sha, so a squash promotion is not detected ([docs/shipped.md](docs/shipped.md)); read-only, through `bin/sabha-gh`; needs `gh` logged in, from a plain terminal |
+| `bin/sabha nightly` | Drafts the day's progress note (`<date>.md` in `SABHA_NIGHTLY_DIR`) from the day's `.done` markers and `for-me.items` changes; read-only on its sources, sends nothing, keeps a draft you edited unless `--force` |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate (`--checks` adds workspace file tests, [docs/gate-checks.md](docs/gate-checks.md)), an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
