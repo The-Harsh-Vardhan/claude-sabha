@@ -272,7 +272,7 @@ check "F7: sabha-perm refuses a symlinked relay.tsv" '! rp pane Fake-001 2>/dev/
 rm -f "$P/log.tsv" "$P/relay.tsv" "$P/Fake-001.req"; mv "$dir/log.keep" "$P/log.tsv"; mv "$dir/relay.keep" "$P/relay.tsv"
 
 # 15: hooks.json and syntax
-check "hooks.json: four events, PermissionRequest timeout 1800, no onFailure" 'jq -e "(.hooks | keys) == [\"PermissionRequest\",\"PreToolUse\",\"SessionStart\",\"Stop\"] and .hooks.PermissionRequest[0].hooks[0].timeout == 1800 and (.hooks.PermissionRequest[0].hooks[0] | has(\"onFailure\") | not) and (.hooks.PermissionRequest[0] | has(\"matcher\") | not)" $root/hooks/hooks.json >/dev/null'
+check "hooks.json: five events, PermissionRequest timeout 1800, no onFailure" 'jq -e "(.hooks | keys) == [\"PermissionRequest\",\"PreToolUse\",\"SessionStart\",\"Stop\",\"UserPromptSubmit\"] and .hooks.PermissionRequest[0].hooks[0].timeout == 1800 and (.hooks.PermissionRequest[0].hooks[0] | has(\"onFailure\") | not) and (.hooks.PermissionRequest[0] | has(\"matcher\") | not)" $root/hooks/hooks.json >/dev/null'
 check "bash -n both scripts" 'bash -n "$hook" && bash -n "$perm"'
 
 if [[ $fails -gt 0 ]]; then echo "FAIL: $fails check(s)"; exit 1; fi

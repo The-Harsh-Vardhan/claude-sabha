@@ -3,6 +3,13 @@
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh" 2>/dev/null || exit 0
 hk_init || exit 0
 
+# sabha whoami reads the session id back from here; a write failure never stops the start
+sid=$(hk_field session_id)
+if [ -n "$sid" ]; then
+  mkdir -p "$HK_IMPL/status/whoami" 2>/dev/null &&
+    printf 'session_id=%s\ncwd=%s\n' "$sid" "$(hk_field cwd)" >"$HK_IMPL/status/whoami/$HK_ROLE.txt" 2>/dev/null
+fi
+
 sf=$(hk_status_file)
 echo "[sabha] You are $HK_ROLE. Resume from the files below. Never use --resume; state lives in $HK_IMPL, not in chat."
 if [ -f "$sf" ]; then
