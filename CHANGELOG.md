@@ -92,6 +92,10 @@
   or disappeared and an upstream branch merged in. A new finding is one `for-me.items` entry and the run's findings one brief
   to `SABHA_UPSTREAM_TO`; the first run only records facts. `sabha-watch` calls it daily when `SABHA_UPSTREAM_CONF` is set.
   Needs `bin/sabha-gh` (merge after the PR radar, which carries the same file). docs/upstream-watch.md.
+- `bin/sabha-chain <board-folder>`, the chain view: blocker chains from the board's `dependsOn` rows (an exported folder of
+  JSON rows), printed as a tree from the row that waits down to the root blockers ("unblock first: ..."); DONE blockers are
+  hidden, ids off the board and cycles are marked; PR mentions in a row are listed, and `--gh` adds each PR's state and
+  base branch through `bin/sabha-gh` (merge after the PR radar branch, which adds it). docs/chain-view.md.
 
 ## 2.0.1 - 2026-10-20
 
