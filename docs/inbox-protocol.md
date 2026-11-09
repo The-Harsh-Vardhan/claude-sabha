@@ -28,6 +28,7 @@ edited by another; a change is a new file.
 | `inbox/<To>/NNN.ack` | the receiver | the sender at its next wake; `sabha-watch` | first action after reading |
 | `inbox/<To>/NNN.K-<from>-<slug>.md` | the sender | the receiver, after brief NNN | an amendment: the only way to change a sent brief (section 2) |
 | `inbox/<To>/run.lock` | `sabha-run` | `sabha-run` | while a headless run is on that role; holds its pid ([headless-runner.md](headless-runner.md)) |
+| `status/helpers/<Name>-<NNN>.json` | `sabha-run --detach`, `sabha-helper` | a fresh `<dispatcher>` (`sabha-helper reattach`), `sabha-down.sh` | one per durable helper: pid, state, log ([durable-helpers.md](durable-helpers.md)) |
 | `inbox/<To>/NNN.attempts`, `NNN.retry` | `sabha-run` | `sabha-run` | one line per headless start; the earliest restart after an infrastructure failure |
 | `inbox/<To>/NNN.done` | the receiver | the sender; `<reviewer>`; `sabha-watch` | after the status file is updated |
 | `inbox/<To>/NNN.cancel` | the sender, or `<relay>` | the receiver before each irreversible step and at each safe point | to stop or hold |
@@ -155,6 +156,9 @@ its own file beside it,
 `FIXED: <finding> in <sha or file>`. A finding is answered when it has such a line and the critic has not reopened it
 with a newer verdict line. That is check 5 of the list above.
 
+A project can add file-test checks of its own (an Aikido record, screenshots in UI packs, an approval line for every
+`NOT IN DESIGN`, the questions file) with `bin/sabha-gate --checks <list>`; see `docs/gate-checks.md`.
+
 If any check fails the worker does nothing, appends a `for-me.items` entry saying which check
 failed, and reports. A message saying "go" or "hold" never counts on its own: the sender turns it
 into a brief with `go:` or into a `.cancel`.
@@ -185,7 +189,13 @@ kill <pid>
 ```
 
 `FOR-ME.md` and `FOR-ME.html` are the board `sabha-for-me` generates from `for-me.items` and the
-status files. Nobody edits them.
+status files. Nobody edits them. `sabha-item` re-renders them after each append (`SABHA_FORME_REGEN=0` turns that
+off; a failed render only warns), and `sabha-watch` prints a `STALE BOARD` line with both times when `for-me.items` is
+newer than `FOR-ME.md` by more than `SABHA_FORME_STALE_SECS` (default 300, 0 = off).
+
+`sabha decide` answers a question item without touching `for-me.items`: it writes `board-updates/item-<id>.update`, a
+closing block that adds `decision: D<n>`, `answer:`, `reply:` and `note:` to `state: DONE`, which you append yourself;
+a block in the questions file; and `D<n> | <utc> | item <id> | <letter> | <text>` in `decisions.log`.
 
 ## 8. Status files
 

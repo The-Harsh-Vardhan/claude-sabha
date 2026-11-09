@@ -30,6 +30,8 @@ mid_task() {
   for a in "$IMPL/inbox/$1"/[0-9][0-9][0-9]*.ack; do
     [[ -e $a ]] || continue
     n=${a%.ack}
+    # NNN.helper.ack is a helper's marker (sabha-helpers.sh), not a brief's
+    [[ ${n##*/} =~ ^[0-9]+$ ]] || continue
     [[ -e $n.done || -e $n.cancel ]] || { echo "inbox/$1/$(basename "$n") acked $(date -r "$a" +%H:%M), no done"; return 0; }
   done
   return 1
@@ -68,6 +70,12 @@ if [[ -f $IMPL/for-me.items ]]; then
             printf "%s %s; ", order[i], substr(title[order[i]], 1, 50) }
   ' "$IMPL/for-me.items")
   echo "open for-me items: ${open:-none}"
+  # FOR-ME.md is what the human reads; nothing else tells them it is days behind its source (4 Nov: five days)
+  board=${SABHA_FORME_DIR:-$IMPL}/FOR-ME.md stale_s=${SABHA_FORME_STALE_SECS:-300}
+  if [[ $stale_s =~ ^[0-9]+$ ]] && (( stale_s > 0 )) && [[ -f $board ]]; then
+    bt=$(date -r "$board" +%s) it=$(date -r "$IMPL/for-me.items" +%s)
+    (( it - bt > stale_s )) && echo "STALE BOARD: FOR-ME.md $(date -r "$board" '+%Y-%m-%d %H:%M') is older than for-me.items $(date -r "$IMPL/for-me.items" '+%Y-%m-%d %H:%M'); run bin/sabha-for-me"
+  fi
 fi
 
 unacked="" edited=""
@@ -93,11 +101,16 @@ if [[ -n $DISPATCHER ]] && mkdir -p "$SEEN" 2>/dev/null; then
   for d in "$IMPL"/inbox/*/[0-9][0-9][0-9]*.done; do
     [[ -e $d ]] || continue
     role=$(basename "$(dirname "$d")"); n=$(basename "$d" .done)
+    [[ $n =~ ^[0-9]+$ ]] || continue
     (set -C; : >"$SEEN/$role-$n") 2>/dev/null || continue
     (( first )) && continue
     to=$DISPATCHER; [[ $role == "$DISPATCHER" ]] && to=$RELAY
     ( "$nudge" "$to" "see inbox/$role/$n.done" </dev/null >>"$IMPL/status/done-nudge.log" 2>&1 || echo "nudge $to failed for inbox/$role/$n.done" >>"$IMPL/status/done-nudge.log" ) &
   done
+fi
+# the upstream watcher rides on this report too: once per local day, in the background, off unless SABHA_UPSTREAM_CONF is set
+if [[ -n ${SABHA_UPSTREAM_CONF:-} && -x $BIN/sabha-upstream && -x $BIN/sabha-gh ]] && mkdir -p "$IMPL/status/upstream" 2>/dev/null; then
+  ( SABHA_UPSTREAM_TO=${SABHA_UPSTREAM_TO:-$DISPATCHER} SABHA_IMPL=$IMPL "$BIN/sabha-upstream" --daily </dev/null >>"$IMPL/status/upstream/watch.log" 2>&1 || true ) &
 fi
 # the headless runner rides on this report instead of a loop of its own (docs/headless-runner.md)
 [[ ${SABHA_RUN_AUTO:-0} == 1 ]] && "$BIN/sabha-run"

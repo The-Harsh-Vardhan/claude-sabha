@@ -58,4 +58,10 @@ that exact line per due brief and writes nothing.
 | Retries | `SABHA_RUN_ATTEMPTS` (default 1 = no retry). Only a run that exits non-zero with no `.done`, a spawn that fails, or a run that died (headless ack, no `.done`, no live `run.lock`) is retried: the ack is removed and `NNN.retry` names the earliest restart, `SABHA_RUN_BACKOFF` s doubled per attempt (cap 16x: 60, 120, 240, 480, 960 s, then 960 s). A timeout, an exit 0 with no `.done`, or the agent's own `BLOCKED` done is final | retry the machine, not the agent; another hour of a timed-out model is a cost decision |
 | A dead run | a headless ack with no `.done`, no live `run.lock` and no live `claude -n <Name>` is retried while attempts are left, else closed `BLOCKED headless run died without a done`. An ack with no `NNN.attempts` (written before attempts were counted) has used one, so at the default it is closed, not run again | it used to stay open forever; a worker resumed by hand in a pane (`sabha-up.sh <Name>`) keeps the brief |
 - `sabha-down.sh` sees a headless run as a running role (it carries `-n <Name>`) and sends it a save brief it never
-  reads; such a run ends on its own or at its timeout, and a later pass then runs that save brief headless.
+  reads; such a run ends on its own or at its timeout, and a later pass then runs that save brief headless. (A run
+  started as a durable helper is stopped by `sabha-down.sh` first, so this does not apply to it.)
+
+## Durable helpers
+
+`sabha-run --detach <Name>` is the same run started in its own session with a registry entry, so it outlives the
+session that started it; see [durable-helpers.md](durable-helpers.md).
