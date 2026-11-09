@@ -179,6 +179,10 @@ logs the topic and your IP. `sabha init --push ntfy` generates a random topic an
 treat the name like a password, and self-host ntfy if the alerts name anything sensitive. Telegram and Pushover are not
 built.
 
+**See progress**: the board is the default view. Set `SABHA_BOARD_URL` in `sabha.conf` to the URL of your published
+board; `/sabha-board` points you to it first, and `sabha doctor` warns while the key is empty. `FOR-ME.md` (and
+`FOR-ME.html`) stays the offline fallback: it needs no network and no account.
+
 Untested and limited parts of this release, and how to confirm each: [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Limits and alerts

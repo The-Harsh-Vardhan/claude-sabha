@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `SABHA_BOARD_URL` (sabha.conf): the published progress board is the default view. The relay keeps it current, `/sabha-board` points to it before the FOR-ME walk, `sabha doctor` warns while it is empty; FOR-ME.md stays the offline fallback. Test: `tests/test-board-default.sh`.
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
   of each `status/<role>.md` (`UPDATE <n> (`, `UPDATE <n> <Mon>`, `Idle: by design (` count anywhere; looser
   headers only at file start or after a blank or `---` line); the full

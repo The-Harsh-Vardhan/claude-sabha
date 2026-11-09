@@ -20,5 +20,9 @@ check "/sabha-board never publishes or writes an artifact itself" 'grep -qi "nev
 check "/sabha-board changes nothing when the key is empty" 'grep -qi "empty" "$CMD" && grep -q "unchanged" "$CMD"'
 check "/sabha-board still renders FOR-ME.md and walks the open items" 'grep -q "bin/sabha-for-me" "$CMD" && grep -q "FOR-ME.md" "$CMD"'
 
+echo "--- README and CHANGELOG"
+check "README names the board as the default view and FOR-ME.md as the offline fallback" 'grep -n "SABHA_BOARD_URL" "$ROOT/README.md" | grep -qi "default" && sed -n "/^## Remote control and progress/,/^## Limits/p" "$ROOT/README.md" | grep -q "offline fallback"'
+check "CHANGELOG has the board line under Unreleased" 'sed -n "/^## Unreleased/,/^## /p" "$ROOT/CHANGELOG.md" | grep -q "SABHA_BOARD_URL"'
+
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: the board is the default view in the relay text, /sabha-board and the README"
