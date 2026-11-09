@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""sabha-decide: turn one answer to a question item into three files. It writes nothing to the live board.
+
+  sabha-decide "Answer 7: B - option text, note: why"     the line the board's "Copy answer" button yields
+  sabha-decide 7 B [--note TEXT]                          the same answer typed by hand
+  sabha-decide 7 "free text answer" [--note TEXT]         an answer that picks no option
+  options: --questions FILE  --log FILE  --out DIR        override the three destinations below
+
+The item is a question item of $SABHA_IMPL/for-me.items (docs/inbox-protocol.md, section 7), open, and not yet in the
+decision log. Three files come out, and the command that closes the item is printed, never run:
+  1. board update   <out>/item-<id>.update: a closing block (state: DONE, decision:, answer:, reply:, note:). Append it
+                    to for-me.items yourself; the board then shows the item as closed.
+  2. questions file the answer appended as a block (the file that ships with the PR for the approver).
+  3. decision log   one line "D<n> | <utc> | item <id> | <letter> | <text>", n = the highest D number in the log + 1.
+Destinations: --out / SABHA_DECIDE_OUT (default <impl>/board-updates), --questions / SABHA_DECIDE_QUESTIONS (default
+<impl>/questions/item-<id>.md), --log / SABHA_DECISION_LOG (default <impl>/decisions.log). A relative value in the
+config is read from SABHA_IMPL. Exit 0 ok, 1 refused or failed, 2 usage.
+"""
+import importlib.machinery
+import importlib.util
+import os
+import re
+import sys
+import tempfile
+import time
+import datetime as dt
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+MAX_READ = 8 * 1024 * 1024
+TEXT_MAX = 500
+LOCK_STALE = 120
+OPTS = ("--note", "--questions", "--log", "--out")
+
+
+def clean(s):
+    """The one function every printed or written value goes through: printable ASCII, one line. Control characters
+    (ESC, CR, NUL, DEL, newlines, the C1 range) become a space, every other non-ASCII character (bidi marks, line
+    separators included) becomes '?'."""
+    s = str(s)
+    return " ".join("".join(c if " " <= c <= "~" else ("?" if ord(c) > 127 else " ") for c in s).split())
+
+
+def die(msg, code=1):
+    sys.stderr.write("sabha-decide: %s\n" % clean(msg))
+    sys.exit(code)
+
+
+def usage(code):
+    text = __doc__.split("\n\n")[0].strip("\n").split("\n")
+    out = sys.stdout if code == 0 else sys.stderr
+    out.write("\n".join(l for l in text if l.startswith("  sabha-decide") or l.startswith("  options")) + "\n")
+    sys.exit(code)
+
+
+def parse_args(argv):
+    opts, pos, i = {}, [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-h", "--help"):
+            usage(0)
+        if a in OPTS:
+            if i + 1 >= len(argv) or argv[i + 1] == "" or argv[i + 1] in OPTS:
+                die("%s needs a value" % a, 2)
+            opts[a[2:]] = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("--"):
+            die("unknown option %s" % a, 2)
+        pos.append(a)
+        i += 1
+    return opts, pos
+
+
+def read_text(path):
+    try:
+        if os.path.getsize(path) > MAX_READ:
+            die("could not read %s: larger than %d bytes" % (path, MAX_READ))
+        with open(path, encoding="ascii", errors="replace") as f:
+            return f.read()
+    except OSError as e:
+        die("could not read %s (%s)" % (path, e.strerror))
+
+
+def load_board():
+    p = os.path.join(HERE, "sabha-for-me")
+    loader = importlib.machinery.SourceFileLoader("sabha_for_me", p)
+    spec = importlib.util.spec_from_loader("sabha_for_me", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def split_answer(args):
+    """(item id, option letter or "", reply text, note) from the pasted line or from id + answer."""
+    if len(args) == 1:
+        m = re.match(r"^\s*Answer\s+(\d{1,9})\s*:\s*(.*)$", args[0], re.S)
+        if not m:
+            die('one argument must be the pasted line: Answer <id>: <answer>', 2)
+        iid, rest = m.group(1), m.group(2)
+    elif len(args) == 2:
+        iid, rest = args
+        if not re.match(r"^\d{1,9}$", iid):
+            die("bad item id %r (digits only)" % clean(iid), 2)
+    else:
+        usage(2)
+    note = ""
+    if ", note:" in rest:
+        rest, note = rest.rsplit(", note:", 1)
+    rest = rest.strip()
+    if not clean(rest):
+        die("the answer is empty", 2)
+    m = re.match(r"^([A-Za-z])(?:\s*-\s*(.*))?$", rest, re.S)
+    if m:
+        return str(int(iid)), m.group(1).upper(), clean(m.group(2) or "")[:TEXT_MAX], clean(note)[:TEXT_MAX]
+    return str(int(iid)), "", clean(rest)[:TEXT_MAX], clean(note)[:TEXT_MAX]
+
+
+def resolve(value, impl, from_conf):
+    p = os.path.expanduser(os.path.expandvars(value))
+    return p if os.path.isabs(p) else os.path.join(impl if from_conf else os.getcwd(), p)
+
+
+def check_target(path):
+    if os.path.islink(path):
+        die("%s is a symlink; refusing to write through it" % path)
+    if os.path.isdir(path):
+        die("%s is a directory" % path)
+
+
+class Lock:
+    """mkdir lock beside the log: a lock older than LOCK_STALE seconds belongs to a dead run and is taken over."""
+
+    def __init__(self, path):
+        self.path = path + ".lock"
+
+    def __enter__(self):
+        end = time.time() + 15
+        while True:
+            try:
+                os.mkdir(self.path)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.stat(self.path).st_mtime > LOCK_STALE:
+                        os.rmdir(self.path)
+                        continue
+                except OSError:
+                    pass
+                if time.time() > end:
+                    die("another decide holds %s; remove it if none runs" % self.path)
+                time.sleep(0.1)
+
+    def __exit__(self, *exc):
+        try:
+            os.rmdir(self.path)
+        except OSError:
+            pass
+
+
+def append(path, text):
+    """One O_APPEND write of the whole block, after a newline if the file ends without one."""
+    pre = ""
+    try:
+        if os.path.getsize(path) > 0:
+            with open(path, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                pre = "" if f.read(1) == b"\n" else "\n"
+    except OSError:
+        pass
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (pre + text).encode("ascii"))
+    finally:
+        os.close(fd)
+
+
+def write_atomic(path, text):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".decide-")
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def log_state(text):
+    """(highest D number, {item id: D number}) from the decision log; lines that do not fit the shape are ignored."""
+    top, seen = 0, {}
+    for line in text.split("\n"):
+        m = re.match(r"^D(\d{1,9}) \| [^|]*\| item (\d+) \|", line)
+        if m:
+            top = max(top, int(m.group(1)))
+            seen.setdefault(str(int(m.group(2))), "D" + m.group(1))
+    return top, seen
+
+
+def main(argv):
+    opts, pos = parse_args(argv)
+    if not pos:
+        usage(2)
+    iid, letter, reply, note = split_answer(pos)
+    if "note" in opts:
+        note = clean(opts["note"])[:TEXT_MAX]
+
+    board = load_board()
+    conf = board.load_conf()
+    impl = conf["SABHA_IMPL"]
+    out = resolve(opts["out"], impl, False) if "out" in opts else resolve(conf.get("SABHA_DECIDE_OUT", "board-updates"), impl, True)
+    qfile = resolve(opts["questions"], impl, False) if "questions" in opts else resolve(
+        conf.get("SABHA_DECIDE_QUESTIONS", os.path.join("questions", "item-%s.md" % iid)), impl, True)
+    logf = resolve(opts["log"], impl, False) if "log" in opts else resolve(conf.get("SABHA_DECISION_LOG", "decisions.log"), impl, True)
+
+    items_path = os.path.join(impl, "for-me.items")
+    read_text(items_path)  # a missing or huge file is refused before parse_items reads it
+    item = next((i for i in board.parse_items(items_path) if i.get("id") == iid), None)
+    if item is None:
+        die("no item %s in %s" % (iid, items_path))
+    q = board.question_of(item)
+    if q is None:
+        die("item %s is not a question item (it needs q: and an option)" % iid)
+    if board.is_closed(item):
+        die("item %s is already %s" % (iid, item.get("state")))
+    question, _explain, _ask, rec, options = q
+    letters = [o[0] for o in options]
+    if letter and letter not in letters:
+        die("item %s has no option %s (options: %s)" % (iid, letter, ", ".join(letters)), 2)
+    chosen = next((o for o in options if o[0] == letter), None)
+    if chosen and not reply:
+        reply = clean(chosen[1])[:TEXT_MAX]
+
+    upd = os.path.join(out, "item-%s.update" % iid)
+    for p in (upd, qfile, logf):
+        check_target(p)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+
+    with Lock(logf):
+        top, seen = log_state(read_text(logf) if os.path.exists(logf) else "")
+        if iid in seen:
+            die("item %s is already decided as %s in %s" % (iid, seen[iid], logf))
+        did = "D%d" % (top + 1)
+        utc = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        shown = letter or "text"
+        block = ["---", "id: %s" % iid, "utc: %s" % utc, "state: DONE", "decision: %s" % did, "answer: %s" % shown,
+                 "reply: %s" % reply]
+        if note:
+            block.append("note: %s" % note)
+        write_atomic(upd, "\n".join(block) + "\n")
+        opts_line = "; ".join("%s: %s" % (o[0], clean(o[1])) for o in options)
+        qblock = ["", "## Answer to item %s (%s), %s" % (iid, did, utc), "Question: %s" % clean(question),
+                  "Options: %s" % opts_line, "Recommended: %s" % (clean(rec) or "none"),
+                  "Answer: %s" % (("%s - %s" % (letter, reply)) if letter else reply)]
+        if note:
+            qblock.append("Note: %s" % note)
+        qblock += ["Decided: %s" % did, ""]
+        append(qfile, "\n".join(qblock))
+        append(logf, "%s | %s | item %s | %s | %s\n" % (did, utc, iid, shown, reply.replace("|", "/")))
+
+    print(clean("decided %s: item %s -> %s %s" % (did, iid, shown, reply)))
+    print(clean("board update: %s" % upd))
+    print(clean("questions:    %s" % qfile))
+    print(clean("decision log: %s" % logf))
+    print("close the item on the board (not run by this tool):")
+    print(clean("cat %s >> %s" % (upd, items_path)))
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except OSError as e:
+        die("write failed (%s); check which of the three files exist before a rerun" % e.strerror)
