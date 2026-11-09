@@ -416,6 +416,13 @@ cmd_doctor() {
   [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
 
   if [[ -f $CONF ]]; then
+    local board
+    board=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_BOARD_URL:-}" )
+    if [[ -n $board ]]; then ok "progress board: $board"
+    else warn "SABHA_BOARD_URL is empty: the board is the default progress view; the skill sabha-board-create builds one (FOR-ME.md stays the offline fallback)"; fi
+  fi
+
+  if [[ -f $CONF ]]; then
     local ro
     ro=$("${BASH:-bash}" "$BIN/sabha" roster --check 2>&1)
     case $ro in
