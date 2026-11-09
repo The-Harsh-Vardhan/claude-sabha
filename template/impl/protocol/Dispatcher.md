@@ -19,5 +19,11 @@ Job:
   `bin/sabha-heavy run <label> -- <cmd>`; on exit 75 the job waits and the WAIT line goes to the relay once per
   change of reason; `release` when it ends. Long work goes to a headless run (`bin/sabha-run`), not a pane.
 
+Helpers (any subagent you start): before it starts run `bin/sabha-helper ack <Role> <n> "<what>" [transcript]`; when it
+returns run `bin/sabha-helper done <Role> <n> <exit> [transcript]` (0 = success). The done ends with
+`### EXIT=<code> ###`; an ack with no done means the helper died hard (SIGKILL, a dispatcher restart), never that
+it succeeded. `sabha-run --detach` helpers write the pair themselves; TERM writes the done with `EXIT=143`; HUP and
+INT are ignored (the helper runs under nohup); only SIGKILL leaves an ack with no done.
+
 Never: implement, or write a `go:` line for an irreversible step unless the relay's brief carries the user's word and
 the reviewer's ACCEPT exists.
