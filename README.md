@@ -12,6 +12,14 @@ work through plain files, keep their progress in plain files, and restart fresh 
 **[Themes](themes/README.md)** -
 made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
+## Used in production work
+
+I have used this on most days since 14 October 2026 on real multi-repo work: briefs, reviews, hotfixes and pushes, with
+one relay, one dispatcher and a small grid of workers. In that time the dispatcher received over 300 briefs, and this
+repo has commits on 14 different days. Many rules and fixes in this repo come from things that went
+wrong there. [Field notes](docs/field-notes.md) has the setup, a real day, each incident and what changed because of it,
+and what is still rough.
+
 ## Quick start
 
 1. Install the plugin. Inside Claude Code:
@@ -39,7 +47,10 @@ made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
 ![claude-sabha architecture](docs/diagrams/architecture.png)
 
-Status: 1.0.0, first public release. macOS is used daily; Windows (Git Bash) is beta (see
+Status: evolving. Latest release 2.0.1; main adds roles on different Claude accounts and a restart hold for in-session
+helpers (see [CHANGELOG.md](CHANGELOG.md), "Unreleased"). Next: durable helpers that outlive a dispatcher restart
+([PR #35](https://github.com/The-Harsh-Vardhan/claude-sabha/pull/35)), a loud alert when a pane's context file goes stale, and the open issues
+drafted in [issues/](issues). macOS is used daily; Windows (Git Bash) is beta (see
 [docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine; the full list is in [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Feedback for v2
@@ -178,6 +189,8 @@ context percent to `status/context/<name>.txt` and the account's usage windows t
 desktop notification, the `sabha-watch` banner and a line in `status/alerts.log`. `SABHA_STOP=90` stops new sessions
 at that percent of either window until it resets; running briefs finish and nothing is killed. The Windows toast is
 UNTESTED. A per-role cost log is written to `status/cost-log.tsv`.
+`bin/sabha-cost [--since YYYY-MM-DD]` sums tokens per role and day from the Claude transcripts (read-only; input,
+cache writes, cache reads, output, cache-read share) and counts the cost-log events; tokens only, not priced.
 
 ## Session deck
 
@@ -286,13 +299,16 @@ from the scripts):
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
+| `SABHA_ROSTER_CLAIMS` | empty | `sabha roster --check`: notes or memory files (space separated, read only) whose `no <model>` lines are shown under a model conflict |
 
 ## Commands
 
 | Command | What |
 | --- | --- |
 | `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off] [--ws DIR] [--home DIR] [--name NAME]` | Sets up the project's sabha folder (`~/my-claude-sabha/<name>`) and its `sabha.conf` (plan, OS, the agent CLIs found, tracker, ntfy topic), and links it into the project. Asks for what it is not given on a terminal |
-| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only); exits 1 only on a FAIL |
+| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only), and roster drift (FAIL); exits 1 only on a FAIL |
+| `bin/sabha roster [--check\|--write]` | `SABHA_ROSTER` is the only roster source. `--check` prints a FAIL per `PROTOCOL-core.md` table cell or `protocol/<Name>.md` heading (`# Name (Model, effort)`) whose model or effort differs; the `no <model>` lines of the files in `SABHA_ROSTER_CLAIMS` (notes, memory) follow a model conflict as context. `--write` rewrites those cells and headings from the conf; a table row naming roles with different profiles is left for a hand split. `sabha-up.sh` prints the drift and never writes |
+| `bin/sabha stamp` | The current time from the clock, UTC then local, for briefs and status lines (no hand-typed times) |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the sabha-loop restart line (`SABHA_EFFICIENCY` on; `--print --raw` the bare claude line), else the claude line, then a `pane:` line |
 | `bin/sabha-heavy check\|acquire\|release\|run\|status` | Heavy-job gate: load1 against 2 x cores, memory pressure, `SABHA_HEAVY_MAX` slots; exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
 | `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
@@ -304,6 +320,7 @@ from the scripts):
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
+| `bin/sabha-helper` | Durable helpers: long work as a headless session that survives a dispatcher restart; `start`, `list`, `reattach`, `wait`, `stop` ([docs/durable-helpers.md](docs/durable-helpers.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |

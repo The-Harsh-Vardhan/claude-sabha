@@ -76,6 +76,8 @@ role() {
   # SABHA_PROMPT_<Name> in sabha.conf replaces what follows the status file (an on-demand role's own job)
   tail_var=SABHA_PROMPT_$R_BASE
   tail="then inbox/$name/ (ack any brief without an ack; resume any brief with an ack and no done), and continue from the status file's Next line. Report to $to."
+  # the dispatcher first finds the durable helpers its last session left running (docs/durable-helpers.md)
+  [[ $R_BASE == "$DISPATCHER" ]] && tail="${tail% Report to *} Before the inbox, run $SABHA_BIN/sabha-helper reattach: it lists the durable helpers that outlived your last session; never start one it reports running. Report to $to."
   [[ -n ${!tail_var:-} ]] && tail=${!tail_var}
   reads=$(sabha_reads "$name")
   # SABHA_RELAY_GUARD=1: the relay's tools go through bin/sabha-relay-guard (hooks in --settings, on top of the user's)
@@ -125,6 +127,8 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   exit 0
 fi
 
+# roster drift is reported, never fixed here: a doc that disagrees may hold a decision not yet made (sabha roster --write)
+"${BASH:-bash}" "$SABHA_BIN/sabha" roster --check 2>/dev/null | sed -n 's/^FAIL  /sabha-up: roster drift: /p' >&2
 # a single role starts on its own account (token, and the stop line SABHA_STOP_<NAME>); a missing token refuses it
 [[ $# -eq 1 ]] && { sabha_account_env "$1" || exit 1; }
 # SABHA_STOP: no session starts while a usage window is at the stop line (--print above only prints)
