@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Installs hooks/git-pre-push.sh as the pre-push hook of ONE repository, only when you run it. Nothing global: no
+# core.hooksPath, no template dir. Refuses when that repository already has a pre-push hook. Undo: rm the file it names.
+# Usage: bin/sabha-prepush-install <repo>
+set -eu
+repo=${1:?usage: sabha-prepush-install <repo>}
+src=$(cd "$(dirname "$0")/../hooks" && pwd)/git-pre-push.sh
+hooks=$(cd "$repo" && mkdir -p "$(git rev-parse --git-path hooks)" && cd "$(git rev-parse --git-path hooks)" && pwd)
+dst=$hooks/pre-push
+[[ ! -e $dst && ! -L $dst ]] || { echo "sabha-prepush-install: $dst exists; remove it first" >&2; exit 1; }
+# sourced, not exec'd: one bash start per push instead of two
+printf '#!/usr/bin/env bash\n. %q\n' "$src" >"$dst"
+chmod +x "$dst"
+echo "installed $dst -> $src"

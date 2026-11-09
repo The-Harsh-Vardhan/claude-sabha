@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# git pre-push hook: refuses a push whose remote ref is a shared branch (SABHA_SHARED_BRANCHES, the same list the Claude
+# rule hook uses, read by hk_rule_conf in lib.sh). Git hands it the real refs of the push, not the command text, so
+# quoting, aliases, config and command words built at run time do not matter here. Opt-in for one repository:
+# bin/sabha-prepush-install <repo> (docs/rule-hooks.md). Not a boundary: git push --no-verify skips it.
+# Stdin: one line per ref, "<local ref> <local sha> <remote ref> <remote sha>"; args: remote name, url.
+set -u
+shopt -u nocasematch
+# shellcheck source-path=SCRIPTDIR source=lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh" || { echo "sabha pre-push: hooks/lib.sh is missing; push refused" >&2; exit 1; }
+hk_rule_conf
+
+refuse() { echo "sabha pre-push: shared-push: $1" >&2; cat >/dev/null; exit 1; }
+re='^([^ ]+) ([0-9a-f]{40}|[0-9a-f]{64}) ([^ ]+) ([0-9a-f]{40}|[0-9a-f]{64})$'
+set -f
+while IFS= read -r line || [[ -n $line ]]; do
+  [[ $line =~ $re ]] || refuse "a line from git is not '<local ref> <sha> <remote ref> <sha>' ('$line'); push refused"
+  lsha=${BASH_REMATCH[2]} rref=${BASH_REMATCH[3]}
+  # git sends refs/heads/<b>; the short forms are accepted too, so a hand-fed line is judged the same way
+  b=${rref#+}; b=${b##*:}; b=${b#+}
+  case $b in
+    refs/heads/*) b=${b#refs/heads/} ;;
+    heads/*) b=${b#heads/} ;;
+    refs/*) continue ;;
+  esac
+  [[ -n $b ]] || refuse "the remote ref '$rref' names no branch; push refused"
+  what=push; [[ $lsha == *[!0]* ]] || what=delete
+  for s in $HK_SHARED; do
+    # shellcheck disable=SC2254  # $s is a glob on purpose (release/*)
+    case $b in $s) refuse "no $what of the shared branch '$b' (remote ref '$rref', remote '${1:-?}'); push your own feature branch and open a reviewed pull request" ;; esac
+  done
+done
+exit 0

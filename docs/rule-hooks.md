@@ -30,65 +30,120 @@ Environment first, then `SABHA_CONF` when set (the conf runs in its own bash; on
 | `SABHA_SHARED_BRANCHES` | `main master dev develop staging release/*` | globs the `shared-push` rule protects; put your sprint branches here |
 | `SABHA_ASCII_EXEMPT` | empty | path globs the `ascii` rule skips (vendored or imported files) |
 
+## Pre-push layer (git hook)
+
+`hooks/git-pre-push.sh` is a second check for the `shared-push` rule. The Claude hook above stays the first check (it
+stops the command before it runs); this one runs inside git, after the command. Git calls a `pre-push` hook with the
+remote name and url as arguments and one line per ref on stdin, `<local ref> <local sha> <remote ref> <remote sha>`, so
+the hook judges the real refs of the push, not the command text: quoting, backslashes, aliases, config, `eval`, a
+piped string or a command word from a variable all end in the same lines.
+
+- Refused (exit 1, `sabha pre-push: shared-push: ...` on stderr naming the branch, the remote ref and the remote): any
+  line whose remote ref is a shared branch. The list is `SABHA_SHARED_BRANCHES` read by `hk_rule_conf` in
+  `hooks/lib.sh`, the one function both hooks use (environment, else `SABHA_CONF`, else the default). The remote ref is
+  normalised first: `refs/heads/main`, `heads/main` and `main` are the same branch; a delete (local sha all zeros) and
+  a force (`+main`, non-fast-forward) count the same as a push. `--all` and `--mirror` are refused when they touch a
+  shared ref.
+- Names are compared exactly as git does, case-sensitive: `Main` and `mainline` are not `main`.
+- Passed: tags and other `refs/*` that are not `refs/heads/*`, branches not on the list, and an empty stdin.
+- A line that is not four fields with 40- or 64-hex ids is refused (fail closed), as is a missing `hooks/lib.sh`.
+- Cost: about 20-50 ms per push (best of 5 in tests/test-prepush.sh: 21 ms). Bash 3.2, no new dependency.
+
+Install it in ONE repository, only when you choose to (nothing global: no `core.hooksPath`, no template dir):
+
+```bash
+bin/sabha-prepush-install /path/to/repo
+```
+
+It writes `<repo>/.git/hooks/pre-push` (the path `git rev-parse --git-path hooks` gives, so the worktrees of that
+repository share it), a two-line script that sources `hooks/git-pre-push.sh` from this clone. It refuses when a
+`pre-push` hook is there already. Undo: delete that file.
+
 ## Known gaps
 
 A safety net for honest mistakes, as the push guard is (SECURITY.md); a session set on breaking a rule can get round it.
-The hook and its settings file are not protected: a session can edit them.
+The hooks and their settings are not protected: a session can edit them.
 
-Status: a best-effort guard against accidents by an agent, NOT a security boundary. It is opt-in and nothing is
-installed (it is not in `hooks/hooks.json`). The shared-branch push rule does not rest on this hook: it stays enforced
-by the other layers (branch protection on the shared branches, and the standing rule that agents never push to them).
-Do not rely on the hook alone for it.
+Status: a best-effort guard against accidents by an agent, NOT a security boundary. Both layers are opt-in and nothing
+is installed (the Claude hook is not in `hooks/hooks.json`; the pre-push hook is in a repository only after
+`bin/sabha-prepush-install`). The shared-branch push rule does not rest on these hooks: it stays enforced by the other
+layers (branch protection on the shared branches, and the standing rule that agents never push to them). Do not rely on
+the hooks alone for it.
 
-### Open after review 235 (round 5, tip 4b632c4)
+### Still open with both layers
 
-The round-5 review (5 reviews, 4 fix rounds so far) still holds 4 MUST and 3 SHOULD. Code rounds stopped here on
-purpose; these are written down instead. Every probe is made-up text for the hook's stdin (a tool-call JSON with this
-command string), run by the reviewer on scratch repos. Do not run them in a shell.
+Checked with the Claude hook on made-up text (rc 0 = allowed) and with real pushes to a local bare repo in
+tests/test-prepush.sh ("known gap" rows):
 
-MUST (each one lets a push to a shared branch through):
+- `git push --no-verify ...` skips the pre-push hook. The Claude hook does not flag `--no-verify`; it still denies the
+  push when the refspec it reads names a shared branch, but not the text-level bypasses listed below.
+- `core.hooksPath` (`git -c core.hooksPath=/x push`, `git config core.hooksPath ...`) and a removed or renamed
+  `.git/hooks/pre-push` skip the hook. The Claude hook flags none of them.
+- `SABHA_SHARED_BRANCHES` (or `SABHA_CONF`) in the environment of the push replaces the list, so
+  `export SABHA_SHARED_BRANCHES=none` earlier in a session switches the pre-push check off. The Claude hook does not
+  flag the export.
+- A repository where the hook is not installed (a fresh clone, another repository), and tools that do not run git
+  hooks (an IDE on JGit, go-git, libgit2).
+- Server-side moves never reach a local hook: `gh api` writes on refs or merges (`gh<TAB>api ...` of review 235 MUST 4 is
+  still open in the Claude hook), `gh pr merge`, `gh repo sync -b main`, the web UI.
 
-1. The scanner is fed text with every backslash already deleted (`sed` at the scanner call), so it sees a different
-   command than the shell. `\#` becomes a comment, and `\\` before a closing quote turns that quote into an escaped one.
-   Probes: `echo \#; git push origin main` and `echo "x\\"; git push origin main; echo "y\\"` are allowed.
-   The first is a regression of round 4 (denied on e94f084); the second is the old quote-swallow class.
-2. `<<` inside arithmetic is taken for a heredoc, so the next lines are scanned one at a time with fresh quotes.
-   Probe: `echo $((1<<2))`, then a line `echo "a`, a line `b"; git push origin main; echo "c`, a line `d"`, is allowed.
-3. The current-branch exception (`$(git branch --show-current)` as the refspec) is judged against the directory of the
-   push, but the shell runs the substitution in its own directory. From a main checkout that sits on `main`:
-   `git -C <feature worktree> push origin "$(git branch --show-current)"` is allowed and pushes `main`.
-   Same for `env -C <worktree> git push origin "$(git branch --show-current)"`.
-4. The push judge only runs when the lowercase text `push`, ` api` or `config-env` is in the command, so a config
-   write that lacks it is never judged. Probes, each allowed as a command of its own: `git config remote.origin.Push
-   HEAD:main`, `git config remote.origin.mirror true`, `git config Push.Default matching`, `git config alias.p x`,
-   `git -c remote.origin.mirror=true status`. A later plain `git push` then goes where the config says. Also
-   `gh<TAB>api repos/o/r/merges -f base=main -f head=x` (a tab, not a space, before `api`).
+### Closed by the pre-push layer (review 235, round 5, tip 4b632c4)
+
+The round-5 review left 4 MUST and 3 SHOULD on the Claude hook. Its code was not changed for them. Where the
+pre-push hook is installed, a push that slips past the Claude hook's text check is still refused, because git hands the
+hook the real remote ref. Each case below has a real-push row in tests/test-prepush.sh that refuses the push and checks
+that the remote ref did not move (and the row fails, the push lands, when the hook is not installed). The probes are
+made-up text for the Claude hook's stdin; do not run them in a shell.
+
+MUST (each one lets a push to a shared branch past the Claude hook):
+
+1. Closed. The scanner is fed text with every backslash already deleted (`sed` at the scanner call), so it sees a
+   different command than the shell. `\#` becomes a comment, and `\\` before a closing quote turns that quote into an
+   escaped one. Probes: `echo \#; git push origin main` and `echo "x\\"; git push origin main; echo "y\\"`.
+2. Closed. `<<` inside arithmetic is taken for a heredoc, so the next lines are scanned one at a time with fresh quotes.
+   Probe: `echo $((1<<2))`, then a line `echo "a`, a line `b"; git push origin main; echo "c`, a line `d"`.
+3. Closed. The current-branch exception (`$(git branch --show-current)` as the refspec) is judged against the
+   directory of the push, but the shell runs the substitution in its own directory: from a main checkout that sits on
+   `main`, `git -C <feature worktree> push origin "$(git branch --show-current)"` pushes `main`. The pre-push hook sees
+   `refs/heads/main`.
+4. Closed for git, open for gh. The Claude hook's push judge only runs when the lowercase text `push`, ` api` or
+   `config-env` is in the command, so `git config remote.origin.Push HEAD:main`, `git config remote.origin.mirror
+   true`, `git config Push.Default matching`, `git config alias.p x` or `git -c remote.origin.mirror=true status` is
+   never judged and a later plain `git push` goes where the config says; the pre-push hook judges that later push.
+   `gh<TAB>api repos/o/r/merges -f base=main -f head=x` does not go through git: still open (above).
 
 SHOULD:
 
-1. A command just under the 16 KB guard is not judged in time, and a hook timeout lets the call through. Measured at
-   load 41-51 with the 5 s timeout of the example settings: 1 KB 0.24 s, 4 KB 0.82 s, 8 KB 3.68 s, 15 KB 62.7 s (time
-   is quadratic in size). Pre-existing; the checkable size is about 8 KB at load 40, not 16 KB. Adversary-only (a
-   padded command).
-2. More gap classes, all allowed (the first is listed above already):
-   `git -c push.default=upstream -c branch.feat/x.merge=refs/heads/main push`; a pushed string piped into a shell
-   (`echo "git push origin main" | bash`, `printf 'git push origin main' | sh`); only the first quoted string of an
-   `eval` or `sh -c` is read (`eval "git push origin" main`, `sh -c "git push origin "main`); a command word from a
-   substitution or variable (`$(which git) push origin main`, `G=git; $G push origin main`).
-3. Timing and test hygiene: the current-branch path is about 2x slower (0.47-0.95 s against a 0.5 s budget at load 50),
-   and the 18 quote rows assert only a denial, not that the rule is `shared-push`, so one could pass on another rule.
+1. Closed for pushes. A command just under the 16 KB guard is not judged in time and a Claude hook timeout lets the
+   call through (measured at load 41-51: 1 KB 0.24 s, 4 KB 0.82 s, 8 KB 3.68 s, 15 KB 62.7 s; quadratic). A padded
+   push that gets through still meets the pre-push hook, which does not read the command. The timeout still lets the
+   other rules (ascii, attribution, secret-read) through on such a command.
+2. Closed. `git -c push.default=upstream -c branch.feat/x.merge=refs/heads/main push`; a pushed string piped into a
+   shell (`echo "git push origin main" | bash`); only the first quoted string of an `eval` or `sh -c` is read
+   (`eval "git push origin" main`); a command word from a substitution or variable (`$(which git) push origin main`,
+   `G=git; $G push origin main`). All end in a `refs/heads/main` line.
+3. Not closed (it is about the Claude hook itself): the current-branch path is about 2x slower (0.47-0.95 s against a
+   0.5 s budget at load 50), and the 18 quote rows of tests/test-rules.sh assert only a denial, not that the rule is
+   `shared-push`.
 
-Fixes the reviewer proposed (not applied): hand the scanner the command with only line continuations joined; treat `<<`
-as a heredoc only outside `((`; accept the current-branch form only when no `-C`, `--git-dir`, `--work-tree` or `env -C`
-applies; widen the gate to a case-insensitive `*push*|*api*|*config*|*alias*|*mirror*`; lower the size guard to about 6 KB.
+Also closed for git pushes, from the older list: a push hidden in a variable (`T=push; git $T`), a git alias, a split
+string, arguments fed by `xargs`, a bare push judged by an upstream or `push.default`, a refspec or alias already in a
+config file, `GIT_DIR` built at run time, and command words built at run time (`git${IFS}push`, `$(printf git)`).
+
+Fixes the reviewer proposed for the Claude hook (not applied): hand the scanner the command with only line
+continuations joined; treat `<<` as a heredoc only outside `((`; accept the current-branch form only when no `-C`,
+`--git-dir`, `--work-tree` or `env -C` applies; widen the gate to a case-insensitive
+`*push*|*api*|*config*|*alias*|*mirror*`; lower the size guard to about 6 KB.
+
+### Other gaps of the Claude hook
 
 - `ascii` and `attribution` miss text built at run time: a split string (`"Co-Author""ed-By"`), a variable
   (`T=...; -m "$T"`), `$(printf ...)`, `g=git; $g commit`, `git-commit`, a git alias for `commit`, `git merge -m`,
   `git tag -m`, `gh pr merge --body`, `gh api ... -f body=`.
 - `shared-push` does not see a push hidden in a variable (`T=push; git $T`), a git alias (`alias.pushit=push`), a split
   string, or arguments fed by `xargs` from another command. A bare push is judged by the current branch, not by an
-  upstream or `push.default`. `gh pr merge` is the reviewed-PR route and is left to the human's say-so; the hook does
-  not block it.
+  upstream or `push.default`. The pre-push layer catches all of these where it is installed. `gh pr merge` is the
+  reviewed-PR route and is left to the human's say-so; neither hook blocks it.
 - `secret-read` matches names, not shell globs or built-up words. Not seen (all checked by review 222 and still open):
   `cat .e*`, `cat .en?`, `cat .[e]nv`, `find . -name '.env*' -exec cat {} +`, `rg -g '.env*'`, a split quote
   (`cat .e""nv`, `cat ".e"nv`), a variable splice (`f=.en; cat ${f}v`), `$'\x2eenv'`, `$(printf '.e%s' nv)`, and reads

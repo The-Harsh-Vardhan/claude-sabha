@@ -6,6 +6,22 @@ HK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # hk_lower <text>: bash 3.2 has no ${x,,}
 hk_lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
+# hk_rule_conf: the one place the rule hooks (sabha-rules.sh, git-pre-push.sh) read their settings. Sets HK_RULES,
+# HK_SHARED and HK_EXEMPT from the environment, else SABHA_CONF; HK_SHARED falls back to the default list.
+hk_rule_conf() {
+  local vals
+  HK_RULES=${SABHA_RULES:-} HK_SHARED=${SABHA_SHARED_BRANCHES:-} HK_EXEMPT=${SABHA_ASCII_EXEMPT:-}
+  if [[ -n ${SABHA_CONF:-} && -f $SABHA_CONF ]]; then
+    # the conf runs in its own bash and hands back only these three values
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_RULES:-}" "${SABHA_SHARED_BRANCHES:-}" "${SABHA_ASCII_EXEMPT:-}"' _ "$SABHA_CONF" 2>/dev/null) || vals=
+    [[ -n $HK_RULES ]] || HK_RULES=$(printf '%s\n' "$vals" | sed -n 1p)
+    [[ -n $HK_SHARED ]] || HK_SHARED=$(printf '%s\n' "$vals" | sed -n 2p)
+    [[ -n $HK_EXEMPT ]] || HK_EXEMPT=$(printf '%s\n' "$vals" | sed -n 3p)
+  fi
+  [[ -n $HK_SHARED ]] || HK_SHARED="main master dev develop staging release/*"
+}
+
 # hk_init: reads the hook JSON from stdin into HK_INPUT, then sets HK_ROLE (as written in the roster, or Name-N for a
 # copy), HK_IMPL and HK_RELAY. Returns 1 when this session is not a sabha role, so callers exit 0 untouched.
 # Role order: $SABHA_ROLE, then .session_name of the hook JSON (jq when present, sed otherwise).

@@ -18,18 +18,12 @@ in=$(cat)
 deny() { echo "sabha-rules: $1: $2" >&2; exit 2; }
 command -v jq >/dev/null || deny setup "jq is missing; install it or remove this hook from your settings"
 
-rules=${SABHA_RULES:-} shared=${SABHA_SHARED_BRANCHES:-} exempt=${SABHA_ASCII_EXEMPT:-}
-if [[ -n ${SABHA_CONF:-} && -f $SABHA_CONF ]]; then
-  # the conf runs in its own bash and hands back only these three values
-  # shellcheck disable=SC2016  # expanded by the inner bash
-  vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_RULES:-}" "${SABHA_SHARED_BRANCHES:-}" "${SABHA_ASCII_EXEMPT:-}"' _ "$SABHA_CONF" 2>/dev/null) || vals=
-  [[ -n $rules ]] || rules=$(printf '%s\n' "$vals" | sed -n 1p)
-  [[ -n $shared ]] || shared=$(printf '%s\n' "$vals" | sed -n 2p)
-  [[ -n $exempt ]] || exempt=$(printf '%s\n' "$vals" | sed -n 3p)
-fi
+# shellcheck source-path=SCRIPTDIR source=lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh" || deny setup "hooks/lib.sh is missing next to this hook"
+hk_rule_conf
+rules=$HK_RULES shared=$HK_SHARED exempt=$HK_EXEMPT
 all_rules="ascii attribution shared-push secret-read"
 [[ -n $rules ]] || rules=$all_rules
-[[ -n $shared ]] || shared="main master dev develop staging release/*"
 set -f
 for r in $rules; do
   case $r in
