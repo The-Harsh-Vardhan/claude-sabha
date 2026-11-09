@@ -2,11 +2,17 @@
 
 ## Unreleased
 
+- `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
+  of each `status/<role>.md` (`UPDATE <n> (`, `UPDATE <n> <Mon>`, `Idle: by design (` count anywhere; looser
+  headers only at file start or after a blank or `---` line); the full
+  original is copied and verified to `status/.bak/<role>-<utc>-<pid>.md` first, then the file is rewritten in place
+  (inode, mode, owner kept); a file changed mid-run is skipped. `.bak/RESTORE.txt` gets one quoted line that puts the
+  full copy back. `--apply` only at a quiet moment with no role writing (Vidur picks it, Q-049). Never deletes; dry
+  run by default, `--keep N`. Test: `tests/test-rotate.sh`.
 - `sabha roster --check|--write` and `sabha stamp`: `SABHA_ROSTER` is the only roster source. The check lists every
   `PROTOCOL-core.md` table cell and `protocol/<Name>.md` heading whose model or effort differs from the conf (with the
   `no <model>` lines of `SABHA_ROSTER_CLAIMS` files as context); `sabha doctor` counts drift as FAIL, `sabha-up.sh`
   prints it; `--write` rewrites those lines. `stamp` prints the clock time (UTC, then local) for briefs.
-
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
@@ -30,6 +36,15 @@
   percent context, so the dispatcher's in-session helpers survive the 30% restart; at or over the cap it restarts as
   before and logs "hold ignored". Without a hold file nothing changes. `tests/test-loop.sh` also covers the launch
   retry at the default 20 s interval.
+- Durable helpers: long work (builds, tests, a browser, over about 10 minutes) runs as its own headless session that
+  survives a dispatcher restart or `/exit`. `sabha-run --detach <Name>` (front end `bin/sabha-helper start`) starts the
+  existing headless run in a new session and records it in `status/helpers/<id>.json`; `sabha-helper list | reattach
+  [--redispatch] | wait | stop` let a fresh dispatcher find, wait for, restart (as a resume, up to
+  `SABHA_HELPER_RETRIES`, default 2) or stop them. A start is refused (exit 3, with the reason) at the `SABHA_STOP`
+  lines, over `SABHA_HELPER_MAX` (default 4) live runs, or when the 1-minute load is over `SABHA_HELPER_LOAD_MAX`
+  (default 4 x cores). `sabha-down.sh` stops helpers first and records them `stopped`; the dispatcher's opening prompt
+  runs `sabha-helper reattach`. `sabha-run` also accepts a role copy `Name-N` now. Plain `sabha-run` is unchanged. See
+  docs/durable-helpers.md.
 
 ## 2.0.1 - 2026-10-20
 
