@@ -266,12 +266,14 @@ warn() { echo "warn  $*"; WARNS=$((WARNS + 1)); }
 bad()  { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
 
 cmd_doctor() {
-  local ka ka_eff ka_src sd ca c v impl="" remote="" push="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
+  local ka ka_eff ka_src sd ca c v impl="" remote="" push="" guard="" settings=${SABHA_SETTINGS:-$HOME/.claude/settings.json} seat
   if [[ -f $CONF ]]; then
     # shellcheck disable=SC1090
     impl=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_IMPL:-}" )
     remote=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_REMOTE:-}" )
     push=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_PUSH:-}" )
+    # shellcheck disable=SC1090
+    guard=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_RELAY_GUARD:-}" )
     ok "config $CONF"
     local shared ws keys
     shared=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_SHARED:-}" )
@@ -395,6 +397,9 @@ cmd_doctor() {
   else
     ok "Remote Control: off (SABHA_REMOTE unset); Pro/Max only, Team/Enterprise seats and org policy block it"
   fi
+  # hooks that never load fail open: the relay would run unguarded
+  [[ $guard == 1 && -f $settings ]] && jq -e '.disableAllHooks == true' "$settings" >/dev/null 2>&1 &&
+    warn "SABHA_RELAY_GUARD=1 but disableAllHooks is true in $settings: the relay guard hooks will not run (managed settings are not checked)"
   [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
 
   if [[ -f $CONF ]]; then
