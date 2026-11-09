@@ -1,9 +1,9 @@
 # Claude Sabha 3.0 - design (step 3 of 3)
 
-Bhishma, 8 Nov 2026 (brief 060 + amendment 060.1, from Vidur briefs 469 lane 2 and 471). Design only: no code.
+Bhishma, 8 Nov 2026 (from the relay's overnight-work and upstream-radar briefs). Design only: no code.
 Base: `origin/main` at d1fe294 (#61). Step 2 is `docs/3.0/coupling-audit.md` (Arjun, 16 Oct), copied unchanged into
-this branch. Every `path:line` below is in this branch unless it starts with `Arcus-Dev/` (Harsh's workspace,
-`~/Work/Arcus-Dev`), which is where the real-use evidence lives.
+this branch. Every `path:line` below is in this branch unless it starts with `<workspace>/` (the owner's workspace
+root), which is where the real-use evidence lives.
 
 Effort: S = hours, M = a day or two, L = a redesign of that piece (same scale as the audit, coupling-audit.md:3).
 
@@ -62,8 +62,8 @@ Implementations
 - **herdr** (M): move `bin/sabha-herdr.sh` to `bin/launch/herdr.sh`, keep a one-line shim at the old path for one
   release. Nine kit scripts source it by that path (grep `sabha-herdr.sh` in bin/): bin/sabha-up.sh:28,
   bin/sabha-down.sh:24, bin/sabha-loop:30, bin/sabha-alert:17, bin/sabha-nudge:9, bin/sabha-check:49,
-  bin/sabha-herdr-config:21, bin/sabha:308, bin/statusline-sabha.sh:117. Harsh's `Arcus-Dev/bin/sabha-up-au-herdr.sh`
-  does not (it calls `herdr --session` directly; `grep -n 'sabha-herdr\|herdr-panes' Arcus-Dev/bin/*` has no hit). The session guard
+  bin/sabha-herdr-config:21, bin/sabha:308, bin/statusline-sabha.sh:117. The owner's `<workspace>/bin/sabha-up-au-herdr.sh`
+  does not (it calls `herdr --session` directly; `grep -n 'sabha-herdr\|herdr-panes' <workspace>/bin/*` has no hit). The session guard
   (bin/sabha-herdr.sh:29-48: own named session, never `default`, fake-only under `SABHA_TEST=1`) moves unchanged.
 - **tmux** (M, new): `tmux -L sabha` (own server socket = same isolation idea as herdr's named session);
   `new-session -d -s sabha`, `split-window`, `select-layout tiled`; `L_send` = `send-keys -t <pane> -l <text>` then
@@ -103,7 +103,7 @@ Adapters to ship
 - **claude** (M): pure move of today's lines; argv byte-identical (tests/test-grid.sh asserts the exact argv).
 - **opencode** (M): interactive through herdr `--kind opencode` as today (bin/sabha-herdr.sh:5 "opencode tested");
   headless = `opencode run` with the prompt, UNVERIFIED flags: the adapter's first test pins whatever `opencode run
-  --help` prints on Harsh's machine. Until then `served` keeps refusing non-claude headless (bin/sabha-run:50).
+  --help` prints on the owner's machine. Until then `served` keeps refusing non-claude headless (bin/sabha-run:50).
 - **codex, agy, muse**: stay `--kind` only, marked UNTESTED as now (bin/sabha-herdr.sh:5). No adapter file until one
   is run for real.
 
@@ -137,15 +137,15 @@ Additive only: `status/panes.txt` (renamed map, old name still read), `status/he
 | 10 | opencode headless adapter | M | 2 | - |
 | 11 | Remove the `bin/sabha-herdr.sh` shim (3.1) | S | 4 + one release | none known outside the kit; the nine in-kit sourcers (section 2) move to `bin/launch/herdr.sh` first |
 
-Steps 6 to 9 do not depend on 2 to 5 and can ship first; brief 469 item 4 already picks 6c as the first
+Steps 6 to 9 do not depend on 2 to 5 and can ship first; the overnight brief (item 4) already picks 6c as the first
 implementation.
 
 ## 5.1 What breaks for current users
 
 - Anything that sources `bin/sabha-herdr.sh` by path: covered by the shim until step 11. The known callers are the
-  nine kit scripts listed in section 2; no caller outside the kit is known (`Arcus-Dev/bin/*` has none, see section 2).
-- Anything reading `status/herdr-panes.txt` directly (bin/sabha-check:50 inside the kit; the Arcus-Dev board writer
-  does not, per Arcus-Dev/docs/harsh-queue/board-writer/status-mapping.md sources table): the launcher writes both
+  nine kit scripts listed in section 2; no caller outside the kit is known (`<workspace>/bin/*` has none, see section 2).
+- Anything reading `status/herdr-panes.txt` directly (bin/sabha-check:50 inside the kit; the owner's board writer
+  does not, per <workspace>/docs/<queue>/board-writer/status-mapping.md sources table): the launcher writes both
   names for one release.
 - `SABHA_BACKEND=iterm` users: no change in behaviour; the code just moves.
 - Windows: no change (herdr path), still untested.
@@ -164,25 +164,25 @@ tests/hermetic.sh:1-25). One suite run at a time, never against a real herdr or 
   / `send-keys` lines; a guard test that `-L sabha` is on every call (no call can reach the user's default server).
 - Pane map rename: a map only at the old path is read; a write lands at both paths.
 - Per-feature tests are in each feature section.
-- Release: `tests/smoke-live.sh` (existing, opt-in, throwaway session) is the only live check, run by Harsh by hand.
+- Release: `tests/smoke-live.sh` (existing, opt-in, throwaway session) is the only live check, run by the owner by hand.
 
-## 6. Specced features (469)
+## 6. Specced features (overnight brief)
 
 ### 6a. Load-aware heavy queue
 
-**Problem (real use).** 8 Nov: the Uploads gate run (brief 467) was ready at about 19:50 but waited for hours,
+**Problem (real use).** 8 Nov: the Uploads gate run was ready at about 19:50 but waited for hours,
 because the rule "start one headless Karna when load5 <= 20" lived in the dispatcher's status file and needed a
-session to keep re-checking it (Arcus-Dev/docs/pdf-report-2.0/impl/status/yudhishthira.md, the 8 Nov block that
-reads "467 mid-flight. Git work DONE, gates NOT run (load5 31-61)", and the line "Cap 4: slot 4 reserved for
-headless Karna (467 gates) at load5 <= 20"; a live status file, so quoted not line-cited). The kit's gate exists
-(`bin/sabha-heavy`, #61) but (1) it judges `load1 <= 2 x cores`, not Harsh's rule (header bin/sabha-heavy:10, load
+session to keep re-checking it (<workspace>/<impl>/status/yudhishthira.md, the 8 Nov block that
+reads "NNN mid-flight. Git work DONE, gates NOT run (load5 31-61)", and the line "Cap 4: slot 4 reserved for
+headless Karna (NNN gates) at load5 <= 20"; a live status file, so quoted not line-cited). The kit's gate exists
+(`bin/sabha-heavy`, #61) but (1) it judges `load1 <= 2 x cores`, not the owner's rule (header bin/sabha-heavy:10, load
 read :28-33, limit :67, check :70), (2) `acquire` gives up after `SABHA_HEAVY_WAIT` 900 s and returns 75
 (bin/sabha-heavy:94-110, `acquire`), and (3) nothing re-tries later: `sabha-run` starts any due brief without asking the gate
 (bin/sabha-run:169-173).
 
 **Design.**
 1. Threshold: two new keys in `bin/sabha-heavy`: `SABHA_HEAVY_LOAD_AVG` (1 or 5, default 1 = today) and
-   `SABHA_HEAVY_LOAD_MAX` (absolute number; when set it replaces `FACTOR x cores`). Harsh's conf:
+   `SABHA_HEAVY_LOAD_MAX` (absolute number; when set it replaces `FACTOR x cores`). The owner's conf:
    `SABHA_HEAVY_LOAD_AVG=5`, `SABHA_HEAVY_LOAD_MAX=20`. load5 is the second field of the same `vm.loadavg` /
    `uptime` read (bin/sabha-heavy:28-33), so no new probe.
 2. Queue = the inbox. A brief header line `heavy: <label>` marks a heavy brief; the sender writes it by hand like
@@ -210,7 +210,7 @@ read :28-33, limit :67, check :70), (2) `acquire` gives up after `SABHA_HEAVY_WA
 3. "Starts by itself" = the existing schedule: `sabha-watch` with `SABHA_RUN_AUTO=1` runs a `sabha-run` pass
    (bin/sabha-watch:98); docs/headless-runner.md:30 says what drives it. No new daemon, no new process. Order: oldest
    queue file first, one heavy start per pass (the 45 s settle, bin/sabha-heavy:22 and :74, spaces them anyway).
-4. A heavy brief for a role that has a live pane (Karna is a long-lived session, Arcus-Dev PROTOCOL-core.md roster
+4. A heavy brief for a role that has a live pane (Karna is a long-lived session, the workspace's PROTOCOL-core.md roster
    note) is not run headless (bin/sabha-run:155-157); the pane's own protocol must run `sabha-heavy check` first.
    So the queue serves headless runs only; this is stated, not solved.
 
@@ -233,16 +233,16 @@ two heavy briefs in one pass -> only one starts.
 
 **Problem (real use).** Overnight work ends as scattered `.done` files, status top blocks and for-me items; the
 relay rebuilds a 5-line report by hand each morning, and the deadline is fixed in the brief ("at 07:00 IST with
-what is left", Arcus-Dev/.../inbox/Yudhishthira/469-vidur-sabha-overnight.md, last paragraph). The board
+what is left", the relay's overnight brief to the dispatcher, last paragraph). The board
 (`FOR-ME.html`) shows current state, not "what changed since last night".
 
 **Design.** A new mode `sabha-for-me --digest [--since <utc>]` in the existing renderer (bin/sabha-for-me:2, render
 paths :543, :744, :1010). Default `--since` = the mtime of the previous digest, else 12 h. Writes
-`DIGEST-<yyyy-mm-dd>.html` (and `.md`) beside `FOR-ME.html`, never overwriting an older day (Harsh's
+`DIGEST-<yyyy-mm-dd>.html` (and `.md`) beside `FOR-ME.html`, never overwriting an older day (the owner's
 version-never-overwrite rule). Sections, each built from files the renderer already parses:
 1. Finished: every `NNN.done` with mtime in the window: role, brief title, first paragraph of the `.done`.
 2. Blocked: `.blocked*` files, `Blocked:` status lines, heavy queue files (6a) with their WAIT reason.
-3. Harsh's commands: OPEN `for-me.items` whose block has `cmd:`, oldest first, the command shown verbatim in a copy
+3. The owner's commands: OPEN `for-me.items` whose block has `cmd:`, oldest first, the command shown verbatim in a copy
    block (no elision, no inline `#`: the pack-lint rule from section 8 is applied as a check, and an item that fails
    it is shown with the reason instead of the command).
 4. Owed: the `sabha owe` list (7.3) when present.
@@ -260,10 +260,10 @@ second run on the same day writes nothing new when nothing changed, and a new da
 
 ### 6c. `sabha whoami` and the relay pre-turn check
 
-**Problem (real use).** 8 Nov (Vidur, inbox/Yudhishthira/469 item 2 (c)): the relay confused its own session id
-with another, and a cwd drift made a `sed` Harsh pasted run in the wrong folder. 4 Nov: the relay said the grid was
+**Problem (real use).** 8 Nov (the relay's overnight brief, item 2 (c)): the relay confused its own session id
+with another, and a cwd drift made a `sed` the owner pasted run in the wrong folder. 4 Nov: the relay said the grid was
 down because its `ps` grep used the wrong flag, and four stale resumed sessions sat beside the live ones
-(Arcus-Dev/docs/pdf-report-2.0/impl/status/vidur.md:18). The kit has the pieces but no single answer: the role
+(<workspace>/<impl>/status/vidur.md:18). The kit has the pieces but no single answer: the role
 comes from `SABHA_ROLE` or the hook's `session_name` (hooks/lib.sh:12-22), the cwd from the statusline input
 (bin/statusline-sabha.sh:28), live processes from `sabha_procs` (bin/sabha-lib.sh:322).
 
@@ -278,7 +278,7 @@ comes from `SABHA_ROLE` or the hook's `session_name` (hooks/lib.sh:12-22), the c
    hooks/sabha-guard.sh:13, which uses it the other way round: there `[ "$HK_BASE" = "$HK_RELAY" ] && exit 0` exempts
    the relay from the worker guard, here the relay is the only role the hook runs for) and prints the whoami line as context before each turn. Stdout of the hook becomes
    context (the SessionStart hook relies on this, hooks/sabha-session-start.sh:2). Cost: one line per turn.
-3. Packs: every command line Harsh pastes starts with `cd <absolute path> &&`. The whoami cwd and the pack lint
+3. Packs: every command line the owner pastes starts with `cd <absolute path> &&`. The whoami cwd and the pack lint
    (section 8) together cover the drift case; the hook alone cannot fix a pasted command.
 
 **Files touched.** `bin/sabha` (subcommand), `hooks/sabha-session-start.sh` (write whoami file), new
@@ -292,12 +292,12 @@ copy -> exit 0; two copies -> WARN and exit 3.
 
 **Size.** S.
 
-## 7. Specced features (060.1 / 471)
+## 7. Specced features (upstream radar)
 
 ### 7.0 Shared read-only GitHub fetch layer (used by 7.1, 7.2, 7.4 and Later 8)
 
-**Problem.** The kit has no GitHub code today (`grep -n 'gh ' bin/*` -> no command hits). Harsh's PR facts are
-gathered by hand per session (Arcus-Dev/docs/harsh-queue/pr-states-5nov.md:1-3: "read live ... read-only gh"),
+**Problem.** The kit has no GitHub code today (`grep -n 'gh ' bin/*` -> no command hits). The owner's PR facts are
+gathered by hand per session (<workspace>/docs/<queue>/pr-states-5nov.md:1-3: "read live ... read-only gh"),
 and each new tool would otherwise re-invent auth, paging and rate limits.
 
 **Design.** One file `bin/sabha-gh`, bash, wrapping `gh api` only.
@@ -306,14 +306,14 @@ and each new tool would otherwise re-invent auth, paging and rate limits.
   `-` or contain whitespace, so a path cannot turn into a flag; there is no way to pass `-X`, `--method`, `-f`, `-F` or `--input`. GraphQL reads go through
   `gh api graphql -f query=...` built inside the wrapper from a fixed list of named queries; a query text
   containing `mutation` is refused. So no caller can write.
-- Account: `SABHA_GH_USER` (Harsh: `harsh-vardhan-ts`); before the first call it checks `gh api user --jq .login`
+- Account: `SABHA_GH_USER` (owner's conf: `<gh-user>`); before the first call it checks `gh api user --jq .login`
   and stops with one line if it differs (the wrong account gives "Could not resolve to a Repository").
 - Cache: `status/gh-cache/<sha1 of argv>.json` with fetch time (it holds PR titles and bodies of private repos: it
-  lives under `SABHA_IMPL/status/`, which both the kit `.gitignore` (`/status/`) and Arcus-Dev's ignore, and no pack
+  lives under `SABHA_IMPL/status/`, which both the kit `.gitignore` (`/status/`) and the workspace's ignore, and no pack
   or digest copies the files, only the rendered table); `SABHA_GH_TTL` (default 600 s); `--fresh` bypasses.
   A failed call returns the cached copy marked `stale` rather than nothing, or exit 1 when there is none.
 - Rate: honours `X-RateLimit-Remaining` (via `gh api -i` on the first page) and stops at `SABHA_GH_MIN_LEFT`
-  (default 200), so a radar never eats Harsh's quota.
+  (default 200), so a radar never eats the owner's quota.
 - Sandbox: `gh` fails inside the Claude sandbox (network and keychain); the tools are meant for a plain terminal or
   the watch schedule, and say so on failure.
 - Named reads: `pr <repo> <n>`, `prs-by-author <org> <login>`, `compare <repo> <base> <head>` (returns
@@ -332,20 +332,19 @@ expiry makes one; failure with cache -> stale result; rate below the floor -> st
 
 ### 7.1 `sabha prs` - PR radar
 
-**Problem (real use).** 8 Nov (Vidur, Arcus-Dev/.../inbox/Yudhishthira/471, item 1): guardians #1350 and #1278
+**Problem (real use).** 8 Nov (the relay's upstream-radar brief, item 1): guardians #1350 and #1278
 were stranded in an archived repo; arcus #1231 was 51 behind dev and #1189 231 behind, both from before the `apps/`
-layout. Guardians still sits in Harsh's repos.conf with base `release/arcus-automation-sprint-3`
-(Arcus-Dev/dev-setup-2.0/repos.conf:9), so nothing local says it is archived. The 5 Nov PR table was a one-off
-hand read (Arcus-Dev/docs/harsh-queue/pr-states-5nov.md).
+layout. Guardians still sits in the owner's repos.conf with base `release/arcus-automation-sprint-3`
+(<workspace>/dev-setup-2.0/repos.conf:9), so nothing local says it is archived. The 5 Nov PR table was a one-off
+hand read (<workspace>/docs/<queue>/pr-states-5nov.md).
 
-**Design.** `bin/sabha prs [--org TestsigmaInc] [--author harsh-vardhan-ts] [--repo owner/name ...]` (defaults from
-`SABHA_PRS_ORGS`, `SABHA_PRS_AUTHOR`, `SABHA_PRS_REPOS`; Harsh: TestsigmaInc by author, plus
+**Design.** `bin/sabha prs [--org <org>] [--author <gh-user>] [--repo owner/name ...]` (defaults from
+`SABHA_PRS_ORGS`, `SABHA_PRS_AUTHOR`, `SABHA_PRS_REPOS`; owner's conf: <org> by author, plus
 The-Harsh-Vardhan/claude-sabha). Through 7.0: `prs-by-author`, then per PR `pr` (reviewDecision, mergeable,
 mergeStateStatus, isDraft, baseRefName, updatedAt), `compare <base> <head>` for `behind_by`, `repo` for archived.
 Output: one table sorted by risk: `ARCHIVED` > `CONFLICT` > `BEHIND>50` > `CHANGES_REQUESTED` > `STALE>7d` > ok;
 columns repo, #, title (60 chars), base, age, review, mergeable, behind, flag. `--md FILE` writes the table for the
-board/digest; `--json` for the board writer. Read-only; it never closes or comments (Arcus-Dev
-pr-states-5nov.md:3 "Agents close nothing").
+board/digest; `--json` for the board writer. Read-only; it never closes or comments (<workspace>/docs/<queue>/pr-states-5nov.md:3 "Agents close nothing").
 
 **Files touched.** `bin/sabha` (subcommand) or a small `bin/sabha-prs`, `sabha.conf.example`, README commands table.
 
@@ -357,9 +356,9 @@ cache with a "stale" header.
 
 ### 7.2 `sabha shipped <repo#pr>` - where a merged PR has reached
 
-**Problem (real use).** 8 Nov (471 item 2): testsigma #10891 and #10900 are in `master` via #10906 but not in
+**Problem (real use).** 8 Nov (the radar brief, item 2): testsigma #10891 and #10900 are in `master` via #10906 but not in
 `9.4.7` or `9.4.7-cs`; finding that took manual branch reading. The promotion chain is not stored anywhere in the
-kit; the bases are in repos.conf (testsigma `devtesting`, groot `prod`, Arcus-Dev/dev-setup-2.0/repos.conf:10-11).
+kit; the bases are in repos.conf (testsigma `devtesting`, groot `prod`, <workspace>/dev-setup-2.0/repos.conf:10-11).
 
 **Design.** `sabha shipped <owner/repo#n>`: read the PR (7.0 `pr`) for `mergeCommit` and base; then for each branch
 of the chain run `compare <branch> <mergeCommit>`: `status: behind` or `identical` = the commit is in the branch
@@ -377,18 +376,18 @@ exit 2 naming the conf key; a pattern resolves to the newest branch.
 
 **Size.** M (the squash re-check is the work; the sha compare is S).
 
-### 7.3 `sabha owe` - drafts Harsh owes people
+### 7.3 `sabha owe` - drafts the owner owes people
 
-**Problem (real use).** The valkyries #367 message to Sainath blocked the picker all day (471 item 3); for-me items
-already carry `owner`, `why`, `unblocks` (Arcus-Dev/docs/harsh-queue/board-writer/status-mapping.md, sources
-table), and drafts live as files (e.g. Arcus-Dev/docs/daily-updates/saikrishna/2026-11-04.md), but nothing lists
+**Problem (real use).** The valkyries #367 message to a reviewer blocked the picker all day (the radar brief, item 3); for-me items
+already carry `owner`, `why`, `unblocks` (<workspace>/docs/<queue>/board-writer/status-mapping.md, sources
+table), and drafts live as files (e.g. <workspace>/docs/daily-updates/<recipient>/2026-11-04.md), but nothing lists
 "written, not sent" with what each one blocks.
 
 **Design.** `sabha owe` reads three sources, all local and read-only:
 1. OPEN `for-me.items` whose title or `why` names a person or a send verb (`send`, `message`, `reply`, `post`,
    `ask <name>`) - a word list in conf (`SABHA_OWE_WORDS`), not a model call.
-2. Draft files under `SABHA_OWE_DIRS` (Harsh: `docs/daily-updates/saikrishna`, message-draft folders) without a
-   `sent:` line or a sibling `.sent` marker. Sending stays Harsh's; marking sent is `sabha owe --sent <path>`
+2. Draft files under `SABHA_OWE_DIRS` (owner's conf: `docs/daily-updates/<recipient>`, message-draft folders) without a
+   `sent:` line or a sibling `.sent` marker. Sending stays the owner's; marking sent is `sabha owe --sent <path>`
    (writes the marker, nothing else).
 3. Board rows whose `dependsOn` or `unblocks` names one of the above, to print "blocks: Q-xxx, F-yyy".
 Output: oldest first, `age | to | what | path | blocks`. The digest (6b) embeds it.
@@ -396,7 +395,7 @@ Output: oldest first, `age | to | what | path | blocks`. The digest (6b) embeds 
 **Files touched.** `bin/sabha-for-me` (it already parses for-me.items; owe is a view, `--owe`), `bin/sabha`
 subcommand alias, `sabha.conf.example`.
 
-**Tests.** selftest fixtures: an OPEN item "send Sainath the #367 note" with `unblocks:` -> listed with blocks; a
+**Tests.** selftest fixtures: an OPEN item "send a reviewer the #367 note" with `unblocks:` -> listed with blocks; a
 DONE item -> not listed; a draft with `.sent` -> not listed; age from `utc:` / mtime.
 
 **Size.** S.
@@ -404,8 +403,8 @@ DONE item -> not listed; a draft with `.sent` -> not listed; age from `utc:` / m
 ### 7.4 Upstream move watcher
 
 **Problem (real use).** guardians was archived, behaviour-tree-ecosystem was renamed automation-core, and dev was
-reverse-merged into sprint-3.1; all three were learned from Slack screenshots (471 item 4). repos.conf still lists
-guardians with a live base (Arcus-Dev/dev-setup-2.0/repos.conf:9) and automation-core on `feat/sigmascript-v1`
+reverse-merged into sprint-3.1; all three were learned from Slack screenshots (the radar brief, item 4). repos.conf still lists
+guardians with a live base (<workspace>/dev-setup-2.0/repos.conf:9) and automation-core on `feat/sigmascript-v1`
 (:19), so local files cannot notice a move.
 
 **Design.** `sabha upstream [--conf <repos.conf>]`, read-only, once a day from the watch schedule (same "once per
@@ -418,10 +417,10 @@ local day" stamp as 6b). For each row (columns repo, dir, base-ref; repos.conf h
 - reverse merge: `compare <base> <upstream>` per pair in `SABHA_UPSTREAM_PAIRS` (`release/... dev`): flags when
   `behind_by` drops to 0 against a non-zero last run (the upstream was merged in).
 State: `status/upstream/last.json` (last run's facts). Each new finding (not already reported) appends one
-`for-me.items` block (`owner: Harsh`, `title: upstream: guardians archived`, `why:` the fact and its source) and
+`for-me.items` block (`owner: <owner>`, `title: upstream: guardians archived`, `why:` the fact and its source) and
 writes one brief to the dispatcher via `bin/sabha-brief` naming the affected worktrees (`git worktree list` in
 the clone). The board writer turns the item into a row as it does today (status-mapping.md "F rows"). It never
-edits repos.conf (a base change is an "Ask before" item in Harsh's CLAUDE.md).
+edits repos.conf (a base change is an "Ask before" item in the owner's CLAUDE.md).
 
 **Files touched.** new `bin/sabha-upstream`, `bin/sabha-watch` (daily call), `sabha.conf.example`, docs.
 
@@ -433,16 +432,16 @@ gh failure -> no item and a single warning (a failed read never reads as "moved"
 
 ## 8. Later (one paragraph each)
 
-**Pack lint.** `sabha pack-lint <file>` rejects command lines with an inline ` # ` comment (Harsh's zsh passes them
+**Pack lint.** `sabha pack-lint <file>` rejects command lines with an inline ` # ` comment (the owner's zsh passes them
 as arguments), any `...` or Unicode-ellipsis elision, a non-ASCII arrow, and a line that does not start with `cd /absolute &&`.
 Used by 6b on `cmd:` fields and runnable as a pre-commit check on `docs/sabha/pr-bodies/*.md`. Size S.
 
 **Stale pane reaper.** `sabha reap` lists panes (launcher `L_list_panes`) and claude processes (`sabha_procs`) by age,
 idle time and last context percent (cost proxy), marks resumed duplicates (two rows, same name, the 4 Nov case in
-Arcus-Dev/.../status/vidur.md:18), and closes only the ids Harsh confirms on the same command line
+<workspace>/<impl>/status/vidur.md:18), and closes only the ids the owner confirms on the same command line
 (`sabha reap --close <id> ...`). Never closes a role's only live copy. Size M.
 
-**5. Rules as hooks.** Move Harsh's paste-and-repo rules from prose into the PreToolUse guard: no inline `#` in pack
+**5. Rules as hooks.** Move the owner's paste-and-repo rules from prose into the PreToolUse guard: no inline `#` in pack
 files, absolute `cd` prefix, ASCII only in written files, no AI attribution in commit messages, no push to shared
 branches (dev, main, master, release/*, sprint), no read of `.env*`. The pattern is the relay guard (open PR #63,
 branch relay-guard-allow, commits 13c840c..28e4720) on top of hooks/sabha-guard.sh: a text check that catches
@@ -464,21 +463,21 @@ and branch facts. Size M.
 recorded, screenshots named in UI PR packs, no "NOT IN DESIGN" item without an approval line, the PR questions file
 present. Each check is a file test, not a model judgement. Size S per check.
 
-**10. `sabha nightly`.** Draft the nightly progress note (Harsh's Saikrishna rule) from the day's `.done` markers and
-board changes into `docs/daily-updates/saikrishna/<date>.md`; Harsh reviews and sends. Shares 6b's window logic.
+**10. `sabha nightly`.** Draft the nightly progress note (the owner's nightly-update rule) from the day's `.done` markers and
+board changes into `docs/daily-updates/<recipient>/<date>.md`; the owner reviews and sends. Shares 6b's window logic.
 Size S.
 
-**11. `sabha decide`.** One MCQ answer from Harsh becomes, in one command: the board row state, a line in the PR
+**11. `sabha decide`.** One MCQ answer from the owner becomes, in one command: the board row state, a line in the PR
 questions file (questions-go-with-the-pr), and a decision log entry with the next D number. Size S.
 
-**12. `sabha prune`.** Weekly: run Harsh's `bin/wt-inventory.sh` dry run (Arcus-Dev/bin/wt-inventory.sh) and put its
-archive candidates on the board as one row; `--apply` stays Harsh's. Size S.
+**12. `sabha prune`.** Weekly: run the owner's `bin/wt-inventory.sh` dry run (<workspace>/bin/wt-inventory.sh) and put its
+archive candidates on the board as one row; `--apply` stays the owner's. Size S.
 
-## 9. Open questions for Harsh (defaults adopted)
+## 9. Open questions for the owner (defaults adopted)
 
 1. tmux as a fourth launcher, or drop it and keep herdr-or-iTerm? Default: build it (Linux/WSL users have no other).
 2. 6a: should `sabha-run` also hold a heavy brief while any interactive pane holds a heavy slot? Default: yes, the
    slot count already covers it.
 3. 6c: one context line per relay turn is acceptable cost? Default: yes, relay only.
 4. 7.0: `SABHA_GH_TTL` 10 minutes? Default: yes; `--fresh` for a live check.
-5. 7.4: does a finding also open a brief, or only a board row? Default: both, as 471 asks.
+5. 7.4: does a finding also open a brief, or only a board row? Default: both, as the radar brief asks.
