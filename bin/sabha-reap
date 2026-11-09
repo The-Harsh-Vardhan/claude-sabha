@@ -69,7 +69,15 @@ elif ! command -v herdr >/dev/null 2>&1; then panes_note="herdr not found: could
 elif ! sabha_herdr_guard; then panes_note="herdr refused: could not read panes"
 elif panes_json=$(sabha_h pane list 2>/dev/null </dev/null) && [[ $panes_json == *'"pane_id"'* ]]; then panes_ok=1
 else panes_note="could not read herdr panes (is the sabha session running?)"; fi
-pane_of() { awk -v n="$1" '$1 == n { p = $2 } END { print p }' "$mapf" 2>/dev/null; }
+pane_of() { awk -v n="$1" 'tolower($1) == tolower(n) { p = $2 } END { print p }' "$mapf" 2>/dev/null; }
+# AMBIGUOUS = the map names this pane in two rows, or names one of its roles twice: whose pane it is cannot be told. Prints the rows.
+pane_amb() {
+  awk -v p="$1" 'NF >= 2 { nm = tolower($1); c[nm]++; r[NR] = $1 " " $2; n[NR] = nm; q[NR] = $2 }
+    END { for (i = 1; i <= NR; i++) if (q[i] == p) { h++; hn[n[i]] = 1; if (c[n[i]] > 1) bad = 1 }
+          if (h > 1) bad = 1
+          if (!bad) exit
+          for (i = 1; i <= NR; i++) if (q[i] == p || hn[n[i]]) printf "%s%s", (k++ ? " / " : ""), r[i] }' "$mapf" 2>/dev/null
+}
 pane_live() { grep -qF "\"pane_id\":\"$1\"" <<<"$panes_json" || grep -qE "\"pane_id\" *: *\"$1\"" <<<"$panes_json"; }
 pane_state() {
   local o
@@ -89,8 +97,8 @@ rows=$(sort -n <<<"$rows" | sed '/^$/d')
 emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' pid role age idle ctx pane state note)"
 while read -r st pid name tty; do
   [[ -n $name ]] || continue
-  n=$(awk -v r="$name" '$3 == r' <<<"$rows" | wc -l | tr -d ' ')
-  newest=$(awk -v r="$name" '$3 == r { s = $1 } END { print s }' <<<"$rows")
+  n=$(awk -v r="$name" 'tolower($3) == tolower(r)' <<<"$rows" | wc -l | tr -d ' ')
+  newest=$(awk -v r="$name" 'tolower($3) == tolower(r) { s = $1 } END { print s }' <<<"$rows")
   note="" pane=- state=-
   if (( n > 1 )); then
     if [[ $st == "$newest" ]]; then note="newest of $n"; else note="STALE?"; fi
@@ -120,9 +128,13 @@ if (( panes_ok )) && [[ -z $rows ]]; then emit "panes: ps shows no named claude 
 elif (( panes_ok )); then
   while read -r name p _; do
     [[ -n $name && -n $p ]] || continue
-    awk -v r="$name" '$3 == r { f = 1 } END { exit !f }' <<<"$rows" && continue
+    awk -v r="$name" 'tolower($3) == tolower(r) { f = 1 } END { exit !f }' <<<"$rows" && continue
     pane_live "$p" || continue
     st=$(pane_state "$p")
+    amb=$(pane_amb "$p")
+    if [[ -n $amb ]]; then
+      emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' AMBIGUOUS "$name" - - - "$p" "$st" "map rows ($amb): never closed")"; continue
+    fi
     if ! sabha_role "$name" 2>/dev/null; then
       emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' OTHER "$name" - - - "$p" "$st" "not in the roster: not provably dead")"; continue
     elif [[ $R_AGENT != claude ]]; then
@@ -152,15 +164,16 @@ for id in $ids; do
     name=$(awk -v p="$id" '$2 == p { print $3 }' <<<"$rows")
     if [[ -z $name ]]; then emit "refused $id: not a pid in the list above"; rc=1; continue; fi
     if [[ $ancestors == *" $id "* ]]; then emit "refused $id: it runs this command"; rc=1; continue; fi
-    left=$(awk -v r="$name" -v s="$pids" '$3 == r && !index(s, " " $2 " ")' <<<"$rows" | wc -l | tr -d ' ')
+    left=$(awk -v r="$name" -v s="$pids" 'tolower($3) == tolower(r) && !index(s, " " $2 " ")' <<<"$rows" | wc -l | tr -d ' ')
     if (( left < 1 )); then emit "refused $id: that would close every live copy of $name"; rc=1; continue; fi
     if $KILL -TERM "$id" 2>/dev/null; then emit "sent TERM to $id ($name)"; killed+="$id "; else emit "could not signal $id"; rc=1; fi
   else
     why=""
     if [[ -n ${SABHA_PS_FILE:-} && -z ${SABHA_TEST:-} ]]; then why="a fake process list never closes a pane"
     elif [[ -z ${HERDR_PANE_ID:-} ]]; then why="HERDR_PANE_ID is not set, so this command cannot tell which pane it runs in"
-    elif [[ $id == "$HERDR_PANE_ID" ]]; then why="it is the pane this command runs in"
+    elif [[ $(tr '[:upper:]' '[:lower:]' <<<"$id") == "$(tr '[:upper:]' '[:lower:]' <<<"$HERDR_PANE_ID")" ]]; then why="it is the pane this command runs in"
     elif [[ -z $rows ]]; then why="ps shows no named claude session, so no pane can be called dead"
+    elif [[ -n $(pane_amb "$id") ]]; then why="AMBIGUOUS: the pane map has more than one row for it ($(pane_amb "$id"))"
     elif [[ $orphans != *" $id "* ]]; then why="not an ORPHAN pane in the list above"
     elif [[ $closable != *" $id "* ]]; then why="herdr reports it $(pane_state "$id"); only an idle or done pane is closed"
     elif ! panes_json=$(sabha_h pane list 2>/dev/null </dev/null) || ! pane_live "$id"; then why="the pane is gone or herdr cannot list it now"

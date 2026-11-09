@@ -15,7 +15,9 @@
   resumed duplicates (STALE?) and panes with no live claude (ORPHAN). It closes only what `--close <pid-or-pane-id>`
   names, and never a role's last live copy (leading zeros are stripped first, so `0101` is pid 101). A pane is closed
   only when herdr reports it idle or done, it is not the pane the command runs in (HERDR_PANE_ID must be set), it
-  belongs to a claude role of the roster, and ps shows at least one named claude; otherwise `--close` refuses.
+  belongs to a claude role of the roster, ps shows at least one named claude, and the pane map names it in exactly one
+  row (a pane two rows name is AMBIGUOUS and never closed); role names compare case-insensitively; otherwise `--close`
+  refuses.
 - Accounts: roles can run on different Claude accounts in one setup. `SABHA_ACCOUNTS="HV AU"` names them,
   `SABHA_ACCOUNT_<RoleId>=<NAME>` in `sabha.conf` puts a role on one; the token is `CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_<NAME>`,
   read from the environment, then from `SABHA_ENV_FILE` (default `$SABHA_WS/.env`, parsed for that one variable, never

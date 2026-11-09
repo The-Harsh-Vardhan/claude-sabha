@@ -2,7 +2,7 @@
 # bin/sabha-reap against a fake process list and the fake herdr only (tests/hermetic.sh): the list shows age, idle, ctx
 # and pane state, marks STALE? copies and ORPHAN panes, and prints plain ASCII whatever ps or a file holds; --close acts
 # only on ids named on the command line and never on a role's last live copy, an id not in the list, a live pane, a pane
-# herdr does not report idle or done, the pane it runs in, or any pane when ps shows no named claude.
+# herdr does not report idle or done, the pane it runs in, a pane two map rows name, or any pane when ps shows no named claude.
 # Run: tests/test-reap.sh
 # shellcheck disable=SC2016,SC2034,SC2329  # the checks are eval strings, expanded when they run
 set -u
@@ -172,6 +172,44 @@ out=$(reapp --close w1:p10); rc=$?
 check "a done orphan is closed too" '(( rc == 0 )) && grep -qx "pane close w1:p10" "$FAKE_HERDR_LOG"'
 out=$(FAKE_HERDR_GARBAGE=1 reapp); rc=$?
 check "herdr answering exit 0 with non-pane output: no orphans, problem said" '(( rc == 0 )) && ! grep -q "^ORPHAN" <<<"$out" && grep -q "could not read herdr panes" <<<"$out"'
+
+echo "--- close: ambiguous panes and names that differ by case"
+cp "$map" "$dir/map.keep"; cp "$dir/ps.txt" "$dir/ps.keep"
+export FAKE_HERDR_PANES="w1:p1 w1:p5 w1:p6" FAKE_HERDR_STATUS="w1:p5=idle w1:p6=idle"
+printf 'Relay w1:p1\nGhost w1:p5\nBuilder w1:p5\n' > "$map"
+: > "$FAKE_HERDR_LOG"
+out=$(reapp); rc=$?
+check "two map rows name one pane (a live Builder is one): listed AMBIGUOUS, never closable" '(( rc == 0 )) && grep "^AMBIGUOUS " <<<"$out" | grep "w1:p5" | grep -q "Ghost w1:p5 / Builder w1:p5" && ! grep "^ORPHAN" <<<"$out" | grep -q "w1:p5"'
+out=$(reapp --close w1:p5); rc=$?
+check "two map rows one pane, one of them live: close refused, reason names both rows, nothing closed" '(( rc == 1 )) && grep -q "refused w1:p5: AMBIGUOUS.*Ghost w1:p5 / Builder w1:p5" <<<"$out" && no_close'
+printf 'Relay w1:p1\nGhost w1:p5\nGhost2 w1:p5\n' > "$map"
+out=$(reapp --close w1:p5); rc=$?
+check "two map rows one pane, neither live: close refused as AMBIGUOUS naming both" '(( rc == 1 )) && grep -q "refused w1:p5: AMBIGUOUS.*Ghost w1:p5 / Ghost2 w1:p5" <<<"$out" && no_close'
+printf 'Relay w1:p1\nGhost w1:p5\nGhost w1:p5\n' > "$map"
+out=$(reapp --close w1:p5); rc=$?
+check "the same row twice: close refused as AMBIGUOUS" '(( rc == 1 )) && grep -q "refused w1:p5: AMBIGUOUS" <<<"$out" && no_close'
+printf 'Relay w1:p1\nGhost w1:p5\nghost w1:p6\n' > "$map"
+out=$(reapp --close w1:p5 w1:p6); rc=$?
+check "one role named twice (any case): both its panes refused as AMBIGUOUS" '(( rc == 1 )) && [[ $(grep -c "^refused .*AMBIGUOUS" <<<"$out") == 2 ]] && no_close'
+printf 'Relay w1:p1\nGhost w1:p5\n' > "$map"
+out=$(reapp --close w1:p5); rc=$?
+check "control: one row, no live session: the orphan still closes" '(( rc == 0 )) && grep -q "^closed pane w1:p5" <<<"$out"'
+: > "$FAKE_HERDR_LOG"
+printf '  103 ttys009  Tue Oct 13 09:30:00 2026     claude -n relay --model opus\n' > "$dir/ps.txt"
+printf 'Relay w1:p1\nGhost w1:p5\n' > "$map"
+out=$(reapp); rc=$?
+check "a live claude -n relay (lower case) keeps the Relay pane out of the ORPHAN rows" '(( rc == 0 )) && ! grep "^ORPHAN" <<<"$out" | grep -q "Relay" && grep "^103 " <<<"$out" | grep -q "only copy"'
+out=$(reapp --close w1:p1); rc=$?
+check "the pane of a session whose name differs by case only is refused" '(( rc == 1 )) && grep -q "refused w1:p1: not an ORPHAN pane" <<<"$out" && no_close'
+printf '  101 ttys004  Tue Oct 13 09:00:01 2026     claude -n Relay --model opus\n  103 ttys009  Tue Oct 13 09:30:00 2026     claude -n relay --model opus\n' > "$dir/ps.txt"
+: > "$dir/kill.log"
+out=$(reap --close 101); rc=$?
+check "Relay and relay are one role: closing one of the two is allowed" '(( rc == 0 )) && grep -qx -- "-TERM 101" "$dir/kill.log"'
+cp "$dir/ps.keep" "$dir/ps.txt"; cp "$dir/map.keep" "$map"
+export FAKE_HERDR_PANES="w1:p1 w1:p2 w1:p5 w1:p6 w1:p8 w1:p10" FAKE_HERDR_STATUS="w1:p5=idle w1:p6=idle w1:p8=idle w1:p10=done"
+: > "$FAKE_HERDR_LOG"
+out=$(HERDR_PANE_ID=W1:P5 reap --close w1:p5); rc=$?
+check "the own-pane guard ignores case" '(( rc == 1 )) && grep -q "refused w1:p5: it is the pane this command runs in" <<<"$out" && no_close'
 
 echo "--- close: ps shows no named claude"
 cp "$dir/ps.txt" "$dir/ps.full"
