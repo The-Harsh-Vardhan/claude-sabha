@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# sabha-typography-check: font, size, weight, colour, contrast and wrap check of a PDF, an HTML page or a computed-styles
+# dump against an allow-list. Usage and exit codes: tools/typography-check.py (top of the file). A PDF needs the repo-local
+# .venv (uv venv .venv && uv pip install --python .venv/bin/python -r tools/typography-requirements.txt); HTML and JSON
+# only need python3. SABHA_TYPO_PYTHON overrides the interpreter.
+BIN=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(dirname "$BIN")
+PY=${SABHA_TYPO_PYTHON:-}
+if [[ -z $PY ]]; then
+  if [[ -x $ROOT/.venv/bin/python ]]; then PY=$ROOT/.venv/bin/python; else PY=python3; fi
+fi
+exec "$PY" "$ROOT/tools/typography-check.py" "$@"

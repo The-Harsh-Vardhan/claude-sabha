@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# Durable helpers: long work that runs as its own headless session (sabha-run --detach) and survives the session
+# that started it. This is the front end; the run itself, the registry and the checks are sabha-run and
+# sabha-helpers.sh. Design and limits: docs/durable-helpers.md.
+#   sabha-helper start [--cwd DIR] <Name>        start the role's lowest due brief as a helper; exit 3 when refused
+#   sabha-helper list                            the registry, running first
+#   sabha-helper reattach [--redispatch]         for a fresh dispatcher: reconcile, report, restart the dead ones
+#   sabha-helper wait [--timeout S] [id...]      poll until the helpers (default: all running) have ended
+#   sabha-helper stop (<id> | --all) [--reason R] [--timeout S] [--dry-run]    cancel, wait, record "stopped"
+#   sabha-helper ack <Role> <n> <what> [transcript]  any helper's start: inbox/<Role>/<n>.helper.ack
+#   sabha-helper done <Role> <n> <exit> [transcript] its end: <n>.helper.done, last line "### EXIT=<exit> ###"
+set -uo pipefail
+
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+BIN=$(dirname "$SELF")
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+# shellcheck source-path=SCRIPTDIR source=sabha-helpers.sh
+. "$BIN/sabha-helpers.sh"
+sabha_load sabha-helper
+[[ -n ${SABHA_IMPL:-} ]] || { echo "sabha-helper: SABHA_IMPL is not set after sabha_load (check sabha.conf)" >&2; exit 2; }
+utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+usage() { sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+(( $# )) || usage
+cmd=$1; shift
+
+# age <epoch>: 42s, 7m, 3h
+age() {
+  local s=$(( $(date +%s) - ${1:-0} ))
+  (( s < 0 )) && s=0
+  if (( s < 120 )); then echo "${s}s"; elif (( s < 7200 )); then echo "$(( s / 60 ))m"; else echo "$(( s / 3600 ))h"; fi
+}
+
+# reconcile <id>: brings the entry in line with what is on disk and prints its state. A live pid is running; a
+# gone pid with a .done takes the done's state; a gone pid with none is dead. A start still in flight is left alone.
+reconcile() {
+  local id=$1 st role n ds started
+  st=$(sabha_helper_get "$id" state); role=$(sabha_helper_get "$id" role); n=$(sabha_helper_get "$id" brief_n)
+  case $st in
+    running|starting)
+      started=$(sabha_helper_get "$id" started_epoch)
+      if [[ $st == starting ]] && (( $(date +%s) - ${started:-0} < ${SABHA_HELPER_START_WAIT:-30} + 5 )); then echo starting; return; fi
+      if sabha_helper_alive "$id"; then echo "$st"; return; fi
+      if ds=$(sabha_helper_done_state "$role" "$n"); then
+        sabha_helper_put "$id" "state=$ds" "ended=$(utc)" "why=pid gone, state taken from the done marker"; echo "$ds"
+      else
+        sabha_helper_put "$id" state=dead "ended=$(utc)" "why=pid gone and no done marker"; echo dead
+      fi ;;
+    dead)
+      if ds=$(sabha_helper_done_state "$role" "$n"); then
+        sabha_helper_put "$id" "state=$ds" "why=a done marker appeared after the helper was found dead"; echo "$ds"
+      else echo dead; fi ;;
+    *) echo "$st" ;;
+  esac
+}
+
+# row <id> <state>: one table line
+row() {
+  local id=$1 st=$2 pid
+  pid=$(sabha_helper_get "$id" pid)
+  [[ $st == running || $st == starting ]] || pid="-"
+  printf '%-22s %-10s %-8s %-6s %s\n' "$id" "$st" "$pid" "$(age "$(sabha_helper_get "$id" started_epoch)")" "$(sabha_helper_get "$id" brief)"
+}
+
+cmd_start() {
+  local args=()
+  while (( $# )); do
+    case $1 in
+      --cwd) args+=(--cwd "${2:-}"); shift ;;
+      -*) usage ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  (( ${#args[@]} )) || usage
+  exec "$BIN/sabha-run" --detach "${args[@]}"
+}
+
+cmd_list() {
+  local id st rows="" n=0 running=0 line
+  while read -r id; do
+    [[ -n $id ]] || continue
+    st=$(reconcile "$id"); n=$(( n + 1 ))
+    line=$(row "$id" "$st")
+    if [[ $st == running || $st == starting ]]; then running=$(( running + 1 )); rows="$line"$'\n'"$rows"; else rows+="$line"$'\n'; fi
+  done < <(sabha_helper_ids)
+  if (( n == 0 )); then echo "no durable helpers"; return 0; fi
+  echo "helpers: $n ($running running)"
+  printf '%-22s %-10s %-8s %-6s %s\n' ID STATE PID AGE BRIEF
+  printf '%s' "$rows"
+}
+
+# redispatch <id>: a dead helper runs its brief again, as a resume, up to SABHA_HELPER_RETRIES more times
+redispatch() {
+  local id=$1 role n att inbox ack moved retries=${SABHA_HELPER_RETRIES:-2} lock out rc
+  role=$(sabha_helper_get "$id" role); n=$(sabha_helper_get "$id" brief_n); att=$(sabha_helper_get "$id" attempts)
+  inbox=$SABHA_IMPL/inbox/$role; ack=$inbox/$n.ack
+  if (( ${att:-1} > retries )); then
+    if [[ ! -e $inbox/$n.done ]]; then
+      printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED helper %s died %s time(s); SABHA_HELPER_RETRIES is %s, so it is not started again\ncontext: 0\n' \
+        "$(utc)" "$role" "$id" "$att" "$retries" >"$inbox/$n.done"
+      printf 'why: %s died %s time(s) with no done; not started again (SABHA_HELPER_RETRIES %s). Log: %s\n' \
+        "$id" "$att" "$retries" "$(sabha_helper_get "$id" log)" \
+        | SABHA_IMPL=$SABHA_IMPL "$BIN/sabha-item" add sabha-helper "Helper $id died $att time(s)" --ask "$RELAY" >/dev/null 2>&1 || true
+    fi
+    echo "  not started again: $att run(s) so far, SABHA_HELPER_RETRIES is $retries; a BLOCKED done was written"
+    return 0
+  fi
+  # the old supervisor is gone, so its lock is stale; the ack moves aside so the brief is due again
+  lock=$inbox/run.lock
+  [[ -e $lock ]] && ! kill -0 "$(cat "$lock" 2>/dev/null)" 2>/dev/null && rm -f "$lock"
+  moved=$ack.dead-$(date +%s)
+  [[ -e $ack ]] && mv "$ack" "$moved"
+  out=$("$BIN/sabha-run" --detach "$role" 2>&1); rc=$?
+  if (( rc == 0 )); then
+    echo "  started again as a resume: ${out##*$'\n'}"
+  else
+    # refused (load, stop line, cap): put the ack back so the entry stays dead and a later reattach tries again
+    [[ -e $moved && ! -e $ack ]] && mv "$moved" "$ack"
+    echo "  not started again yet: ${out##*$'\n'}"
+  fi
+}
+
+cmd_reattach() {
+  local redispatch=0 id st nrun=0 ndead=0 nend=0 n=0
+  while (( $# )); do
+    case $1 in
+      --redispatch) redispatch=1 ;;
+      *) usage ;;
+    esac
+    shift
+  done
+  printf '%-22s %-10s %-8s %-6s %s\n' ID STATE PID AGE BRIEF
+  while read -r id; do
+    [[ -n $id ]] || continue
+    st=$(reconcile "$id"); n=$(( n + 1 ))
+    row "$id" "$st"
+    case $st in
+      running|starting) nrun=$(( nrun + 1 )) ;;
+      dead)
+        ndead=$(( ndead + 1 ))
+        if (( redispatch )); then redispatch "$id"; else echo "  dead: its pid is gone and it wrote no done; reattach --redispatch starts it again"; fi ;;
+      *) nend=$(( nend + 1 )) ;;
+    esac
+  done < <(sabha_helper_ids)
+  if (( n == 0 )); then echo "no durable helpers"; return 0; fi
+  echo "helpers: $n ($nrun running, $nend ended, $ndead dead); a running helper is left alone, never started twice"
+}
+
+cmd_wait() {
+  local timeout=3600 ids=() id st end pending ended_dead=0
+  while (( $# )); do
+    case $1 in
+      --timeout) timeout=${2:?--timeout needs seconds}; shift ;;
+      -*) usage ;;
+      *) ids+=("$1") ;;
+    esac
+    shift
+  done
+  if (( ${#ids[@]} == 0 )); then
+    while read -r id; do
+      [[ -n $id ]] || continue
+      st=$(reconcile "$id"); [[ $st == running || $st == starting ]] && ids+=("$id")
+    done < <(sabha_helper_ids)
+  fi
+  (( ${#ids[@]} )) || { echo "no running helpers"; return 0; }
+  end=$(( $(date +%s) + timeout ))
+  while :; do
+    pending=""
+    for id in "${ids[@]}"; do
+      [[ -f $(sabha_helper_file "$id") ]] || { echo "sabha-helper: no helper $id" >&2; return 2; }
+      st=$(reconcile "$id")
+      [[ $st == running || $st == starting ]] && pending+="$id "
+    done
+    [[ -z $pending ]] && break
+    (( $(date +%s) >= end )) && { echo "timeout after ${timeout}s, still running: $pending"; return 1; }
+    sleep "${SABHA_HELPER_POLL:-1}"
+  done
+  for id in "${ids[@]}"; do
+    st=$(sabha_helper_get "$id" state); row "$id" "$st"
+    [[ $st == dead ]] && ended_dead=1
+  done
+  (( ended_dead )) && return 4
+  return 0
+}
+
+cmd_stop() {
+  local reason=stop timeout=30 dry=0 all=0 ids=() id st n=0 pid end role num inbox pending
+  while (( $# )); do
+    case $1 in
+      --all) all=1 ;;
+      --reason) reason=${2:?--reason needs text}; shift ;;
+      --timeout) timeout=${2:?--timeout needs seconds}; shift ;;
+      --dry-run) dry=1 ;;
+      -*) usage ;;
+      *) ids+=("$1") ;;
+    esac
+    shift
+  done
+  if (( all )); then
+    ids=()
+    while read -r id; do [[ -n $id ]] && ids+=("$id"); done < <(sabha_helper_ids)
+  fi
+  (( ${#ids[@]} )) || { (( all )) && { echo "no running helpers"; return 0; }; usage; }
+  local live=()
+  for id in "${ids[@]}"; do
+    [[ -f $(sabha_helper_file "$id") ]] || { echo "sabha-helper: no helper $id" >&2; return 2; }
+    st=$(reconcile "$id")
+    if [[ $st == running || $st == starting ]]; then live+=("$id"); else (( all )) || echo "$id: not running ($st)"; fi
+  done
+  if (( ${#live[@]} == 0 )); then (( all )) && echo "no running helpers"; return 0; fi
+  if (( dry )); then
+    echo "would stop ${#live[@]} helper(s): ${live[*]} (a .cancel each, then wait up to ${timeout}s)"
+    return 0
+  fi
+  # the reason is recorded first: the supervisor, ending on the cancel, then records "stopped" and not "cancelled"
+  for id in "${live[@]}"; do
+    role=$(sabha_helper_get "$id" role); num=$(sabha_helper_get "$id" brief_n); inbox=$SABHA_IMPL/inbox/$role
+    sabha_helper_put "$id" "stop_reason=$reason"
+    : >"$inbox/$num.cancel"
+  done
+  end=$(( $(date +%s) + timeout ))
+  while :; do
+    pending=""
+    for id in "${live[@]}"; do
+      sabha_helper_alive "$id" && pending+="$id "
+    done
+    [[ -z $pending ]] && break
+    (( $(date +%s) >= end )) && { echo "still running after ${timeout}s: $pending"; return 1; }
+    sleep 0.2
+  done
+  for id in "${live[@]}"; do
+    # a supervisor that exited without recording (it was killed) leaves "running": record the stop here
+    st=$(sabha_helper_get "$id" state)
+    [[ $st == running || $st == starting ]] && sabha_helper_put "$id" state=stopped "ended=$(utc)" "why=stopped by sabha-helper stop"
+    n=$(( n + 1 ))
+  done
+  echo "stopped $n helper(s): ${live[*]} (reason: $reason)"
+  return 0
+}
+
+case $cmd in
+  start) cmd_start "$@" ;;
+  list|status) cmd_list "$@" ;;
+  reattach) cmd_reattach "$@" ;;
+  wait) cmd_wait "$@" ;;
+  stop) cmd_stop "$@" ;;
+  ack) (( $# >= 3 )) || usage; sabha_helper_mark_ack "$@" ;;
+  done) (( $# >= 3 )) || usage; sabha_helper_mark_done "$@" ;;
+  *) usage ;;
+esac
