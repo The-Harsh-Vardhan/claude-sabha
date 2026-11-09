@@ -4,20 +4,39 @@
 // SABHA_TYPO_VIEWPORT=1440x900 sets the window. Output: {version, page:{scroll_w,inner_w}, elements:[{selector, tag, text,
 // family, size_px, weight, color, bg, line_height_px, scroll_w, client_w, scroll_h, client_h, overflow_x, overflow_y,
 // text_overflow, face_loaded}]}. face_loaded is false when document.fonts.check() says the first declared face is not loaded.
+// Page scripts are OFF unless SABHA_TYPO_SCRIPTS=1 (sabha-typography-check --allow-scripts: only for files you trust).
+// Every request that leaves the page's folder is aborted. Exit 4 = playwright or Chrome missing (the message says which).
+// Never run against a real Chrome (first real run removes this line); tests use a fake playwright (tests/fixtures/typography/).
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const [html, out] = process.argv.slice(2);
 if (!html || !out) { console.error('usage: node typography-computed.mjs <page.html> <out.json>'); process.exit(2); }
 const req = createRequire(resolve(process.env.SABHA_TYPO_PLAYWRIGHT_DIR || process.cwd()) + '/');
-const { chromium } = req('playwright');
+const missing = (msg) => { console.error('typography-computed: ' + msg); process.exit(4); };
+let chromium;
+try { ({ chromium } = req('playwright')); } catch (e) {
+  missing("playwright not found (set SABHA_TYPO_PLAYWRIGHT_DIR to a folder that has it): " + String(e.message).split('\n')[0]);
+}
 const [vw, vh] = (process.env.SABHA_TYPO_VIEWPORT || '1440x900').split('x').map(Number);
+const scripts = process.env.SABHA_TYPO_SCRIPTS === '1';
+const pageUrl = pathToFileURL(resolve(html)).href;
+const root = pathToFileURL(dirname(resolve(html))).href.replace(/\/?$/, '/');
 
-const browser = await chromium.launch({ channel: 'chrome' });
+let browser;
+try { browser = await chromium.launch({ channel: 'chrome' }); } catch (e) {
+  missing('Chrome could not be started, install Google Chrome: ' + String(e.message).split('\n')[0]);
+}
 try {
-  const page = await browser.newPage({ viewport: { width: vw || 1440, height: vh || 900 } });
-  await page.goto('file://' + resolve(html), { waitUntil: 'networkidle' });
+  const context = await browser.newContext({ javaScriptEnabled: scripts, viewport: { width: vw || 1440, height: vh || 900 } });
+  await context.route('**/*', (route) => {
+    const u = route.request().url();
+    return u === pageUrl || u.startsWith(root) || /^(data|blob|about):/.test(u) ? route.continue() : route.abort();
+  });
+  const page = await context.newPage();
+  await page.goto(pageUrl, { waitUntil: 'networkidle' });
   const data = await page.evaluate(async () => {
     await document.fonts.ready;
     const generic = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace']);

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2015,SC1091,SC2016
+# shellcheck disable=SC2015,SC1091,SC2016,SC2034
 # bin/sabha-typography-check: every check finds its known fault in the fixtures, and a scratch mutant that removes the
 # check makes that row fail. Also bad input, control characters, the browser path (stub runner, never a real browser).
 # Run: tests/test-typography-check.sh   (PDF rows need the repo-local .venv; without it they are reported as NOT RUN)
@@ -50,6 +50,7 @@ rows=(
   "htm|FAMILY|\\.serif" "htm|FALLBACK|src file not found: fonts/Inter-400" "htm|FALLBACK|Roboto Mono is used but no @font-face"
   "htm|SIZE|\\.big" "htm|SIZE|style attribute #inl" "htm|WEIGHT|\\.heavy" "htm|COLOR|\\.red" "htm|CONTRAST|\\.pale"
   "htm|LINEHEIGHT|\\.tight" "htm|WRAP|\\.cut" "htm|ROLE|h1"
+  "htm|FALLBACK|font stack \"Inter\" has none of the allowed fallbacks" "cmp|FALLBACK|p\\.big.*font stack Inter has none of the allowed fallbacks"
   "cmp|FAMILY|p\\.serif" "cmp|FALLBACK|declared face Roboto Mono did not load" "cmp|SIZE|p\\.big" "cmp|WEIGHT|p\\.heavy"
   "cmp|COLOR|p\\.red" "cmp|CONTRAST|p\\.pale" "cmp|LINEHEIGHT|p\\.tight" "cmp|WRAP|div\\.over" "cmp|WRAP|div\\.clip"
   "cmp|WRAP|div\\.ell" "cmp|WRAP|page" "cmp|ROLE|h2"
@@ -103,9 +104,9 @@ expect_rc "browser on a pdf" 2 'only applies to an html' -- "$fx/clean.html" --a
 printf 'this is not a pdf' > "$work/garbage.pdf"; : > "$work/empty.pdf"; head -c 700 "$fx/faulty.pdf" > "$work/trunc.pdf"
 if [[ $have_pdf == 1 ]]; then
   expect_rc "garbage pdf" 2 'unreadable PDF' -- "$work/garbage.pdf" --allow "$A"
-  expect_rc "empty pdf" 2 'unreadable PDF' -- "$work/empty.pdf" --allow "$A"
+  expect_rc "empty pdf" 2 'is empty|unreadable PDF' -- "$work/empty.pdf" --allow "$A"
   out=$(typo "$work/trunc.pdf" --allow "$A" 2>&1); rc=$?
-  { [[ $rc -le 2 ]] && ! grep -q Traceback <<<"$out"; } && ok || bad "truncated pdf: rc $rc: $out"
+  { [[ $rc -eq 2 ]] && ! grep -q Traceback <<<"$out"; } && ok || bad "truncated pdf: rc $rc: $out"
 else skipped=$((skipped + 3)); fi
 printf '[1,2]' > "$work/a1.json"; printf '{"sizes": 5}' > "$work/a2.json"; printf '{"sizes": []}' > "$work/a3.json"
 printf '{"colors": ["zzz"]}' > "$work/a4.json"; printf '{{' > "$work/a5.json"; printf '{"min_contrast": 99}' > "$work/a6.json"
@@ -140,7 +141,7 @@ out=$(FXDIR=$fx SABHA_TYPO_ALLOW='$FXDIR/allow.json' typo "$fx/faulty.html" 2>&1
 [[ $rc -eq 1 ]] && ok || bad "SABHA_TYPO_ALLOW with a variable: rc $rc: $out"
 
 # ---- 6. template placeholders and external sheets are not mistaken for missing files ----
-printf '<style>@font-face { font-family: "Inter"; src: url("[(${assetBase})]fonts/Inter-400.ttf"); }\nbody { font-family: "Inter"; }</style>\n<link rel="stylesheet" href="https://fonts.example/x.css">\n' > "$work/tpl.html"
+printf '<style>@font-face { font-family: "Inter"; src: url("[(${assetBase})]fonts/Inter-400.ttf"); }\nbody { font-family: "Inter", sans-serif; }</style>\n<link rel="stylesheet" href="https://fonts.example/x.css">\n' > "$work/tpl.html"
 out=$(typo "$work/tpl.html" --allow "$A" 2>&1)
 { ! grep -q '^FALLBACK' <<<"$out" && grep -q 'template placeholder' <<<"$out" && grep -q 'external stylesheet not fetched' <<<"$out"; } && ok || bad "placeholder or external sheet reported wrongly: $out"
 
@@ -159,19 +160,204 @@ done
 unset SABHA_TYPO_HEAVY SABHA_TYPO_RUNNER STUB_HEAVY_LOG
 
 # ---- 8. the shipped example allow-list loads ----
-typo "$fx/clean.html" --allow "$root/template/typography.example.json" >/dev/null 2>&1; rc=$?
-[[ $rc -le 1 ]] && ok || bad "template/typography.example.json does not load (rc $rc)"
+out=$(typo "$fx/clean.html" --allow "$root/template/typography.example.json" 2>&1); rc=$?
+{ [[ $rc -le 1 ]] && grep -q '^typography-check clean.html (html): [0-9]* finding' <<<"$out"; } && ok || bad "template/typography.example.json does not load (rc $rc): $out"
 
 # ---- 9. the wrapper picks an interpreter and passes the exit code through ----
 "$root/bin/sabha-typography-check" "$fx/clean.html" --allow "$A" >/dev/null 2>&1 && ok || bad "bin/sabha-typography-check wrapper"
 [[ $("$root/bin/sabha-typography-check" "$work/none.html" --allow "$A" >/dev/null 2>&1; echo $?) == 2 ]] && ok || bad "wrapper exit code"
 
-# ---- 10. no bytes above 127 in what this change ships ----
-for f in "$tool" "$root/bin/sabha-typography-check" "$root/tools/typography-computed.mjs" "$root/tools/typography-requirements.txt" "$root/template/typography.example.json" "$root/skills/sabha-typography-check/SKILL.md" "$0" "$fx"/*; do
+# ---- 10. round 2 (review 243): the tool reads only inside the input's folder (M1) ----
+px=$work/proj; mkdir -p "$px/sub/fonts"
+printf '.leaked-selector { color: #ff0000; }\n' > "$px/secret.css"
+printf '.inside-selector { color: #ff0000; }\n' > "$px/sub/own.css"
+ln -s ../secret.css "$px/sub/link.css"
+cat > "$px/sub/page.html" <<EOF
+<link rel="stylesheet" href="$px/secret.css">
+<link rel="stylesheet" href="../secret.css">
+<link rel="stylesheet" href="link.css">
+<link rel="stylesheet" href="own.css">
+<style>
+@font-face { font-family: "Inter"; src: url(/etc/nonexistent-zzz), url(../x.woff2), url(fonts/none.woff2); }
+body { font-family: "Inter", sans-serif; }
+</style>
+EOF
+out=$(typo "$px/sub/page.html" --allow "$A" 2>&1)
+r2() { if eval "$2"; then ok; else bad "R2 $1: $out"; fi; }
+r2 "M1 outside sheets are not read" '! grep -q "leaked-selector" <<<"$out"'
+r2 "M1 a sheet inside the folder is still read" 'grep -q "^COLOR | where: .inside-selector" <<<"$out"'
+r2 "M1 absolute href noted" 'grep -q -F "note: not read: outside the input folder: $px/secret.css" <<<"$out"'
+r2 "M1 ../ href noted" 'grep -q -F "outside the input folder: ../secret.css" <<<"$out"'
+r2 "M1 symlink out of the folder noted" 'grep -q -F "outside the input folder: link.css" <<<"$out"'
+r2 "M1 absolute font path is not probed" 'grep -q -F "outside the input folder: /etc/nonexistent-zzz" <<<"$out" && ! grep -q "nonexistent-zzz | nearest" <<<"$out"'
+r2 "M1 ../ font path noted" 'grep -q -F "outside the input folder: ../x.woff2" <<<"$out"'
+r2 "M1 a font path inside the folder is still checked" 'grep -q "^FALLBACK .*src file not found: fonts/none.woff2" <<<"$out"'
+out=$(typo "$px/sub/page.html" --allow "$A" --json 2>&1)
+r2 "M1 json carries the notes" 'grep -q "outside the input folder" <<<"$out"'
+
+# ---- 11. M2: --browser and page scripts ----
+export SABHA_TYPO_HEAVY=$fx/stub-heavy.sh SABHA_TYPO_RUNNER=$fx/stub-runner.sh STUB_HEAVY_LOG=$work/heavy2.log STUB_RUNNER_LOG=$work/runner.log
+out=$(typo "$fx/clean.html" --allow "$A" --browser 2>&1)
+r2 "M2 default is scripts off (runner env)" 'grep -q "^scripts=0$" "$work/runner.log"'
+r2 "M2 default says scripts are off" 'grep -q "note: browser run with page scripts off" <<<"$out"'
+: > "$work/runner.log"
+out=$(typo "$fx/clean.html" --allow "$A" --browser --allow-scripts 2>&1); rc=$?
+r2 "M2 --allow-scripts passes scripts=1" 'grep -q "^scripts=1$" "$work/runner.log"'
+r2 "M2 --allow-scripts warns on every run" 'grep -q "warning: --allow-scripts runs the page.s scripts: use only on files you trust" <<<"$out"'
+expect_rc "R2 M2 --allow-scripts needs --browser" 2 'only applies with --browser' -- "$fx/clean.html" --allow "$A" --allow-scripts
+for v in "--help" "-h"; do
+  out=$(typo $v 2>&1); rc=$?
+  r2 "M2/M4 $v states scripts, never-run caveat, Chrome exit 2" '[[ $rc -eq 0 ]] && grep -q "Page scripts are OFF unless you add --allow-scripts" <<<"$out" && grep -q "Never run in a real browser" <<<"$out" && grep -q "Chrome or playwright is" <<<"$out"'
+done
+unset STUB_RUNNER_LOG
+
+# ---- 12. M4: Chrome or playwright missing says so and exits 2; the cause survives ----
+out=$(STUB_MODE=nochrome typo "$fx/clean.html" --allow "$A" --browser 2>&1); rc=$?
+r2 "M4 Chrome missing (runner rc 4) exits 2 and says the check did not run" '[[ $rc -eq 2 ]] && grep -q "the browser check did not run: typography-computed: Chrome could not be started" <<<"$out"'
+out=$(STUB_MODE=nomodule typo "$fx/clean.html" --allow "$A" --browser 2>&1); rc=$?
+r2 "SHOULD4 runner failure keeps the cause line, no escaped newlines" '[[ $rc -eq 2 ]] && grep -q -F "Cannot find module '"'"'playwright'"'"'" <<<"$out" && ! grep -q -F "\\x0a" <<<"$out"'
+unset SABHA_TYPO_HEAVY SABHA_TYPO_RUNNER STUB_HEAVY_LOG
+
+# ---- 13. the real runner script against a fake playwright (no browser): options, request blocking, missing pieces ----
+mjs=$root/tools/typography-computed.mjs
+if command -v node >/dev/null 2>&1; then
+  node --check "$mjs" && ok || bad "node --check $mjs"
+  mkdir -p "$work/pw/node_modules" "$work/nopw"; cp -R "$fx/fake-playwright" "$work/pw/node_modules/playwright"
+  export FAKE_PW_LOG=$work/pw.log; : > "$FAKE_PW_LOG"
+  SABHA_TYPO_PLAYWRIGHT_DIR=$work/pw node "$mjs" "$fx/clean.html" "$work/pw.json" >/dev/null 2>&1; rc=$?
+  out=$(cat "$FAKE_PW_LOG")
+  r2 "M2 runner: JavaScript is off by default" '[[ $rc -eq 0 ]] && grep -q "^context .*\"javaScriptEnabled\":false" <<<"$out"'
+  r2 "M2 runner: a file next to the page is allowed" '[[ $(grep -c "^continue file://" <<<"$out") -eq 2 ]]'
+  r2 "M2 runner: a file outside the folder is aborted" 'grep -q "^abort file:///etc/hosts$" <<<"$out"'
+  r2 "M2 runner: a remote request is aborted" 'grep -q "^abort https://example.invalid/x$" <<<"$out"'
+  r2 "M2 runner: data: is allowed" 'grep -q "^continue data:text/css,a$" <<<"$out"'
+  : > "$FAKE_PW_LOG"
+  SABHA_TYPO_SCRIPTS=1 SABHA_TYPO_PLAYWRIGHT_DIR=$work/pw node "$mjs" "$fx/clean.html" "$work/pw.json" >/dev/null 2>&1
+  out=$(cat "$FAKE_PW_LOG")
+  r2 "M2 runner: SABHA_TYPO_SCRIPTS=1 turns JavaScript on" 'grep -q "^context .*\"javaScriptEnabled\":true" <<<"$out"'
+  out=$(FAKE_PW_MODE=nochrome SABHA_TYPO_PLAYWRIGHT_DIR=$work/pw node "$mjs" "$fx/clean.html" "$work/pw.json" 2>&1); rc=$?
+  r2 "M4 runner: Chrome missing exits 4 with a plain sentence" '[[ $rc -eq 4 ]] && grep -q "^typography-computed: Chrome could not be started, install Google Chrome: " <<<"$out"'
+  out=$(SABHA_TYPO_PLAYWRIGHT_DIR=$work/nopw node "$mjs" "$fx/clean.html" "$work/pw.json" 2>&1); rc=$?
+  r2 "M4 runner: playwright missing exits 4 with a plain sentence" '[[ $rc -eq 4 ]] && grep -q "^typography-computed: playwright not found" <<<"$out" && ! grep -q "    at " <<<"$out"'
+  out=$(SABHA_TYPO_HEAVY=$fx/stub-heavy.sh SABHA_TYPO_PLAYWRIGHT_DIR=$work/nopw typo "$fx/clean.html" --allow "$A" --browser 2>&1); rc=$?
+  r2 "M4 end to end: playwright missing -> exit 2, says so" '[[ $rc -eq 2 ]] && grep -q "the browser check did not run: typography-computed: playwright not found" <<<"$out"'
+  out=$(SABHA_TYPO_HEAVY=$fx/stub-heavy.sh FAKE_PW_MODE=nochrome SABHA_TYPO_PLAYWRIGHT_DIR=$work/pw typo "$fx/clean.html" --allow "$A" --browser 2>&1); rc=$?
+  r2 "M4 end to end: Chrome missing -> exit 2, says so" '[[ $rc -eq 2 ]] && grep -q "the browser check did not run: typography-computed: Chrome could not be started" <<<"$out"'
+  out=$(SABHA_TYPO_HEAVY=$fx/stub-heavy.sh SABHA_TYPO_PLAYWRIGHT_DIR=$work/pw typo "$fx/clean.html" --allow "$A" --browser 2>&1); rc=$?
+  r2 "M2 end to end: tool + real runner + fake playwright is clean and says scripts are off" '[[ $rc -eq 0 ]] && grep -q "page scripts off" <<<"$out"'
+  unset FAKE_PW_LOG
+else skipped=$((skipped + 12)); echo "NOT RUN: node is missing (runner rows)"; fi
+
+# ---- 14. M3: every colour form is resolved or reported UNKNOWN, never dropped; real source mutants must be killed ----
+printf '{"min_contrast": 4.5, "page_background": "#ffffff"}' > "$work/cc-allow.json"
+cc() { # cc <tool.py> <css> <FAIL|PASS|UNKNOWN|STRICT>
+  local t=$1 want=$3 out rc extra=()
+  [[ $want == STRICT ]] && extra=(--strict)
+  printf '<style>%s</style>' "$2" > "$work/cc.html"
+  out=$("$PY" "$t" "$work/cc.html" --allow "$work/cc-allow.json" ${extra[@]+"${extra[@]}"} 2>&1); rc=$?
+  case $want in
+    FAIL) [[ $rc -eq 1 ]] && grep -q '^CONTRAST' <<<"$out" ;;
+    PASS) [[ $rc -eq 0 ]] && ! grep -q -E '^(CONTRAST|UNKNOWN)' <<<"$out" ;;
+    UNKNOWN) [[ $rc -eq 0 ]] && grep -q '^UNKNOWN' <<<"$out" && ! grep -q '^CONTRAST' <<<"$out" ;;
+    STRICT) [[ $rc -eq 1 ]] && grep -q '^UNKNOWN' <<<"$out" && grep -q -- '--strict counts them as findings' <<<"$out" ;;
+  esac
+}
+cases=()
+tc() { cases+=("body{color:$1;background:#fff}|$2"); }
+bc() { cases+=("body{color:$1;background:$2}|$3"); }
+tc '#aaa' FAIL; tc '#333' PASS; tc '#0000' FAIL; tc '#000f' PASS; tc '#0000001a' FAIL; tc '#00000099' PASS
+tc 'rgba(0,0,0,0.1)' FAIL; tc 'rgba(0,0,0,0.9)' PASS; tc 'rgb(0 0 0 / 10%)' FAIL; tc 'rgb(0 0 0 / 90%)' PASS
+tc 'rgb(60%,60%,60%)' FAIL; tc 'rgb(10%,10%,10%)' PASS
+tc 'hsl(0,0%,60%)' FAIL; tc 'hsl(0,0%,10%)' PASS; tc 'hsl(120,100%,50%)' FAIL; tc 'hsl(60,100%,50%)' FAIL; tc 'hsl(240,100%,50%)' PASS
+tc 'hsl(0,100%,25%)' PASS; tc 'hsla(0,0%,0%,0.1)' FAIL; tc 'hsla(0,0%,0%,0.9)' PASS; tc 'hsl(0.5turn 100% 50%)' FAIL
+tc 'currentColor' UNKNOWN; tc 'rebeccapurple' UNKNOWN; tc 'inherit' PASS; tc 'white' FAIL; tc 'navy' PASS
+bc '#000' 'rgba(0,0,0,0.05)' PASS; bc '#888' 'rgba(0,0,0,0.05)' FAIL; bc '#000' '#ffffffcc' PASS; bc '#888' '#0000000d' FAIL
+bc '#000' 'hsl(0,0%,0%)' FAIL; bc '#000' 'hsl(0,0%,100%)' PASS; bc '#fff' 'rgb(10%,10%,10%)' PASS; bc '#fff' 'rgb(90%,90%,90%)' FAIL
+bc '#000' 'linear-gradient(#000,#111)' UNKNOWN; bc '#000' 'url(x.png) #fff' UNKNOWN; bc '#000' 'currentColor' UNKNOWN
+bc '#000' 'rebeccapurple' UNKNOWN; bc '#000' 'transparent' PASS; bc '#000' 'no-repeat #fff' PASS; bc '#000' '#fff 10px 20px no-repeat' PASS
+cases+=(".x{color:rgba(0,0,0,.1)}|UNKNOWN" ".x{color:var(--nope)}|UNKNOWN" "body{color:currentColor;background:#fff}|STRICT")
+colour_suite() { # colour_suite <tool.py>: 0 when every case holds, else 1 after printing the first that does not
+  local t=$1 r
+  for r in "${cases[@]}"; do cc "$t" "${r%|*}" "${r##*|}" || { echo "$r"; return 1; }; done
+}
+if first=$(colour_suite "$tool"); then for _ in "${cases[@]}"; do ok; done; else bad "R2 M3 colour case failed on the real tool: $first"; fi
+mutate() { # mutate <out.py> <old> <new>: replace every occurrence; a missing pattern fails loudly
+  "$PY" - "$tool" "$1" "$2" "$3" <<'PYEOF'
+import sys
+src = open(sys.argv[1]).read()
+assert sys.argv[3] in src, "mutant pattern not found: " + sys.argv[3]
+open(sys.argv[2], "w").write(src.replace(sys.argv[3], sys.argv[4]))
+PYEOF
+}
+cmut=0 cmut_total=0
+kill_mut() { # kill_mut <name> <old> <new>
+  cmut_total=$((cmut_total + 1))
+  if ! mutate "$work/cm.py" "$2" "$3" 2>"$work/cm.err"; then bad "R2 colour mutant $1 does not apply: $(tail -1 "$work/cm.err")"; return; fi
+  if colour_suite "$work/cm.py" >/dev/null; then bad "R2 colour mutant SURVIVED: $1"; else cmut=$((cmut + 1)); ok; fi
+}
+kill_mut hex3-not-expanded 'if len(h) in (3, 4):' 'if len(h) in (4,):'
+kill_mut hex-alpha-dropped 'a = int(h[6:8], 16) / 255.0 if len(h) == 8 else 1.0' 'a = 1.0'
+kill_mut percent-channel-unscaled 'float(t[:-1]) * 2.55' 'float(t[:-1])'
+kill_mut percent-alpha-unscaled 'float(t[:-1]) / 100.0 if t.endswith("%") else float(t)))' 'float(t[:-1]) if t.endswith("%") else float(t)))'
+kill_mut hsl-hue-doubled '(deg % 360.0) / 360.0' '(deg % 360.0) / 180.0'
+kill_mut hsl-args-swapped 'colorsys.hls_to_rgb((deg % 360.0) / 360.0, lig, sat)' 'colorsys.hls_to_rgb((deg % 360.0) / 360.0, sat, lig)'
+kill_mut alpha-not-blended 'fg[3] * fg[i] + (1 - fg[3]) * bg[i]' 'fg[i]'
+kill_mut bg-alpha-not-blended 'bg = bg_c[:3] if bg_c[3] >= 1 else over(bg_c, A["bg"] or (255, 255, 255))' 'bg = bg_c[:3]'
+kill_mut unknown-dropped-silently '    if c is None:
+        R.unknown(where, "%s %s: %s"' '    if False:
+        R.unknown(where, "%s %s: %s"'
+kill_mut image-bg-not-detected 'gradient\(|url\(|image\(|image-set\(' 'zzzz\('
+kill_mut bg-keywords-read-as-colours 'if t not in BG_WORDS]' 'if True]'
+kill_mut strict-ignored 'total + (unk if strict else 0)' 'total'
+
+# ---- 15. M3 in the computed path, and --strict output ----
+cmp3() { # cmp3 <bg json> <color json> <expect rc> <regex>
+  printf '{"elements":[{"selector":"p.t","tag":"p","text":"t","family":"Inter, sans-serif","size_px":16,"weight":400,"color":%s,"bg":%s}]}' "$2" "$1" > "$work/c3x.json"
+  out=$(typo "$work/c3x.json" --allow "$work/cc-allow.json" 2>&1); rc=$?
+  if [[ $rc -eq $3 ]] && grep -q -E "$4" <<<"$out"; then ok; else bad "R2 M3 computed bg=$1 color=$2: rc $rc: $out"; fi
+}
+cmp3 '"rgb(255, 255, 255)"' '"rgba(0, 0, 0, 0.1)"' 1 '^CONTRAST .*p\.t'
+cmp3 '"rgb(255, 255, 255)"' '"rgba(0, 0, 0, 0.9)"' 0 'typography-check .*: 0 findings$'
+cmp3 'null' '"rgb(0, 0, 0)"' 0 '^UNKNOWN .*background image or gradient'
+cmp3 '"rgb(255, 255, 255)"' '"color(srgb 0 0 0)"' 0 '^UNKNOWN .*text colour color\(srgb 0 0 0\)'
+cmp3 '"rgba(0, 0, 0, 0.05)"' '"rgb(136, 136, 136)"' 1 '^CONTRAST'
+printf '<style>body{color:currentColor;background:#fff}</style>' > "$work/s1.html"
+out=$(typo "$work/s1.html" --allow "$work/cc-allow.json" --strict --json 2>&1); rc=$?
+{ [[ $rc -eq 1 ]] && printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["unknown"]==1 and d["strict"] is True and d["findings"]==0 and d["unknown_groups"]'; } && ok || bad "R2 M3 --strict json: rc $rc: $out"
+out=$(typo "$work/s1.html" --allow "$work/cc-allow.json" 2>&1); rc=$?
+{ [[ $rc -eq 0 ]] && grep -q ': 0 findings, 1 unknown$' <<<"$out" && grep -q 'add --strict to count them as findings' <<<"$out"; } && ok || bad "R2 M3 unknown without --strict: rc $rc: $out"
+
+# ---- 16. SHOULD 1: empty, truncated or non-HTML input is a tool error, never a clean pass ----
+: > "$work/empty.html"; printf '   \n\t\n' > "$work/blank.html"; printf 'this is plain text, not a page\n' > "$work/plain.html"
+expect_rc "R2 empty html" 2 'is empty: nothing was checked' -- "$work/empty.html" --allow "$A"
+expect_rc "R2 blank html" 2 'is empty: nothing was checked' -- "$work/blank.html" --allow "$A"
+expect_rc "R2 html with no CSS at all" 2 'no CSS found' -- "$work/plain.html" --allow "$A"
+printf '<style>p{color:#' > "$work/cut.html"
+out=$(typo "$work/cut.html" --allow "$work/cc-allow.json" 2>&1); rc=$?
+{ [[ $rc -le 1 ]] && grep -q 'has no closing tag' <<<"$out" && grep -q '^UNKNOWN' <<<"$out"; } && ok || bad "R2 truncated style block: rc $rc: $out"
+printf '{"elements": []}' > "$work/c0.json"
+expect_rc "R2 computed dump with no elements" 2 'no elements' -- "$work/c0.json" --allow "$A"
+: > "$work/empty.json"
+expect_rc "R2 empty computed json" 2 'empty' -- "$work/empty.json" --allow "$A"
+if [[ $have_pdf == 1 ]]; then
+  LC_ALL=C sed 's/ Tf/ Xf/g' "$fx/clean.pdf" > "$work/corrupt.pdf"
+  expect_rc "R2 pdf whose text operators are corrupt" 2 'no text spans' -- "$work/corrupt.pdf" --allow "$A"
+else skipped=$((skipped + 1)); fi
+
+# ---- 17. SHOULD 3: the shipped docs carry the caveats ----
+sk=$root/skills/sabha-typography-check/SKILL.md; rd=$root/README.md
+r2 "M4 SKILL.md says the browser path and a real Chrome PDF never ran" 'grep -q -i "never run in a real browser" "$sk" && grep -q -i "real Chrome PDF" "$sk"'
+r2 "M4 README entry says it" 'grep -i "sabha-typography-check <file>" "$rd" | grep -q -i "never run in a real browser"'
+r2 "M2 SKILL.md says --browser runs scripts only with --allow-scripts" 'grep -q -- "--allow-scripts" "$sk" && grep -q -i "only on files you trust" "$sk"'
+r2 "M1 SKILL.md says which files are opened" 'grep -q -i "outside the input folder" "$sk"'
+r2 "M3 SKILL.md explains UNKNOWN and --strict" 'grep -q "UNKNOWN" "$sk" && grep -q -- "--strict" "$sk"'
+
+# ---- 18. no bytes above 127 in what this change ships ----
+for f in "$tool" "$root/bin/sabha-typography-check" "$root/tools/typography-computed.mjs" "$root/tools/typography-requirements.txt" "$root/template/typography.example.json" "$root/skills/sabha-typography-check/SKILL.md" "$0" "$fx"/* "$fx"/fake-playwright/*; do
   [[ -f $f ]] || continue
   if LC_ALL=C grep -q -E '[^ -~	]' "$f" 2>/dev/null && ! grep -q '^%PDF' "$f"; then bad "non-ASCII byte in $f"; else ok; fi
 done
 
 if [[ $skipped -gt 0 ]]; then echo "NOT RUN: $skipped PDF rows (no repo-local .venv with pdfminer.six: uv venv .venv && uv pip install --python .venv/bin/python -r tools/typography-requirements.txt)"; fi
 if [[ $fails -gt 0 ]]; then echo "FAILED: $fails of $((passes + fails)) checks"; exit 1; fi
-echo "ok: $passes checks, $mutants mutant rows killed (each check removed makes its rows fail), $skipped not run"
+echo "ok: $passes checks, $mutants mutant rows killed (each check removed makes its rows fail), $cmut of $cmut_total colour-parser source mutants killed, $skipped not run"

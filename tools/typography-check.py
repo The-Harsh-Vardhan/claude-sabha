@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
 """sabha-typography-check: check fonts and text styling against an allow-list (run it through bin/sabha-typography-check).
 
-  sabha-typography-check <file.pdf | page.html | computed.json> --allow ALLOW.json [--browser] [--json] [--limit N]
-  sabha-typography-check --self-test
+  sabha-typography-check <file.pdf | page.html | computed.json> --allow ALLOW.json [--browser [--allow-scripts]] [--strict] [--json] [--limit N]
+  sabha-typography-check --self-test | --help
 
 Inputs, cheapest first:
   *.pdf         every text span: face, size, weight (from the face name), colour, background fill, page edge. No browser.
   *.html, *.htm static CSS lint of <style>, local <link> sheets and style="" attributes. No browser.
                 --browser also runs a runner under `sabha-heavy run typography --` and checks the computed styles it dumps.
   *.json        a computed-styles dump written by a runner (see tools/typography-computed.mjs for the format).
-Exit 0 = no findings, 1 = findings, 2 = usage or unreadable input, 75 = the heavy gate says wait (browser not run).
+Files read: the named input, the allow-list, and linked local stylesheets and @font-face files ONLY when they stay inside
+the folder of the named input (symlinks resolved); anything outside is skipped with the note "not read: outside the input
+folder". Remote URLs are never fetched. Images and @import files are never opened.
+--browser starts Chrome (needs playwright and Chrome). Page scripts are OFF unless you add --allow-scripts (then it prints a
+warning on every run: use it only on files you trust); the runner blocks every request that leaves the page's folder.
+Never run in a real browser, and the PDF path never on a real Chrome PDF (first real run removes this line): the browser path
+is tested with a stub runner and a fake playwright, the PDF path with base-14 fixture PDFs. If Chrome or playwright is
+missing the tool says so and exits 2.
+Colours it cannot resolve (currentColor with no value, a gradient or image background, an alpha colour over an unknown
+background, a form it does not read) are printed as UNKNOWN lines and counted separately; they change the exit code only
+under --strict. Font stacks are checked against the allow-list's fallbacks for the first family.
+Empty input, a page with no CSS and a PDF with no text are tool errors (exit 2), never a clean pass.
+Exit 0 = no findings, 1 = findings (or UNKNOWN with --strict), 2 = usage, unreadable or empty input or Chrome missing,
+75 = the heavy gate says wait (browser not run).
 A finding is a question for the owner or designer, never an auto-fix.
 """
+import colorsys
 import difflib
 import json
 import math
@@ -105,32 +119,65 @@ def parse_json(raw, what):
 
 # ---------- colour and unit helpers ----------
 
-def parse_color(s):
+NUM = r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)"
+INHERIT = ("inherit", "initial", "unset", "revert", "revert-layer")
+
+
+def _alpha(t):
+    return max(0.0, min(1.0, float(t[:-1]) / 100.0 if t.endswith("%") else float(t)))
+
+
+def _chan(t):
+    return int(round(max(0.0, min(255.0, float(t[:-1]) * 2.55 if t.endswith("%") else float(t)))))
+
+
+def color_rgba(s):
+    """(r, g, b, alpha 0..1) from a CSS colour, or None when the form is not read (callers report UNKNOWN)."""
     if not isinstance(s, str):
         return None
     s = s.strip().lower()
+    if s == "transparent":
+        return (0, 0, 0, 0.0)
     if s in NAMED:
-        return NAMED[s]
+        return NAMED[s] + (1.0,)
     m = re.fullmatch(r"#([0-9a-f]{3,8})", s)
     if m:
         h = m.group(1)
         if len(h) in (3, 4):
-            h = "".join(c * 2 for c in h[:3])
-        elif len(h) in (6, 8):
-            h = h[:6]
-        else:
+            h = "".join(c * 2 for c in h)
+        if len(h) not in (6, 8):
             return None
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-    m = re.fullmatch(r"rgba?\(\s*([0-9.]+)[ ,]+([0-9.]+)[ ,]+([0-9.]+)(?:[ ,/]+([0-9.]+%?))?\s*\)", s)
-    if m:
-        a = m.group(4)
-        try:
-            if a is not None and float(a.rstrip("%")) == 0:
-                return None
-            return tuple(max(0, min(255, int(round(float(m.group(i)))))) for i in (1, 2, 3))
-        except ValueError:
-            return None
-    return None
+        a = int(h[6:8], 16) / 255.0 if len(h) == 8 else 1.0
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), a)
+    m = re.fullmatch(r"(rgb|hsl)a?\(\s*([^()]*?)\s*\)", s)
+    if not m:
+        return None
+    parts = [p for p in re.split(r"\s*[,/]\s*|\s+", m.group(2)) if p]
+    if len(parts) not in (3, 4) or not all(re.fullmatch(NUM + "%?", p) for p in parts[1:]):
+        return None
+    a = _alpha(parts[3]) if len(parts) == 4 else 1.0
+    if m.group(1) == "rgb":
+        return tuple(_chan(p) for p in parts[:3]) + (a,) if re.fullmatch(NUM + "%?", parts[0]) else None
+    hm = re.fullmatch("(" + NUM + ")(deg|turn|rad|grad)?", parts[0])
+    if not hm:
+        return None
+    deg = float(hm.group(1)) * {None: 1.0, "deg": 1.0, "turn": 360.0, "rad": 180.0 / math.pi, "grad": 0.9}[hm.group(2)]
+    if not math.isfinite(deg):
+        return None
+    sat, lig = (max(0.0, min(1.0, float(p.rstrip("%")) / 100.0)) for p in parts[1:3])
+    r, g, b = colorsys.hls_to_rgb((deg % 360.0) / 360.0, lig, sat)
+    return (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)), a)
+
+
+def parse_color(s):
+    """Opaque (r, g, b) or None: the allow-list's colours must be opaque."""
+    c = color_rgba(s)
+    return c[:3] if c and c[3] >= 1 else None
+
+
+def over(fg, bg):
+    """fg (r, g, b, alpha) blended over the opaque (r, g, b) bg."""
+    return tuple(int(round(fg[3] * fg[i] + (1 - fg[3]) * bg[i])) for i in range(3))
 
 
 def hexs(rgb):
@@ -269,6 +316,11 @@ class Report:
         self.groups = {}
         self.order = []
         self.notes = []
+        self.unknowns = {}
+
+    def unknown(self, where, found):
+        if where not in self.unknowns.setdefault(found, []):
+            self.unknowns[found].append(where)
 
     def add(self, check, where, found, allowed=""):
         key = (check, found, allowed)
@@ -284,6 +336,9 @@ class Report:
 
     def count(self):
         return sum(len(w) for w in self.groups.values())
+
+    def count_unknown(self):
+        return sum(len(w) for w in self.unknowns.values())
 
 
 def fam_ok(A, name, pdf=False):
@@ -301,6 +356,59 @@ def nearest_family(A, name):
     m = difflib.get_close_matches(norm_family(name), norms, 1, 0.5)
     f = A["families"][norms.index(m[0])] if m else A["families"][0]
     return ", ".join([f["name"]] + f["fallbacks"])
+
+
+def check_stack(R, A, where, fam, stack):
+    """FALLBACK when an allowed family's stack holds none of the fallbacks the allow-list names for it."""
+    if not (fam and A["families"] and stack):
+        return
+    entry = next((f for f in A["families"] if f["norm"] == norm_family(fam)), None)
+    if not entry or not entry["fallbacks"]:
+        return
+    rest = [norm_family(x) for x in split_commas(stack)[1:]]
+    if not any(norm_family(f) in rest for f in entry["fallbacks"]):
+        R.add("FALLBACK", where, "font stack %s has none of the allowed fallbacks" % stack, ", ".join(entry["fallbacks"]))
+
+
+BG_WORDS = {"none", "repeat", "no-repeat", "repeat-x", "repeat-y", "space", "round", "scroll", "fixed", "local", "center",
+            "top", "bottom", "left", "right", "cover", "contain", "auto", "border-box", "padding-box", "content-box", "text"}
+
+
+def read_color(R, where, raw, what):
+    """rgba or None; a colour that is set but cannot be resolved is reported UNKNOWN, never dropped silently."""
+    v = raw.strip().lower()
+    if v in INHERIT:
+        return None
+    c = color_rgba(v)
+    if c is None:
+        R.unknown(where, "%s %s: %s" % (what, clean(raw.strip()[:60]),
+                  "currentColor has no value to copy statically" if v == "currentcolor" else "colour form not read"))
+    return c
+
+
+def read_bg(R, where, raw, prop):
+    v = raw.strip().lower()
+    if v in INHERIT or v == "none":
+        return None
+    if prop == "background" and re.search(r"gradient\(|url\(|image\(|image-set\(", v):
+        R.unknown(where, "background image or gradient: contrast over it not checked")
+        return None
+    if prop == "background":
+        cand = [t for t in re.findall(r"#[0-9a-f]+|[a-z-]+\([^)]*\)|(?<![\w#.%-])[a-z][a-z-]*(?![\w(-])", v) if t not in BG_WORDS]
+        if not cand:
+            return None
+        v = cand[-1]
+    return read_color(R, where, v, "background colour")
+
+
+def resolve_text(R, where, c, under):
+    """Opaque text colour from rgba c: alpha is blended over under; with no known background it is UNKNOWN."""
+    if c is None or c[3] >= 1:
+        return c[:3] if c else None
+    if under is None:
+        R.unknown(where, "text colour with alpha %s over a background that is not known" % fnum(c[3]))
+        return None
+    return over(c, under)
 
 
 def sz(px):
@@ -456,18 +564,20 @@ def static_rule(R, A, where, decls, cvars, state, tag_roles=None, ctx=None, is_b
             r = resolve_vars(v, cvars)
             if r is not None:
                 d[p] = r
-    fam = size = weight = None
+    fam = size = weight = stack = None
     if "font" in d:
         m = re.match(r"^(?:(?:italic|oblique|normal|bold|bolder|lighter|small-caps|[1-9]00)\s+)*"
                      r"([0-9.]+(?:px|pt|rem|em))(?:/[^\s]+)?\s+(.+)$", d["font"], re.I)
         if m:
             size = css_len_px(m.group(1))
             fam = first_family(m.group(2))
+            stack = m.group(2)
             wm = re.search(r"\b(bold|[1-9]00)\b", d["font"].split(m.group(1))[0], re.I)
             if wm:
                 weight = 700 if wm.group(1).lower() == "bold" else int(wm.group(1))
     if "font-family" in d:
         fam = first_family(d["font-family"])
+        stack = d["font-family"]
     if "font-size" in d:
         size = css_len_px(d["font-size"])
         if size is None:
@@ -475,13 +585,21 @@ def static_rule(R, A, where, decls, cvars, state, tag_roles=None, ctx=None, is_b
     if "font-weight" in d:
         w = d["font-weight"].strip().lower()
         weight = 400 if w == "normal" else 700 if w == "bold" else int(w) if re.fullmatch(r"[1-9][0-9]{0,2}", w) else None
-    color = parse_color(d["color"]) if "color" in d else None
-    bg = None
-    for key in ("background-color", "background"):
-        if key in d:
-            m = re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|\b(?:%s)\b" % "|".join(NAMED), d[key], re.I)
-            if m:
-                bg = parse_color(m.group(0))
+    label = where if not ctx else "%s (in %s)" % (where, ctx)
+    color = bg = None
+    if A["colors"] or A["min_contrast"]:
+        for p, v in decls:
+            if p in ("color", "background", "background-color") and p not in d:
+                R.unknown(label, "%s uses a variable that is not defined on :root or html" % p)
+        bg_c = None
+        for key in ("background-color", "background"):
+            if key in d:
+                bg_c = read_bg(R, label, d[key], key) or bg_c
+        if bg_c is not None and bg_c[3] > 0:
+            bg = bg_c[:3] if bg_c[3] >= 1 else over(bg_c, A["bg"] or (255, 255, 255))
+        if "color" in d:
+            color = resolve_text(R, label, read_color(R, label, d["color"], "text colour"),
+                                 bg if bg is not None else (A["bg"] if is_body else None))
     lh = None
     if "line-height" in d:
         v = d["line-height"].strip().lower()
@@ -493,7 +611,6 @@ def static_rule(R, A, where, decls, cvars, state, tag_roles=None, ctx=None, is_b
             lh = float(v[:-2])
         elif size and css_len_px(v):
             lh = css_len_px(v) / size
-    label = where if not ctx else "%s (in %s)" % (where, ctx)
     fam_for_check = fam
     if fam and A["families"] and fam.lower() in GENERIC:
         R.add("FAMILY", label, "family %s" % fam, nearest_family(A, fam))
@@ -503,6 +620,7 @@ def static_rule(R, A, where, decls, cvars, state, tag_roles=None, ctx=None, is_b
         if not entry["system"] and not state["remote_css"] and norm_family(fam) not in state["declared"]:
             R.add("FALLBACK", label, "family %s is used but no @font-face declares it" % fam,
                   "an @font-face for it, or \"system\": true in the allow-list")
+        check_stack(R, A, label, fam, stack)
     contrast_bg = bg if (bg is not None and color is not None) else (
         (bg or A["bg"]) if (is_body and color is not None) else None)
     check_style(R, A, label, family=fam_for_check, size=size, weight=weight, color=color, bg=contrast_bg, lh=lh)
@@ -532,10 +650,26 @@ def role_findings(R, roles):
                 R.add("ROLE", tag, found, "one %s per heading level" % what[:-1])
 
 
+def local_ref(R, base, ref):
+    """The path a page reference names, or None (with a visible note) when it leaves the input's folder, symlinks resolved."""
+    p = os.path.join(base, ref.split("?")[0].split("#")[0])
+    try:
+        b, r = os.path.realpath(base), os.path.realpath(p)
+    except (OSError, ValueError):
+        R.note("not read: bad path: %s" % clean(ref))
+        return None
+    if r != b and not r.startswith(b.rstrip(os.sep) + os.sep):
+        R.note("not read: outside the input folder: %s" % clean(ref))
+        return None
+    return p
+
+
 def check_html_static(R, A, path, data):
     base = os.path.dirname(os.path.abspath(os.path.expanduser(os.path.expandvars(path))))
     html = data.decode("utf-8", "replace")
-    chunks = [m.group(1) for m in re.finditer(r"<style\b[^>]*>(.*?)</style>", html, re.S | re.I)]
+    chunks = [m.group(1) for m in re.finditer(r"<style\b[^>]*>(.*?)(?:</style>|\Z)", html, re.S | re.I)]
+    if len(re.findall(r"<style\b", html, re.I)) > len(re.findall(r"</style>", html, re.I)):
+        R.note("a <style> block has no closing tag (truncated page?)")
     remote = False
     for m in re.finditer(r"<link\b[^>]*>", html, re.I):
         tag = m.group(0)
@@ -551,8 +685,10 @@ def check_html_static(R, A, path, data):
         elif "$" in href or "[(" in href or "{{" in href:
             R.note("stylesheet link is a template placeholder, not read: %s" % clean(href))
         else:
+            sheet = local_ref(R, base, href)
             try:
-                chunks.append(read_file(os.path.join(base, href.split("?")[0].split("#")[0]), "html").decode("utf-8", "replace"))
+                if sheet:
+                    chunks.append(read_file(sheet, "html").decode("utf-8", "replace"))
             except Fail as e:
                 R.note("stylesheet not read: %s" % e)
     rules, fontfaces, imports = [], [], []
@@ -579,7 +715,8 @@ def check_html_static(R, A, path, data):
             if "$" in u or "[(" in u or "{{" in u:
                 R.note("@font-face src is a template placeholder, not checked: %s" % clean(u))
                 continue
-            if not os.path.exists(os.path.join(base, u.split("?")[0].split("#")[0])):
+            font = local_ref(R, base, u)
+            if font and not os.path.exists(font):
                 R.add("FALLBACK", "@font-face %s" % fam, "src file not found: %s" % u,
                       "a file next to the page, or the face does not load")
     roles = {}
@@ -589,7 +726,10 @@ def check_html_static(R, A, path, data):
             continue
         is_body = any(p.strip().lower() in ("body", "html") for p in split_commas(sel))
         static_rule(R, A, sel[:90], decls, cvars, state, roles, ctx, is_body)
-    for m in re.finditer(r"<([a-zA-Z][\w-]*)\b([^>]*?)\sstyle\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", html):
+    attrs = list(re.finditer(r"<([a-zA-Z][\w-]*)\b([^>]*?)\sstyle\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", html))
+    if not rules and not attrs and not remote and not R.notes:
+        raise Fail("no CSS found: the file is empty, truncated or not HTML, nothing was checked")
+    for m in attrs:
         label = "<%s> style attribute" % m.group(1)
         idm = re.search(r"\bid\s*=\s*[\"']([^\"']+)", m.group(2))
         if idm:
@@ -607,6 +747,8 @@ def check_computed(R, A, data):
     if not isinstance(data, dict) or not isinstance(data.get("elements"), list):
         raise Fail("computed-styles JSON must be an object with an \"elements\" list")
     els = data["elements"]
+    if not els:
+        raise Fail("the computed-styles dump has no elements: nothing was checked (page failed to load?)")
     if len(els) > MAX_ELEMENTS:
         R.note("only the first %d of %d elements were checked" % (MAX_ELEMENTS, len(els)))
         els = els[:MAX_ELEMENTS]
@@ -622,10 +764,28 @@ def check_computed(R, A, data):
         fam = first_family(el["family"]) if isinstance(el.get("family"), str) else None
         size, weight = num(el.get("size_px")), num(el.get("weight"))
         weight = int(weight) if weight is not None else None
-        bg = parse_color(el.get("bg")) or A["bg"] or (255, 255, 255)
+        color = bg = None
+        if A["colors"] or A["min_contrast"]:
+            page_bg = A["bg"] or (255, 255, 255)
+            bg = page_bg
+            if "bg" in el:
+                bc = color_rgba(el["bg"]) if el["bg"] is not None else None
+                if bc is None:
+                    R.unknown(where, "background image or gradient: contrast over it not checked" if el["bg"] is None
+                              else "background colour %s: colour form not read" % clean(str(el["bg"])[:60]))
+                    bg = None
+                elif bc[3] < 1:
+                    bg = over(bc, page_bg)
+            if isinstance(el.get("color"), str):
+                tc = color_rgba(el["color"])
+                if tc is None:
+                    R.unknown(where, "text colour %s: colour form not read" % clean(el["color"][:60]))
+                color = resolve_text(R, where, tc, bg)
         lh_px = num(el.get("line_height_px"))
         lh = lh_px / size if lh_px is not None and size else None
-        check_style(R, A, where, family=fam, size=size, weight=weight, color=parse_color(el.get("color")), bg=bg, lh=lh)
+        check_style(R, A, where, family=fam, size=size, weight=weight, color=color, bg=bg, lh=lh)
+        if fam and fam.lower() not in GENERIC and A["families"] and fam_ok(A, fam):
+            check_stack(R, A, where, fam, el["family"])
         if fam and fam.lower() not in GENERIC and el.get("face_loaded") is False:
             R.add("FALLBACK", where, "declared face %s did not load" % fam, "a face that loads (check the @font-face src)")
         sw, cw, sh, ch = (num(el.get(k)) for k in ("scroll_w", "client_w", "scroll_h", "client_h"))
@@ -758,7 +918,7 @@ def check_pdf(R, A, data):
         else:
             spans.append(dict(ch, key=key))
     if not dev.chars:
-        R.note("the PDF has no text spans (an image-only page cannot be checked)")
+        raise Fail("the PDF has no text spans (empty, image-only or corrupt content): nothing was checked")
     seen_sizes = {}
     for sp in spans:
         text = sp["text"].strip()
@@ -790,7 +950,15 @@ def check_pdf(R, A, data):
 
 # ---------- browser runner ----------
 
-def run_browser(path):
+def runner_cause(out):
+    lines = [l.strip() for l in out.splitlines() if l.strip() and not l.strip().startswith("at ")]
+    for l in lines:
+        if "Cannot find module" in l or l.startswith("typography-computed:") or "Error:" in l:
+            return l
+    return lines[0] if lines else "no output"
+
+
+def run_browser(path, scripts=False):
     heavy = os.environ.get("SABHA_TYPO_HEAVY") or os.path.join(os.path.dirname(HERE), "bin", "sabha-heavy")
     runner = shlex.split(os.environ.get("SABHA_TYPO_RUNNER") or "node %s" % shlex.quote(os.path.join(HERE, "typography-computed.mjs")))
     try:
@@ -801,16 +969,20 @@ def run_browser(path):
     try:
         out = os.path.join(tmp, "computed.json")
         cmd = [heavy, "run", "typography", "--"] + runner + [os.path.abspath(path), out]
+        env = dict(os.environ, SABHA_TYPO_SCRIPTS="1" if scripts else "0")
         try:
-            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             raise Fail("browser runner timed out after %d s (browser check not run)" % timeout)
         except OSError as e:
             raise Fail("cannot start the browser runner: %s" % clean(e))
         if r.returncode == 75:
             raise Fail("the heavy gate says wait (rc 75); the browser check did not run, try again later", 75)
+        cause = clean(runner_cause(r.stdout.decode("utf-8", "replace"))[:300])
+        if r.returncode == 4:
+            raise Fail("the browser check did not run: %s" % cause)
         if r.returncode != 0:
-            raise Fail("browser runner failed (rc %d): %s" % (r.returncode, clean(r.stdout.decode("utf-8", "replace").strip()[-300:])))
+            raise Fail("browser runner failed (rc %d): %s" % (r.returncode, cause))
         if not os.path.exists(out):
             raise Fail("browser runner wrote no output file")
         return parse_json(read_file(out, "json"), "runner output")
@@ -820,8 +992,9 @@ def run_browser(path):
 
 # ---------- output ----------
 
-def render(R, A, target, mode, as_json, limit):
+def render(R, A, target, mode, as_json, limit, strict=False):
     total = R.count()
+    unk = R.count_unknown()
     lines, groups = [], []
     for key in sorted(R.order, key=lambda k: (CHECKS.index(k[0]), R.order.index(k)))[:limit]:
         check, found, allowed = key
@@ -829,28 +1002,41 @@ def render(R, A, target, mode, as_json, limit):
         groups.append({"check": check, "found": found, "nearest_allowed": allowed, "count": len(wheres), "where": wheres[:5]})
         more = " (+%d more)" % (len(wheres) - 3) if len(wheres) > 3 else ""
         lines.append("%s | where: %s%s | found: %s | nearest allowed: %s" % (check, "; ".join(wheres[:3]), more, found, allowed or "-"))
+    ulines, ugroups = [], []
+    for found in list(R.unknowns)[:limit]:
+        wheres = R.unknowns[found]
+        ugroups.append({"found": found, "count": len(wheres), "where": wheres[:5]})
+        more = " (+%d more)" % (len(wheres) - 3) if len(wheres) > 3 else ""
+        ulines.append("UNKNOWN | where: %s%s | found: %s | nearest allowed: -" % ("; ".join(wheres[:3]), more, found))
     notes = list(R.notes)
+    if unk:
+        notes.append("%d value%s could not be checked (UNKNOWN); %s" % (unk, "" if unk == 1 else "s", "--strict counts them as findings" if strict else "add --strict to count them as findings"))
     if A["unknown"]:
         notes.append("unknown allow-list keys ignored: %s" % ", ".join(A["unknown"]))
     if len(R.order) > limit:
         notes.append("%d more finding groups not shown (raise --limit)" % (len(R.order) - limit))
     if as_json:
-        txt = json.dumps({"target": target, "mode": mode, "findings": total, "groups": groups, "notes": notes,
+        txt = json.dumps({"target": target, "mode": mode, "findings": total, "unknown": unk, "strict": strict,
+                          "groups": groups, "unknown_groups": ugroups, "notes": notes,
                           "checks_off": A["off"]}, ensure_ascii=True, indent=1)
-        return txt.replace("\x7f", "\\u007f"), total
-    body = [clean("typography-check %s (%s): %d finding%s" % (target, mode, total, "" if total == 1 else "s"))]
-    body += [clean(l) for l in lines]
+        return txt.replace("\x7f", "\\u007f"), total + (unk if strict else 0)
+    body = [clean("typography-check %s (%s): %d finding%s%s" % (target, mode, total, "" if total == 1 else "s",
+                                                                 ", %d unknown" % unk if unk else ""))]
+    body += [clean(l) for l in lines + ulines]
     if A["off"]:
         body.append("checks off (not in the allow-list): " + ", ".join(A["off"]))
     body += ["note: " + clean(n) for n in notes]
-    return "\n".join(body), total
+    return "\n".join(body), total + (unk if strict else 0)
 
 
 def main(argv):
+    if argv and argv[0] in ("--help", "-h"):
+        sys.stdout.write(__doc__)
+        return 0
     if argv and argv[0] == "--self-test":
         os.execv("/bin/bash", ["bash", os.path.join(os.path.dirname(HERE), "tests", "test-typography-check.sh")])
     target = allow = kind = None
-    as_json = browser = False
+    as_json = browser = strict = scripts = False
     limit = 200
     i = 0
     while i < len(argv):
@@ -873,6 +1059,10 @@ def main(argv):
             as_json = True
         elif a == "--browser":
             browser = True
+        elif a == "--allow-scripts":
+            scripts = True
+        elif a == "--strict":
+            strict = True
         elif a.startswith("--"):
             raise Fail("unknown option %s" % clean(a))
         elif target is None:
@@ -891,9 +1081,13 @@ def main(argv):
         raise Fail("--type must be pdf, html or computed")
     if browser and kind != "html":
         raise Fail("--browser only applies to an html input")
+    if scripts and not browser:
+        raise Fail("--allow-scripts only applies with --browser")
     A = load_allow(allow)
     R = Report()
     raw = read_file(target, "json" if kind == "computed" else kind)
+    if not raw.strip():
+        raise Fail("%s is empty: nothing was checked" % clean(target))
     if kind == "pdf":
         check_pdf(R, A, raw)
     elif kind == "computed":
@@ -901,8 +1095,12 @@ def main(argv):
     else:
         check_html_static(R, A, target, raw)
         if browser:
-            check_computed(R, A, run_browser(target))
-    text, total = render(R, A, os.path.basename(target), kind + ("+browser" if browser else ""), as_json, limit)
+            if scripts:
+                sys.stderr.write("sabha-typography-check: warning: --allow-scripts runs the page's scripts: use only on files you trust\n")
+            else:
+                R.note("browser run with page scripts off (--allow-scripts turns them on; only for files you trust)")
+            check_computed(R, A, run_browser(target, scripts))
+    text, total = render(R, A, os.path.basename(target), kind + ("+browser" if browser else ""), as_json, limit, strict)
     sys.stdout.write(text + "\n")
     return 1 if total else 0
 

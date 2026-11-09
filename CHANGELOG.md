@@ -6,7 +6,10 @@
   weights, text colours, line heights and a minimum contrast, and reports off-list values, silent fallbacks (a face
   that did not load), low contrast, clipped, ellipsised or overflowing text and one role styled two ways, each with where,
   the value found and the nearest allowed value. PDF input needs `pdfminer.six` in a repo-local `.venv`; HTML has a
-  static CSS lint and a `--browser` mode that runs a runner only through `sabha-heavy run typography --`. Skill
+  static CSS lint and a `--browser` mode that runs a runner only through `sabha-heavy run typography --`. Linked
+  stylesheets and font files are read only inside the input's folder; page scripts are off in `--browser` unless
+  `--allow-scripts`; hsl, alpha and percent colours are resolved and what cannot be resolved prints as UNKNOWN
+  (`--strict` counts it); empty input is exit 2. Skill
   `skills/sabha-typography-check`, example list `template/typography.example.json`, test `tests/test-typography-check.sh`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
