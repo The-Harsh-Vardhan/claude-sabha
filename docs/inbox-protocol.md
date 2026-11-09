@@ -26,8 +26,10 @@ edited by another; a change is a new file.
 | `inbox/<To>/NNN.claim` | the sender, before the brief | other senders picking a number | every brief (section 2) |
 | `inbox/<To>/NNN-<from>-<slug>.md` | the sender | the receiver, `sabha-watch` | every brief; the message says only `see inbox/<To>/NNN` |
 | `inbox/<To>/NNN.ack` | the receiver | the sender at its next wake; `sabha-watch` | first action after reading |
+| `inbox/<To>/NNN.K-<from>-<slug>.md` | the sender | the receiver, after brief NNN | an amendment: the only way to change a sent brief (section 2) |
 | `inbox/<To>/run.lock` | `sabha-run` | `sabha-run` | while a headless run is on that role; holds its pid ([headless-runner.md](headless-runner.md)) |
 | `status/helpers/<Name>-<NNN>.json` | `sabha-run --detach`, `sabha-helper` | a fresh `<dispatcher>` (`sabha-helper reattach`), `sabha-down.sh` | one per durable helper: pid, state, log ([durable-helpers.md](durable-helpers.md)) |
+| `inbox/<To>/NNN.attempts`, `NNN.retry` | `sabha-run` | `sabha-run` | one line per headless start; the earliest restart after an infrastructure failure |
 | `inbox/<To>/NNN.done` | the receiver | the sender; `<reviewer>`; `sabha-watch` | after the status file is updated |
 | `inbox/<To>/NNN.cancel` | the sender, or `<relay>` | the receiver before each irreversible step and at each safe point | to stop or hold |
 | `for-me.items` | any role appends | `sabha-for-me` (renders `FOR-ME.md` and `FOR-ME.html`) | whenever something needs the user |
@@ -78,6 +80,17 @@ reply: done              (ack | done | none; what the sender waits for)
 `output` names the file(s) the brief expects, so a missing output is visible without reading the
 chat. A brief that changes an earlier one writes `supersedes:`; a brief that stops one writes a
 `.cancel` instead.
+
+A brief is frozen once sent: never edit it after its ack. A change to a brief still open is an
+amendment, `NNN.K-<from>-<slug>.md` (K = 1, 2, ...; `bin/sabha-brief --amend NNN` claims
+`NNN.K.claim` and writes `amends: NNN`). Its body names each line or step it supersedes. The
+receiver reads the brief, then every amendment in K order; an amendment is never acked or done on
+its own, and closes with its brief. An acked pane worker is nudged with the new file name.
+
+`needs: <id> [<id>...]` (an id is `NNN` in the same inbox or `<Name>/NNN`) holds a brief in
+`sabha-run` until every named brief has a `.done`. A need that can never be met (unknown, the
+brief itself, a cycle, cancelled, or ended `BLOCKED` or `CANCELLED`) closes the brief with
+`result: BLOCKED needs: <why>`.
 
 ## 3. Ack: `inbox/<To>/NNN.ack`
 

@@ -116,6 +116,10 @@ SABHA_RELAY_GUARD=1
 #SABHA_RELAY_WARN_K=250
 #SABHA_RELAY_STOP_K=300
 #SABHA_RELAY_WINDOW_K=1000
+# Starts per brief (default 1 = no retry). Only a CLI or machine failure is retried, after SABHA_RUN_BACKOFF seconds
+# doubled per attempt; a timeout or the agent's own BLOCKED done is final (docs/headless-runner.md).
+#SABHA_RUN_ATTEMPTS=1
+#SABHA_RUN_BACKOFF=60
 # Pane supervisor (bin/sabha-loop <Name>) and usage alerts (bin/statusline-sabha.sh, bin/sabha-limits.sh).
 # Claude panes restart fresh at SABHA_LOOP_LIMIT percent context once the handoff is saved; a context file older
 # than SABHA_LOOP_STALE seconds only warns. SABHA_NOTIFY lists the usage percentages (5-hour and 7-day windows) that
