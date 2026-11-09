@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><title>fixture</title>
+<style>
+@font-face { font-family: "Inter"; src: url("fonts/Inter-400.ttf"); font-weight: 400; }
+:root { --ink: #172c4f; --pale: #cccccc; }
+body { font-family: "Inter", sans-serif; font-size: 12pt; color: var(--ink); line-height: 1.4; }
+h1 { font-size: 18pt; font-weight: 600; }
+.card h1 { font-size: 24pt; font-weight: 600; }
+.serif { font-family: Georgia, serif; }
+.big { font-size: 13px; }
+.heavy { font-weight: 800; }
+.red { color: #ff0000; }
+.pale { color: var(--pale); background: #ffffff; }
+.tight { line-height: 0.9; }
+.cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100px; }
+.mono { font-family: "Roboto Mono"; }
+.sys { font-family: Helvetica, Arial; }
+.nofb { font-family: "Inter"; }
+@media print { .print-only { font-size: 14px; } }
+</style></head>
+<body>
+<h1>Title</h1>
+<p class="serif big heavy red pale tight cut mono sys">Text</p>
+<p id="inl" style="font-size: 14px; color: #ff0000">inline</p>
+</body></html>

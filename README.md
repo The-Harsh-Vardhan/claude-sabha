@@ -301,6 +301,8 @@ from the scripts):
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_PRUNE_CMD` | unset (required) | `sabha prune`: the inventory script, run with `--actions` only (read-only) |
 | `SABHA_PRUNE_DIR` | `$SABHA_IMPL/prune` | `sabha prune`: where the dated reports are written |
+| `SABHA_TYPO_ALLOW` | none | `sabha-typography-check`: the allow-list file when `--allow` is not given (`~` and `$VAR` are expanded) |
+| `SABHA_TYPO_RUNNER` | `node tools/typography-computed.mjs` | `sabha-typography-check --browser`: the command that writes the computed styles (it gets the page and the output file); needs playwright resolvable from `SABHA_TYPO_PLAYWRIGHT_DIR` (default: the current directory) |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_UPSTREAM_CONF`, `SABHA_UPSTREAM_ORG`, `SABHA_UPSTREAM_PROBE_<repo>`, `SABHA_UPSTREAM_PAIRS`, `SABHA_UPSTREAM_TO` | unset | `sabha upstream`: the repos list, the owner of a repo with no clone, layout paths, `repo:base:upstream` pairs, the brief receiver ([docs/upstream-watch.md](docs/upstream-watch.md)) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
@@ -340,6 +342,7 @@ from the scripts):
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha prune` | Runs `SABHA_PRUNE_CMD --actions` and writes the candidate lines to `<date>.md` in `SABHA_PRUNE_DIR`; archives and removes nothing, never passes `--apply`, writes nothing when the inventory fails |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate (`--checks` adds workspace file tests, [docs/gate-checks.md](docs/gate-checks.md)), an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
+| `bin/sabha-typography-check <file> --allow ALLOW.json` | Checks a PDF, an HTML page or an artifact for off-list fonts, sizes, weights and colours, low contrast, clipped or overflowing text, and one role styled two ways; each finding names where it is, what was found and the nearest allowed value. A PDF needs the repo-local `.venv` (`uv venv .venv && uv pip install --python .venv/bin/python -r tools/typography-requirements.txt`); `--browser` computes styles through `sabha-heavy run typography --` (page scripts off unless `--allow-scripts`; Chrome or playwright missing exits 2); reads only the input's folder (its `@import` files too); the runner's request block is tested only against a fake playwright; not run in a real Chrome; unresolvable colours print as UNKNOWN (`--strict` fails on them); never run in a real browser and never on a real Chrome PDF yet (tests use a fake playwright and base-14 PDFs); example list `template/typography.example.json`; skill `skills/sabha-typography-check` |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
 
 ## Setup
@@ -426,6 +429,7 @@ All rows are UNTESTED live.
 | `sabha-gate-review` | How a reviewer or critic writes a verdict file the gate can read |
 | `sabha-relay` | The relay's job: talk to the user, brief the dispatcher, do no work |
 | `sabha-dispatch` | The dispatcher's job: route by difficulty, track acks and dones, run work in parallel |
+| `sabha-typography-check` | When to run the typography check (UI PRs, exports, artifacts), how to read its report, and that a finding is a question for the owner, never an auto-fix |
 
 | Hook | What |
 | --- | --- |
