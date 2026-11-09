@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""sabha-cost: tokens per role per day from Claude transcripts (read-only).
+
+  sabha-cost [--projects DIR] [--since YYYY-MM-DD] [--roles "A B C"] [--log FILE]
+
+DIR (default ~/.claude/projects/<workspace slug>, or $SABHA_COST_PROJECTS) holds the session *.jsonl files. Each
+assistant message is counted once (by message id; a transcript repeats it per content block). The role is the first
+roster name (--roles, default the names in $SABHA_ROSTER) in the session's first user prompt, else the word after
+"You are " / "You are another ", else "-". The day is the UTC date of the session's first message. --log (default
+$SABHA_IMPL/status/cost-log.tsv, written by sabha_cost_log) adds the count of logged events per role and day.
+Output: tab-separated day role sessions turns input cache_create cache_read output read% events, then a total line.
+read% = cache_read / (input + cache_create + cache_read). Tokens only: no dollar prices. Exit 0 ok, 2 usage.
+"""
+import json, os, re, sys
+from collections import defaultdict
+
+
+def first_text(m):
+    c = m.get('content')
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return ' '.join(b.get('text', '') for b in c if isinstance(b, dict) and b.get('type') == 'text')
+    return ''
+
+
+def role_of(text, roles):
+    words = re.findall(r'[A-Za-z][A-Za-z0-9_-]*', text)
+    for w in words:
+        if w in roles:
+            return w
+    m = re.search(r'You are (?:another |the )?([A-Z][A-Za-z0-9_-]*)', text)
+    return m.group(1) if m else '-'
+
+
+def session(path, roles):
+    seen, day, prompt = {}, None, None
+    with open(path, errors='ignore') as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            if day is None and isinstance(d.get('timestamp'), str):
+                day = d['timestamp'][:10]
+            m = d.get('message') if isinstance(d.get('message'), dict) else {}
+            if prompt is None and d.get('type') == 'user' and m.get('role') == 'user':
+                t = first_text(m)
+                if t.strip():
+                    prompt = t
+            u, i = m.get('usage'), m.get('id')
+            if isinstance(u, dict) and i and m.get('model') != '<synthetic>':
+                seen[i] = [int(u.get(k) or 0) for k in
+                           ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens')]
+    return day, role_of(prompt or '', roles), seen
+
+
+def main(argv):
+    proj = os.environ.get('SABHA_COST_PROJECTS') or os.path.expanduser(
+        '~/.claude/projects/' + re.sub(r'[^A-Za-z0-9]', '-', os.environ.get('SABHA_WS', os.getcwd())))
+    since, roles = '', set()
+    roles.update(w.split(':')[0] for w in os.environ.get('SABHA_ROSTER', '').split())
+    log = os.path.join(os.environ['SABHA_IMPL'], 'status', 'cost-log.tsv') if os.environ.get('SABHA_IMPL') else ''
+    a = list(argv)
+    while a:
+        k = a.pop(0)
+        if k in ('-h', '--help'):
+            print(__doc__.strip()); return 0
+        if k not in ('--projects', '--since', '--roles', '--log') or not a:
+            print('usage: ' + __doc__.strip().splitlines()[2].strip(), file=sys.stderr); return 2
+        v = a.pop(0)
+        if k == '--projects': proj = v
+        elif k == '--since': since = v
+        elif k == '--roles': roles = set(v.split())
+        else: log = v
+    if not os.path.isdir(proj):
+        print('sabha-cost: no projects dir: ' + proj, file=sys.stderr); return 2
+    rows = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0])
+    for f in sorted(os.listdir(proj)):
+        if not f.endswith('.jsonl'):
+            continue
+        day, role, seen = session(os.path.join(proj, f), roles)
+        if not day or day < since or not seen:
+            continue
+        r = rows[(day, role)]
+        r[0] += 1; r[1] += len(seen)
+        for v in seen.values():
+            for j in range(4):
+                r[2 + j] += v[j]
+    if log and os.path.isfile(log):
+        with open(log, errors='ignore') as fh:
+            for line in fh:
+                c = line.rstrip('\n').split('\t')
+                if len(c) >= 2 and c[0][:10] >= since:
+                    rows[(c[0][:10], c[1])][6] += 1
+    tot = [0] * 7
+    print('day\trole\tsessions\tturns\tinput\tcache_create\tcache_read\toutput\tread%\tevents')
+    for (day, role), r in sorted(rows.items()):
+        tot = [x + y for x, y in zip(tot, r)]
+        print('\t'.join([day, role] + [str(x) for x in r[:6]] + [pct(r), str(r[6])]))
+    print('\t'.join(['total', '-'] + [str(x) for x in tot[:6]] + [pct(tot), str(tot[6])]))
+    return 0
+
+
+def pct(r):
+    ctx = r[2] + r[3] + r[4]
+    return '%.1f' % (100.0 * r[4] / ctx) if ctx else '-'
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
