@@ -299,6 +299,7 @@ from the scripts):
 | `SABHA_CHAIN_<repo>` | unset | `sabha shipped`: the promotion chain of a repo, branches in order, space separated (`<repo>` = the name after the slash, other characters as `_`) |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
+| `SABHA_UPSTREAM_CONF`, `SABHA_UPSTREAM_ORG`, `SABHA_UPSTREAM_PROBE_<repo>`, `SABHA_UPSTREAM_PAIRS`, `SABHA_UPSTREAM_TO` | unset | `sabha upstream`: the repos list, the owner of a repo with no clone, layout paths, `repo:base:upstream` pairs, the brief receiver ([docs/upstream-watch.md](docs/upstream-watch.md)) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
 | `SABHA_ROSTER_CLAIMS` | empty | `sabha roster --check`: notes or memory files (space separated, read only) whose `no <model>` lines are shown under a model conflict |
 | `SABHA_GH_USER`, `SABHA_GH_TTL`, `SABHA_GH_MIN_LEFT` | unset, `600`, `200` | `sabha-gh`: the login `gh` must be on, cache seconds, the quota floor ([docs/github-layer.md](docs/github-layer.md)) |
@@ -322,6 +323,7 @@ from the scripts):
 | `bin/sabha-loop <Name>` | The restart supervisor for one pane |
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
+| `bin/sabha upstream [--conf FILE] [--fresh] [--daily]` | Upstream move watcher: a daily read-only check of a repos list for an archived or renamed repo, a lost base branch, a moved layout, an upstream merged in; a new finding becomes a `for-me.items` entry and one brief; needs `bin/sabha-gh` and `gh` logged in ([docs/upstream-watch.md](docs/upstream-watch.md)) |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha-helper` | Durable helpers: long work as a headless session that survives a dispatcher restart; `start`, `list`, `reattach`, `wait`, `stop` ([docs/durable-helpers.md](docs/durable-helpers.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
