@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # bin/sabha-reap against a fake process list and the fake herdr only (tests/hermetic.sh): the list shows age, idle, ctx
 # and pane state, marks STALE? copies and ORPHAN panes, and prints plain ASCII whatever ps or a file holds; --close acts
-# only on ids named on the command line and never on a role's last live copy, an id not in the list, or a live pane.
+# only on ids named on the command line and never on a role's last live copy, an id not in the list, a live pane, a pane
+# herdr does not report idle or done, the pane it runs in, or any pane when ps shows no named claude.
 # Run: tests/test-reap.sh
-# shellcheck disable=SC2016,SC2034  # the checks are eval strings, expanded when they run
+# shellcheck disable=SC2016,SC2034,SC2329  # the checks are eval strings, expanded when they run
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -27,10 +28,14 @@ chmod +x "$dir/stubs/herdr" "$dir/stubs/kill"
 export SABHA_CONF=$dir/sabha.conf SABHA_PS_FILE=$dir/ps.txt SABHA_KILL=$dir/stubs/kill SABHA_KILL_GRACE=0
 export FAKE_HERDR_LOG=$dir/herdr.log FAKE_HERDR_DIR=$dir/fh FAKE_HERDR_CALLS=$dir/calls
 export PATH=$dir/stubs:$PATH SABHA_HERDR_BIN=$dir/stubs/herdr
-unset SABHA_BACKEND SABHA_PLAN FAKE_HERDR_PANES FAKE_HERDR_FAIL_PANELIST
-{ echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"; echo 'SABHA_ROSTER="Relay:opus:medium Builder:opus:medium"'; } > "$dir/sabha.conf"
+unset SABHA_BACKEND SABHA_PLAN FAKE_HERDR_PANES FAKE_HERDR_FAIL_PANELIST FAKE_HERDR_STATUS FAKE_HERDR_FAIL_CLOSE FAKE_HERDR_GARBAGE FAKE_HERDR_PANELIST_OK_ONCE HERDR_PANE_ID SABHA_ANCESTORS
+{ echo "SABHA_WS=$dir/ws"; echo "SABHA_IMPL=$dir/impl"; echo 'SABHA_ROSTER="Relay:opus:medium Builder:opus:medium Ghost:opus:medium Ghost2:opus:medium Coder:opencode:gpt"'; } > "$dir/sabha.conf"
 map=$dir/impl/status/herdr-panes.txt
 reap() { "$SH" "$ROOT/bin/sabha-reap" "$@" 2>&1; }
+# reapp: as reap, from a pane (w1:p9) that is not one of the listed panes
+reapp() { HERDR_PANE_ID=w1:p9 reap "$@"; }
+# no_close: herdr was reachable (its log exists) and holds no pane close
+no_close() { [[ -f $FAKE_HERDR_LOG ]] && ! grep -q "pane close" "$FAKE_HERDR_LOG"; }
 
 cat > "$dir/ps.txt" <<'EOF'
   101 ttys004  Tue Oct 13 09:00:01 2026     claude -n Relay --model opus
@@ -83,17 +88,19 @@ sed -i.bak '/ttys008/d' "$dir/ps.txt"; rm -f "$dir/ps.txt.bak"
 
 echo "--- herdr panes"
 herdr --session sabha server
-printf 'Relay w1:p1\nGhost w1:p5\nBuilder w1:p2\n' > "$map"
-export FAKE_HERDR_PANES="w1:p1 w1:p2 w1:p5"
+printf 'Relay w1:p1\nGhost w1:p5\nBuilder w1:p2\nCoder w1:p6\nStray w1:p8\nGhost2 w1:p10\n' > "$map"
+export FAKE_HERDR_PANES="w1:p1 w1:p2 w1:p5 w1:p6 w1:p8 w1:p10" FAKE_HERDR_STATUS="w1:p5=idle w1:p6=idle w1:p8=idle w1:p10=done"
 out=$(reap); rc=$?
 check "Relay row shows its pane and state" 'grep "^101 " <<<"$out" | grep -q "w1:p1 *unknown"'
 check "pane shown on the newest Builder copy only" 'grep "^802 " <<<"$out" | grep -q "w1:p2" && ! grep "^801 " <<<"$out" | grep -q "w1:p2"'
-check "Ghost (no live claude) is an ORPHAN row" 'grep "^ORPHAN " <<<"$out" | grep -q "Ghost.*w1:p5"'
-check "a role with a live claude is not an orphan" '(( $(grep -c "^ORPHAN" <<<"$out") == 1 ))'
-check "listing closes nothing and never signals" '! grep -q "pane close" "$FAKE_HERDR_LOG" && [[ ! -s $dir/kill.log ]]'
-check "every herdr call carried --session" '! grep -qv "^--session sabha" "$FAKE_HERDR_CALLS"'
+check "Ghost (no named claude, herdr idle) is an ORPHAN row marked closable" 'grep "^ORPHAN " <<<"$out" | grep "Ghost" | grep -q "w1:p5 *idle.*closable"'
+check "a role with a live claude is not an orphan: only Ghost and Ghost2 are" '(( $(grep -c "^ORPHAN" <<<"$out") == 2 ))'
+check "a non-claude role pane and a pane outside the roster are OTHER, not ORPHAN" 'grep "^OTHER " <<<"$out" | grep "Coder" | grep -q "runs on opencode" && grep "^OTHER " <<<"$out" | grep "Stray" | grep -q "not in the roster" && ! grep "^ORPHAN" <<<"$out" | grep -qE "Coder|Stray"'
+check "the list says cost is context % only and idle is the status-line render" 'grep -q "ctx is the last context %" <<<"$out" && grep -q "a STALE? copy may be the busy one" <<<"$out"'
+check "listing closes nothing and never signals" '[[ -s $FAKE_HERDR_CALLS ]] && no_close && [[ ! -s $dir/kill.log ]]'
+check "every herdr call carried --session" '[[ -s $FAKE_HERDR_CALLS ]] && ! grep -qv "^--session sabha" "$FAKE_HERDR_CALLS"'
 
-echo "--- close"
+echo "--- close: pids"
 : > "$dir/kill.log"
 out=$(reap --close 801); rc=$?
 check "close the stale copy: TERM to 801 only" '(( rc == 0 )) && grep -qx -- "-TERM 801" "$dir/kill.log" && ! grep -q 802 "$dir/kill.log"'
@@ -104,19 +111,88 @@ out=$(reap --close 801 802); rc=$?
 check "naming every copy of a role is refused, nothing signalled" '(( rc == 1 )) && [[ ! -s $dir/kill.log ]]'
 out=$(reap --close 4242); rc=$?
 check "a pid not in the list is refused" '(( rc == 1 )) && grep -q "refused 4242" <<<"$out" && [[ ! -s $dir/kill.log ]]'
-out=$(reap --close w1:p1); rc=$?
-check "a live pane (its role has a claude) is refused" '(( rc == 1 )) && ! grep -q "pane close" "$FAKE_HERDR_LOG"'
+for z in 0101 00101; do
+  out=$(reap --close "$z"); rc=$?
+  check "leading zero $z: the only copy is still refused, nothing signalled" '(( rc == 1 )) && grep -q "refused 101: that would close every live copy" <<<"$out" && [[ ! -s $dir/kill.log ]]'
+done
+out=$(reap --close 801 0802); rc=$?
+check "801 0802 names both copies: refused, nothing signalled" '(( rc == 1 )) && grep -q "every live copy of Builder" <<<"$out" && [[ ! -s $dir/kill.log ]]'
+out=$(reap --close 0801); rc=$?
+check "0801 is signalled in its canonical form 801, never as 0801" '(( rc == 0 )) && grep -qx -- "-TERM 801" "$dir/kill.log" && ! grep -q 0801 "$dir/kill.log"'
+: > "$dir/kill.log"
+out=$(reap --close 801 801); rc=$?
+check "a duplicate id signals once" '(( rc == 0 )) && [[ $(grep -c -- "-TERM 801" "$dir/kill.log") == 1 ]]'
+: > "$dir/kill.log"
+out=$(reap --close 801 0801); rc=$?
+check "801 and 0801 are one id: signalled once, as 801" '(( rc == 0 )) && [[ $(grep -c -- "-TERM" "$dir/kill.log") == 1 ]] && grep -qx -- "-TERM 801" "$dir/kill.log"'
+: > "$dir/kill.log"
+for bad in +101 -101 0x65 1e2 " 101" 0 000 12345678901 101$'\n'; do
+  out=$(reap --close "$bad"); rc=$?
+  check "malformed pid '$(printf %s "$bad" | tr -d '\n')': exit 2, nothing signalled" '(( rc == 2 )) && [[ ! -s $dir/kill.log ]]'
+done
+out=$(SABHA_ANCESTORS=801 reap --close 801); rc=$?
+check "a pid in the command's own process chain is refused" '(( rc == 1 )) && grep -q "refused 801: it runs this command" <<<"$out" && [[ ! -s $dir/kill.log ]]'
+out=$(SABHA_ANCESTORS=801 reap --close 0801); rc=$?
+check "the own-process guard holds for a leading-zero spelling" '(( rc == 1 )) && grep -q "it runs this command" <<<"$out" && [[ ! -s $dir/kill.log ]]'
+out=$(SABHA_PS_FILE='' reap --close 801); rc=$?
+check "SABHA_KILL without a fake process list is refused (test hook only)" '(( rc == 2 )) && grep -q "test hook" <<<"$out" && [[ ! -s $dir/kill.log ]]'
+
+echo "--- close: panes"
 : > "$FAKE_HERDR_LOG"
+out=$(reapp --close w1:p1); rc=$?
+check "a live pane (its role has a claude) is refused, and says so" '(( rc == 1 )) && grep -q "refused w1:p1: not an ORPHAN pane" <<<"$out" && no_close'
+out=$(reapp --close w1:p6); rc=$?
+check "a non-claude role pane (Coder, opencode) is refused, not an ORPHAN" '(( rc == 1 )) && grep -q "refused w1:p6: not an ORPHAN pane" <<<"$out" && no_close'
+out=$(reapp --close w1:p8); rc=$?
+check "a pane of a name outside the roster is refused" '(( rc == 1 )) && grep -q "refused w1:p8: not an ORPHAN pane" <<<"$out" && no_close'
+for st in working blocked unknown; do
+  out=$(FAKE_HERDR_STATUS="w1:p5=$st" reapp --close w1:p5); rc=$?
+  check "an orphan herdr reports $st is refused" '(( rc == 1 )) && grep -q "refused w1:p5: herdr reports it $st; only an idle or done pane is closed" <<<"$out" && no_close'
+done
+out=$(FAKE_HERDR_STATUS="w1:p5=working" reapp); rc=$?
+check "a busy orphan is listed as list only" '(( rc == 0 )) && grep "^ORPHAN " <<<"$out" | grep "Ghost" | grep -q "working: list only"'
+out=$(HERDR_PANE_ID=w1:p5 reap --close w1:p5); rc=$?
+check "the pane this command runs in (HERDR_PANE_ID) is refused" '(( rc == 1 )) && grep -q "refused w1:p5: it is the pane this command runs in" <<<"$out" && no_close'
 out=$(reap --close w1:p5); rc=$?
-check "an orphan pane is closed through herdr pane close" '(( rc == 0 )) && grep -qx "pane close w1:p5" "$FAKE_HERDR_LOG"'
+check "HERDR_PANE_ID unset: every pane close is refused" '(( rc == 1 )) && grep -q "HERDR_PANE_ID is not set" <<<"$out" && no_close'
+out=$(HERDR_PANE_ID='' reap --close w1:p5); rc=$?
+check "HERDR_PANE_ID empty: every pane close is refused" '(( rc == 1 )) && grep -q "HERDR_PANE_ID is not set" <<<"$out" && no_close'
+out=$(SABHA_TEST='' reapp --close w1:p5); rc=$?
+check "a fake process list never closes a pane unless SABHA_TEST=1" '(( rc == 1 )) && grep -q "a fake process list never closes a pane" <<<"$out" && no_close'
+out=$(FAKE_HERDR_PANELIST_OK_ONCE=1 reapp --close w1:p5); rc=$?
+check "herdr stops answering between the list and the close: refused, nothing closed" '(( rc == 1 )) && grep -q "refused w1:p5: the pane is gone or herdr cannot list it now" <<<"$out" && no_close'
+rm -f "$dir/fh/pl-once"
+out=$(FAKE_HERDR_FAIL_CLOSE=1 reapp --close w1:p5 w1:p10); rc=$?
+check "herdr pane close failing (pane gone): never reported as closed, exit 1, both named" '(( rc == 1 )) && [[ $(grep -c "could not close pane" <<<"$out") == 2 ]] && ! grep -q "closed pane" <<<"$out"'
+: > "$FAKE_HERDR_LOG"
+out=$(reapp --close w1:p5 w1:p5); rc=$?
+check "an idle orphan is closed through herdr pane close, once for a duplicate id" '(( rc == 0 )) && grep -q "^closed pane w1:p5" <<<"$out" && [[ $(grep -cx "pane close w1:p5" "$FAKE_HERDR_LOG") == 1 ]]'
+: > "$FAKE_HERDR_LOG"
+out=$(reapp --close w1:p10); rc=$?
+check "a done orphan is closed too" '(( rc == 0 )) && grep -qx "pane close w1:p10" "$FAKE_HERDR_LOG"'
+out=$(FAKE_HERDR_GARBAGE=1 reapp); rc=$?
+check "herdr answering exit 0 with non-pane output: no orphans, problem said" '(( rc == 0 )) && ! grep -q "^ORPHAN" <<<"$out" && grep -q "could not read herdr panes" <<<"$out"'
+
+echo "--- close: ps shows no named claude"
+cp "$dir/ps.txt" "$dir/ps.full"
+printf '  900 ttys007  Tue Oct 13 12:00:00 2026     grep claude -n Builder\n' > "$dir/ps.txt"
+: > "$FAKE_HERDR_LOG"
+out=$(reapp); rc=$?
+check "no named claude in ps: no ORPHAN rows, says why" '(( rc == 0 )) && ! grep -q "^ORPHAN" <<<"$out" && grep -q "ps shows no named claude session" <<<"$out"'
+out=$(reapp --close w1:p5 w1:p1 w1:p2); rc=$?
+check "no named claude in ps: every pane close is refused" '(( rc == 1 )) && [[ $(grep -c "ps shows no named claude session, so no pane can be called dead" <<<"$out") == 3 ]] && no_close'
+: > "$dir/ps.txt"
+out=$(reapp --close w1:p5); rc=$?
+check "an empty ps list: the pane close is refused" '(( rc == 1 )) && grep -q "ps shows no named claude session" <<<"$out" && no_close'
+mv "$dir/ps.full" "$dir/ps.txt"
 
 echo "--- herdr down"
 rm -f "$dir/fh/server-sabha"
 out=$(reap); rc=$?
 check "no herdr server: rows still listed, pane problem said, exit 0" '(( rc == 0 )) && grep -q "^802 " <<<"$out" && grep -q "could not read herdr panes" <<<"$out" && ! grep -q "^ORPHAN" <<<"$out"'
 : > "$FAKE_HERDR_LOG"
-out=$(reap --close w1:p5); rc=$?
-check "an unreadable pane list proves nothing: the pane id is refused" '(( rc == 1 )) && ! grep -q "pane close" "$FAKE_HERDR_LOG"'
+out=$(reapp --close w1:p5); rc=$?
+check "an unreadable pane list proves nothing: the pane id is refused as not an ORPHAN" '(( rc == 1 )) && grep -q "refused w1:p5: not an ORPHAN pane in the list above" <<<"$out" && no_close'
 
 echo
 (( fails == 0 )) && echo "all reap checks passed" || echo "$fails reap check(s) failed"

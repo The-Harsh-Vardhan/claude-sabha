@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Stale pane reaper. Lists every named claude session (oldest first) with its age, idle time, last context % (the cost
 # proxy) and herdr pane state, marks resumed duplicates (STALE? = an older copy of a role that has a newer one), and
-# lists ORPHAN panes (a pane the pane map names for a role that has no live claude). It closes nothing by itself.
+# lists ORPHAN panes (a pane the pane map names for a claude role that ps sees no named claude for). It closes nothing
+# by itself.
 #   sabha-reap                    list (read-only)
-#   sabha-reap --close <id>...    close what you name: a pid (TERM to that claude) or an orphan pane id (herdr pane
+#   sabha-reap --close <id>...    close what you name: a pid (TERM to that claude) or an ORPHAN pane id (herdr pane
 #                                 close). A role's last live copy is refused; so is any id the list does not show.
+# A pane is closed only when herdr itself reports it idle or done (agent_status), the pane is not the one this command
+# runs in (HERDR_PANE_ID must be set), and ps shows at least one named claude. When in doubt it refuses.
+# Ids: a pid is digits only (leading zeros are stripped before any check); a pane id is like w1:p7.
 # Idle = time since status/context/<name>.txt was last written by the status line (a session that renders no more is
 # idle). Exit 0 listed or closed, 1 something named was refused or failed, 2 bad usage or an unreadable process list.
-# Tests: SABHA_PS_FILE replaces the process list (see sabha-lib.sh), --close with it needs SABHA_KILL (a stub for kill),
-# SABHA_NOW fixes the clock, SABHA_KILL_GRACE is the TERM wait (default 3 s).
+# Tests only: SABHA_PS_FILE replaces the process list (see sabha-lib.sh); --close with it needs SABHA_KILL (a stub for
+# kill, honoured only with SABHA_PS_FILE) and, for a pane, SABHA_TEST=1; SABHA_ANCESTORS replaces the ancestor pids;
+# SABHA_NOW fixes the clock; SABHA_KILL_GRACE is the TERM wait (default 3 s).
 set -uo pipefail
 
 # shellcheck source=sabha-lib.sh
@@ -27,14 +32,20 @@ case ${1:-} in
     shift
     (( $# )) || usage
     for a in "$@"; do
-      [[ $a =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]*$ ]] || usage
-      ids+="$a "
+      if [[ $a =~ ^[0-9]+$ ]]; then
+        c=${a#"${a%%[!0]*}"}
+        [[ -n $c && ${#c} -le 9 ]] || usage
+      elif [[ $a =~ ^[A-Za-z][A-Za-z0-9_-]*:[A-Za-z0-9_-]+$ ]]; then c=$a
+      else usage; fi
+      [[ " $ids" == *" $c "* ]] || ids+="$c "
     done ;;
   *) usage ;;
 esac
 
 sabha_load sabha-reap
-KILL=${SABHA_KILL:-kill}
+KILL="kill"
+if [[ -n ${SABHA_PS_FILE:-} ]]; then KILL=${SABHA_KILL:-kill}
+elif [[ -n ${SABHA_KILL:-} ]]; then echo "sabha-reap: SABHA_KILL is a test hook and needs SABHA_PS_FILE" >&2; exit 2; fi
 [[ -n $ids && -n ${SABHA_PS_FILE:-} && -z ${SABHA_KILL:-} ]] && { echo "sabha-reap: --close with SABHA_PS_FILE needs SABHA_KILL (a fake list is never signalled)" >&2; exit 2; }
 
 procs=$(sabha_procs) || { echo "sabha-reap: cannot read the process list" >&2; exit 2; }
@@ -101,24 +112,36 @@ while read -r st pid name tty; do
   emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' "$pid" "$name" "$(span $(( now - st )))" "$idle" "$ctx" "$pane" "$state" "$note")"
 done <<<"$rows"
 
-orphans=" "
-if (( panes_ok )); then
+# ORPHAN = a mapped pane of a claude role with no named claude in ps. That is a hint, not proof: ps cannot see a claude
+# started without -n, so only a pane that herdr also reports idle or done is closable (closable), and never when ps
+# shows no named claude at all (a ps format change would make every pane look dead).
+orphans=" " closable=" "
+if (( panes_ok )) && [[ -z $rows ]]; then emit "panes: ps shows no named claude session, so no pane is called an ORPHAN"
+elif (( panes_ok )); then
   while read -r name p _; do
     [[ -n $name && -n $p ]] || continue
     awk -v r="$name" '$3 == r { f = 1 } END { exit !f }' <<<"$rows" && continue
     pane_live "$p" || continue
+    st=$(pane_state "$p")
+    if ! sabha_role "$name" 2>/dev/null; then
+      emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' OTHER "$name" - - - "$p" "$st" "not in the roster: not provably dead")"; continue
+    elif [[ $R_AGENT != claude ]]; then
+      emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' OTHER "$name" - - - "$p" "$st" "runs on $R_AGENT, not claude: not provably dead")"; continue
+    fi
     orphans+="$p "
-    emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' ORPHAN "$name" - - - "$p" "$(pane_state "$p")" "pane with no live claude")"
+    case $st in idle|done) closable+="$p "; note="no named claude in ps, herdr says $st: closable" ;; *) note="no named claude in ps, herdr says $st: list only" ;; esac
+    emit "$(printf '%-7s %-14s %-7s %-7s %-5s %-8s %-9s %s' ORPHAN "$name" - - - "$p" "$st" "$note")"
   done <"$mapf"
 else emit "panes: $panes_note"; fi
 emit "(ps sees only claude -n/--name sessions; nothing was closed. Close with: sabha-reap --close <pid-or-pane-id>...)"
+emit "(ctx is the last context % only; idle is the last status-line render, so a session in a long tool call looks idle; pane state is shown for the newest copy only, so a STALE? copy may be the busy one)"
 
 [[ -n $ids ]] || exit 0
 
 # --- close: only the ids named on this command line --------------------------------------------------------------
 rc=0 pids=" "
 for id in $ids; do [[ $id =~ ^[0-9]+$ ]] && pids+="$id "; done
-ancestors=" $$ "
+ancestors=" $$ ${SABHA_ANCESTORS:-} "
 if [[ -z ${SABHA_PS_FILE:-} ]]; then
   p=$PPID
   while (( p > 1 )); do ancestors+="$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); [[ -n $p ]] || break; done
@@ -133,7 +156,16 @@ for id in $ids; do
     if (( left < 1 )); then emit "refused $id: that would close every live copy of $name"; rc=1; continue; fi
     if $KILL -TERM "$id" 2>/dev/null; then emit "sent TERM to $id ($name)"; killed+="$id "; else emit "could not signal $id"; rc=1; fi
   else
-    if [[ $orphans != *" $id "* ]]; then emit "refused $id: not an ORPHAN pane in the list above"; rc=1; continue; fi
+    why=""
+    if [[ -n ${SABHA_PS_FILE:-} && -z ${SABHA_TEST:-} ]]; then why="a fake process list never closes a pane"
+    elif [[ -z ${HERDR_PANE_ID:-} ]]; then why="HERDR_PANE_ID is not set, so this command cannot tell which pane it runs in"
+    elif [[ $id == "$HERDR_PANE_ID" ]]; then why="it is the pane this command runs in"
+    elif [[ -z $rows ]]; then why="ps shows no named claude session, so no pane can be called dead"
+    elif [[ $orphans != *" $id "* ]]; then why="not an ORPHAN pane in the list above"
+    elif [[ $closable != *" $id "* ]]; then why="herdr reports it $(pane_state "$id"); only an idle or done pane is closed"
+    elif ! panes_json=$(sabha_h pane list 2>/dev/null </dev/null) || ! pane_live "$id"; then why="the pane is gone or herdr cannot list it now"
+    else case $(pane_state "$id") in idle|done) ;; *) why="its state changed to $(pane_state "$id"); only an idle or done pane is closed" ;; esac; fi
+    if [[ -n $why ]]; then emit "refused $id: $why"; rc=1; continue; fi
     if sabha_h pane close "$id" >/dev/null 2>&1 </dev/null; then emit "closed pane $id"; else emit "could not close pane $id"; rc=1; fi
   fi
 done
