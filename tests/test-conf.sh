@@ -66,5 +66,11 @@ check "the board is written into the team's project, not the copy's" '[[ -f $tea
 (cd "$dir" && python3 "$copy/bin/sabha-for-me" >/dev/null 2>&1)
 check "the board falls back to the conf beside the scripts when nothing is above" '[[ -f $otherimpl/FOR-ME.md ]]'
 
+echo "--- SABHA_BOARD_URL (the progress board)"
+ex=$ROOT/sabha.conf.example
+check "sabha.conf.example sets SABHA_BOARD_URL empty" 'grep -q "^SABHA_BOARD_URL=\"\"$" "$ex"'
+check "the example names the board as the default view and FOR-ME.md as the offline fallback" 'grep -B6 "^SABHA_BOARD_URL=" "$ex" | grep -qi "default" && grep -B6 "^SABHA_BOARD_URL=" "$ex" | grep -q "FOR-ME.md"'
+check "sourcing the example leaves SABHA_BOARD_URL empty" '[[ -z $( set +u; . "$ex" >/dev/null 2>&1; echo "${SABHA_BOARD_URL-unset}" ) ]]'
+
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: config resolution: env, nearest .sabha/local upward, beside the scripts; a copy's own conf never beats the cwd's project"

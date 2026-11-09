@@ -190,6 +190,9 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #SABHA_DECIDE_OUT=$SABHA_IMPL/board-updates
 #SABHA_DECIDE_QUESTIONS=$SABHA_IMPL/questions/my-pr-questions.md
 #SABHA_DECISION_LOG=$SABHA_IMPL/decisions.log
+# The progress board is the default view: the URL of your published board. /sabha-board points you to it first, then
+# walks FOR-ME.md. Empty = no board yet (sabha doctor warns); FOR-ME.md stays the offline fallback.
+SABHA_BOARD_URL=""
 # sabha fill: all optional; read from the environment first, else from here (the environment wins, as for SABHA_STOP). Percent points kept free below the stop line, the load5 above which heavy briefs wait, the cost in
 # points of a size S, M or L brief, and the words that mark a brief heavy when it has no "heavy: yes|no" header line.
 #SABHA_FILL_RESERVE=10
