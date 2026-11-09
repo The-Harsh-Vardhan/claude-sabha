@@ -9,6 +9,7 @@
 #                given when stdin is a tty
 #   sabha doctor                           checks the machine; exit 1 only on a FAIL, warnings never fail the run
 #   sabha keep-awake [auto|off|open|lid]   shows or sets SABHA_KEEP_AWAKE (docs/keep-awake.md)
+#   sabha prune [--date D] [--out DIR] [--stdout]   weekly worktree clean-up candidates as a report file (bin/sabha-prune)
 #   sabha tips | sabha help <tip>          the tips in tips/tips.txt; doctor and init end with one ("Tip: <key> - <text>")
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
@@ -430,6 +431,7 @@ case ${1:-} in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor ;;
   keep-awake) shift; cmd_keep_awake "$@" ;;
+  prune) shift; exec "$BIN/sabha-prune" "$@" ;;
   update) shift; cmd_update ;;
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;

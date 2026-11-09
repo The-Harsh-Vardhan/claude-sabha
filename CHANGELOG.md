@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `sabha prune` (`bin/sabha-prune`): runs the inventory script named by `SABHA_PRUNE_CMD` with `--actions` (read-only) and writes its candidate lines to `SABHA_PRUNE_DIR/<date>.md`. Report only: it archives and removes nothing, never passes `--apply`, and a failed inventory run writes nothing.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

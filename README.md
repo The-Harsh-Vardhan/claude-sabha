@@ -284,6 +284,8 @@ from the scripts):
 | `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
 | `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
+| `SABHA_PRUNE_CMD` | unset (required) | `sabha prune`: the inventory script, run with `--actions` only (read-only) |
+| `SABHA_PRUNE_DIR` | `$SABHA_IMPL/prune` | `sabha prune`: where the dated reports are written |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
 
@@ -306,6 +308,7 @@ from the scripts):
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
+| `bin/sabha prune` | Runs `SABHA_PRUNE_CMD --actions` and writes the candidate lines to `<date>.md` in `SABHA_PRUNE_DIR`; archives and removes nothing, never passes `--apply`, writes nothing when the inventory fails |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
 
