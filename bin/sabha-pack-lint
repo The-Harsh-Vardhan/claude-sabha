@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# sabha-pack-lint: lint the command lines of push packs and PR bodies (Markdown). Bash 3.2 safe.
+#   sabha-pack-lint <file.md>...        sabha pack-lint <file.md>...        sabha pack lint <file.md>...
+# A command line is a line inside a fenced block (``` or ~~~; no language, or sh, bash, zsh, shell, console,
+# any case) or a line indented 4 spaces or more, or by a tab, outside a list. Each one is rejected for: an inline
+# # comment (zsh passes it to the command as arguments; text inside quotes is fine), an elision (a standalone
+# "..." or "<...>", or the ellipsis character; a git range such as a...b is fine), a non-ASCII byte (an arrow, a
+# dash; the column is printed), or a missing "cd /absolute/path && " prefix (a continuation line after a trailing
+# backslash is exempt).
+# Output: one "file:line: reason" per finding. Exit 0 clean, 1 findings, 2 usage, unreadable or binary file.
+set -u
+export LC_ALL=C
+[[ $# -ge 1 ]] || { sed -n '2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+bad=0 total=0
+ELL=$'\xe2\x80\xa6'
+quoted='"[^"]*"'"|'[^']*'"
+cdre="^cd[[:space:]]+(/[^[:space:]&\"']+|\"/[^\"]+\"|'/[^']+')[[:space:]]+&&[[:space:]]+[^[:space:]]"
+nonascii='[^[:print:][:space:]]'
+listre='^[[:space:]]{0,3}([-*+]|[0-9]+[.)])[[:space:]]'
+fencere='^[[:space:]]*(`{3,}|~{3,})[[:space:]]*([^[:space:]`]*)'
+indentre=$'^(    |\t)'
+dotsre='(^|[[:space:]<])\.\.\.([[:space:]>]|$)'
+
+lint() {
+  local f=$1 line n=0 fence='' fmark='' infence=0 inlist=0 cmd prev_cont=0 t bare pre
+  [[ -r $f && -f $f ]] || { echo "sabha-pack-lint: cannot read $f" >&2; exit 2; }
+  [[ $(( $(tr -d '\000' < "$f" | wc -c) )) -eq $(( $(wc -c < "$f") )) ]] || { echo "sabha-pack-lint: $f is binary (NUL byte)" >&2; exit 2; }
+  while IFS= read -r line || [[ -n $line ]]; do
+    n=$((n + 1)); cmd=
+    if [[ $line =~ $fencere ]]; then
+      t=${BASH_REMATCH[1]}
+      if (( infence )); then
+        # a closing fence is the same character, at least as long, with nothing after it
+        if [[ ${t:0:1} == "${fmark:0:1}" && ${#t} -ge ${#fmark} && -z ${line//[[:space:]\`~]/} ]]; then infence=0; fi
+      else
+        infence=1; fmark=$t
+        t=$(printf %s "${BASH_REMATCH[2]}" | tr 'A-Z' 'a-z')
+        case $t in ""|sh|bash|zsh|shell|console) fence=cmd ;; *) fence=other ;; esac
+      fi
+      prev_cont=0; continue
+    fi
+    if (( infence )); then
+      [[ $fence == cmd ]] && cmd=$line
+    elif [[ $line =~ $indentre ]]; then
+      (( inlist )) || cmd=$line
+    elif [[ -n ${line//[[:space:]]/} ]]; then
+      if [[ $line =~ $listre ]]; then inlist=1; else inlist=0; fi
+    fi
+    [[ -n ${cmd//[[:space:]]/} ]] || { prev_cont=0; continue; }
+    cmd=${cmd#"${cmd%%[![:space:]]*}"}
+    total=$((total + 1))
+    bare=$cmd
+    while [[ $bare =~ $quoted ]]; do bare=${bare/"${BASH_REMATCH[0]}"/}; done
+    if [[ $bare =~ (^|[[:space:]])# ]]; then echo "$f:$n: inline # comment"; bad=1; fi
+    if [[ $cmd =~ $dotsre || $cmd == *"$ELL"* ]]; then echo "$f:$n: elision (... or ellipsis)"; bad=1
+    elif [[ $line =~ $nonascii ]]; then pre=${line%%[^[:print:][:space:]]*}; echo "$f:$n: non-ASCII character at column $(( ${#pre} + 1 ))"; bad=1; fi
+    if (( ! prev_cont )) && ! [[ $cmd =~ $cdre ]]; then echo "$f:$n: no 'cd /absolute/path && ' prefix"; bad=1; fi
+    prev_cont=0; [[ $cmd == *\\ ]] && prev_cont=1
+  done < "$f"
+}
+
+for f in "$@"; do lint "$f"; done
+(( bad )) && exit 1
+echo "ok: $total command lines clean"

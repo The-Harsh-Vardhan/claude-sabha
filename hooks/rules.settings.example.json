@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /absolute/path/to/claude-sabha/hooks/sabha-rules.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

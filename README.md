@@ -12,6 +12,14 @@ work through plain files, keep their progress in plain files, and restart fresh 
 **[Themes](themes/README.md)** -
 made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
+## Used in production work
+
+I have used this on most days since 14 October 2026 on real multi-repo work: briefs, reviews, hotfixes and pushes, with
+one relay, one dispatcher and a small grid of workers. In that time the dispatcher received over 300 briefs, and this
+repo has commits on 14 different days. Many rules and fixes in this repo come from things that went
+wrong there. [Field notes](docs/field-notes.md) has the setup, a real day, each incident and what changed because of it,
+and what is still rough.
+
 ## Quick start
 
 1. Install the plugin. Inside Claude Code:
@@ -39,7 +47,10 @@ made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
 ![claude-sabha architecture](docs/diagrams/architecture.png)
 
-Status: 1.0.0, first public release. macOS is used daily; Windows (Git Bash) is beta (see
+Status: evolving. Latest release 2.0.1; main adds roles on different Claude accounts and a restart hold for in-session
+helpers (see [CHANGELOG.md](CHANGELOG.md), "Unreleased"). Next: durable helpers that outlive a dispatcher restart
+([PR #35](https://github.com/The-Harsh-Vardhan/claude-sabha/pull/35)), a loud alert when a pane's context file goes stale, and the open issues
+drafted in [issues/](issues). macOS is used daily; Windows (Git Bash) is beta (see
 [docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine; the full list is in [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Feedback for v2
@@ -178,6 +189,8 @@ context percent to `status/context/<name>.txt` and the account's usage windows t
 desktop notification, the `sabha-watch` banner and a line in `status/alerts.log`. `SABHA_STOP=90` stops new sessions
 at that percent of either window until it resets; running briefs finish and nothing is killed. The Windows toast is
 UNTESTED. A per-role cost log is written to `status/cost-log.tsv`.
+`bin/sabha-cost [--since YYYY-MM-DD]` sums tokens per role and day from the Claude transcripts (read-only; input,
+cache writes, cache reads, output, cache-read share) and counts the cost-log events; tokens only, not priced.
 
 ## Session deck
 
@@ -283,19 +296,32 @@ from the scripts):
 | `SABHA_NUDGE_TIMEOUT` | `120000` (milliseconds) | `sabha-nudge`: how long `herdr agent prompt --wait` waits |
 | `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
 | `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
+| `SABHA_CHAIN_<repo>` | unset | `sabha shipped`: the promotion chain of a repo, branches in order, space separated (`<repo>` = the name after the slash, other characters as `_`) |
+| `SABHA_NIGHTLY_DIR` | `$SABHA_IMPL/nightly` | `sabha nightly`: where the dated drafts are written |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
+| `SABHA_PRUNE_CMD` | unset (required) | `sabha prune`: the inventory script, run with `--actions` only (read-only) |
+| `SABHA_PRUNE_DIR` | `$SABHA_IMPL/prune` | `sabha prune`: where the dated reports are written |
+| `SABHA_TYPO_ALLOW` | none | `sabha-typography-check`: the allow-list file when `--allow` is not given (`~` and `$VAR` are expanded) |
+| `SABHA_TYPO_RUNNER` | `node tools/typography-computed.mjs` | `sabha-typography-check --browser`: the command that writes the computed styles (it gets the page and the output file); needs playwright resolvable from `SABHA_TYPO_PLAYWRIGHT_DIR` (default: the current directory) |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
+| `SABHA_UPSTREAM_CONF`, `SABHA_UPSTREAM_ORG`, `SABHA_UPSTREAM_PROBE_<repo>`, `SABHA_UPSTREAM_PAIRS`, `SABHA_UPSTREAM_TO` | unset | `sabha upstream`: the repos list, the owner of a repo with no clone, layout paths, `repo:base:upstream` pairs, the brief receiver ([docs/upstream-watch.md](docs/upstream-watch.md)) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
+| `SABHA_ROSTER_CLAIMS` | empty | `sabha roster --check`: notes or memory files (space separated, read only) whose `no <model>` lines are shown under a model conflict |
+| `SABHA_GH_USER`, `SABHA_GH_TTL`, `SABHA_GH_MIN_LEFT` | unset, `600`, `200` | `sabha-gh`: the login `gh` must be on, cache seconds, the quota floor ([docs/github-layer.md](docs/github-layer.md)) |
+| `SABHA_PRS_ORGS`, `SABHA_PRS_AUTHOR`, `SABHA_PRS_REPOS` | unset | `sabha prs`: orgs and repos (space separated) searched for the author's open PRs |
 
 ## Commands
 
 | Command | What |
 | --- | --- |
 | `bin/sabha init [--plan pro\|max5\|max20] [--tracker html\|xlsx\|sheet] [--push ntfy\|off] [--ws DIR] [--home DIR] [--name NAME]` | Sets up the project's sabha folder (`~/my-claude-sabha/<name>`) and its `sabha.conf` (plan, OS, the agent CLIs found, tracker, ntfy topic), and links it into the project. Asks for what it is not given on a terminal |
-| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only); exits 1 only on a FAIL |
+| `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only), and roster drift (FAIL); exits 1 only on a FAIL |
+| `bin/sabha roster [--check\|--write]` | `SABHA_ROSTER` is the only roster source. `--check` prints a FAIL per `PROTOCOL-core.md` table cell or `protocol/<Name>.md` heading (`# Name (Model, effort)`) whose model or effort differs; the `no <model>` lines of the files in `SABHA_ROSTER_CLAIMS` (notes, memory) follow a model conflict as context. `--write` rewrites those cells and headings from the conf; a table row naming roles with different profiles is left for a hand split. `sabha-up.sh` prints the drift and never writes |
+| `bin/sabha stamp` | The current time from the clock, UTC then local, for briefs and status lines (no hand-typed times) |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the sabha-loop restart line (`SABHA_EFFICIENCY` on; `--print --raw` the bare claude line), else the claude line, then a `pane:` line |
-| `bin/sabha-heavy check\|acquire\|release\|run\|status` | Heavy-job gate: load1 against 2 x cores, memory pressure, `SABHA_HEAVY_MAX` slots; exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
+| `bin/sabha-heavy check\|acquire\|release\|run\|status\|queue` | Heavy-job gate: memory pressure, load1 against 2 x cores, `SABHA_HEAVY_MAX` slots, a priority queue with aging, a per-job log (`jobs.tsv`); exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
 | `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
+| `bin/sabha-reap [--close <pid-or-pane-id>...]` | Lists every named claude session oldest first with age, idle time, last context % and herdr pane state; marks a resumed older copy STALE? and a mapped pane of a claude role with no `claude -n/--name` session seen by ps ORPHAN (a hint, not proof). Cost is the last context % only; idle is the last status-line render (a session in a long tool call looks idle); the pane state shows for the newest copy only. Closes nothing unless you name an id with `--close` (TERM to a pid, `herdr pane close` for an orphan pane); a role's last copy is refused, a pid is read as decimal (`0101` is 101), and a pane is closed only when herdr reports it idle or done, it is not the pane the command runs in (`HERDR_PANE_ID` must be set, so a pane close works only from inside a herdr pane), ps shows at least one named claude and the pane map names the pane in exactly one row (a pane in two rows, in any spelling of the id, is AMBIGUOUS and a row without a role is MALFORMED: never closed); role names compare case-insensitively |
 | `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |
 | `bin/sabha-nudge <Name> "text"` | Wakes one pane (`herdr agent prompt --wait`) |
 | `bin/sabha-alert [<Name>...]` | Toast when a pane blocks at a prompt; copies the prompt to `status/blocked/`; never answers |
@@ -303,11 +329,21 @@ from the scripts):
 | `bin/sabha-loop <Name>` | The restart supervisor for one pane |
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
+| `bin/sabha upstream [--conf FILE] [--fresh] [--daily]` | Upstream move watcher: a daily read-only check of a repos list for an archived or renamed repo, a lost base branch, a moved layout, an upstream merged in; a new finding becomes a `for-me.items` entry and one brief; needs `bin/sabha-gh` and `gh` logged in ([docs/upstream-watch.md](docs/upstream-watch.md)) |
+| `bin/sabha decide` | One answer to a question item becomes a board update file, a block in the questions file and a decision log line; prints the command that closes the item, never runs it |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
+| `bin/sabha-helper` | Durable helpers: long work as a headless session that survives a dispatcher restart; `start`, `list`, `reattach`, `wait`, `stop` ([docs/durable-helpers.md](docs/durable-helpers.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
+| `bin/sabha prs [--org ORG] [--repo OWNER/NAME] [--author LOGIN] [--md FILE] [--json] [--fresh]` | PR radar: an author's open PRs across orgs and repos, worst first (ARCHIVED, CONFLICT, BEHIND>50, UNKNOWN, CHANGES_REQUESTED, STALE>7d); read-only, through `bin/sabha-gh` ([docs/github-layer.md](docs/github-layer.md)); needs `gh` logged in, from a plain terminal |
+| `bin/sabha-gh <read> ...` | The kit's one read-only GitHub layer: named reads (`pr`, `prs-by-author`, `compare`, `repo`, `branch`, `contents`), no flag accepted, account and quota checked, 10-minute cache |
+| `bin/sabha whoami [<Name>]` | One line: role, session id (written by the SessionStart hook to `status/whoami/<Name>.txt`), cwd, conf, impl, pane, live copies; exit 3 with a `WARN duplicate` line when more than one live session holds the name. The relay gets this line before every turn (`hooks/sabha-preturn.sh`, UserPromptSubmit) |
+| `bin/sabha shipped [--fresh] [--chain "b1 b2"] <owner/repo#n>` | How far a merged PR has been promoted: `in`, `NOT IN` or `no such branch` per branch of its chain; by commit sha, so a squash promotion is not detected ([docs/shipped.md](docs/shipped.md)); read-only, through `bin/sabha-gh`; needs `gh` logged in, from a plain terminal |
+| `bin/sabha nightly` | Drafts the day's progress note (`<date>.md` in `SABHA_NIGHTLY_DIR`) from the day's `.done` markers and `for-me.items` changes; read-only on its sources, sends nothing, keeps a draft you edited unless `--force` |
 | `bin/sabha intake [--apply] [FILE ...]` | A meeting note or a Slack transcript (text; a screenshot needs a transcript .txt beside it) becomes a digest of facts and decisions plus one brief and one board row per ask; a dry run without `--apply`; a rerun files nothing twice |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
-| `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
+| `bin/sabha prune` | Runs `SABHA_PRUNE_CMD --actions` and writes the candidate lines to `<date>.md` in `SABHA_PRUNE_DIR`; archives and removes nothing, never passes `--apply`, writes nothing when the inventory fails |
+| `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate (`--checks` adds workspace file tests, [docs/gate-checks.md](docs/gate-checks.md)), an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
+| `bin/sabha-typography-check <file> --allow ALLOW.json` | Checks a PDF, an HTML page or an artifact for off-list fonts, sizes, weights and colours, low contrast, clipped or overflowing text, and one role styled two ways; each finding names where it is, what was found and the nearest allowed value. A PDF needs the repo-local `.venv` (`uv venv .venv && uv pip install --python .venv/bin/python -r tools/typography-requirements.txt`); `--browser` computes styles through `sabha-heavy run typography --` (page scripts off unless `--allow-scripts`; Chrome or playwright missing exits 2); reads only the input's folder (its `@import` files too); the runner's request block is tested only against a fake playwright; not run in a real Chrome; unresolvable colours print as UNKNOWN (`--strict` fails on them); never run in a real browser and never on a real Chrome PDF yet (tests use a fake playwright and base-14 PDFs); example list `template/typography.example.json`; skill `skills/sabha-typography-check` |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
 
 ## Setup
@@ -394,11 +430,12 @@ All rows are UNTESTED live.
 | `sabha-gate-review` | How a reviewer or critic writes a verdict file the gate can read |
 | `sabha-relay` | The relay's job: talk to the user, brief the dispatcher, do no work |
 | `sabha-dispatch` | The dispatcher's job: route by difficulty, track acks and dones, run work in parallel |
+| `sabha-typography-check` | When to run the typography check (UI PRs, exports, artifacts), how to read its report, and that a finding is a question for the owner, never an auto-fix |
 
 | Hook | What |
 | --- | --- |
 | SessionStart | Loads the role's handoff and its open briefs |
-| PreToolUse guard | Blocks `git push`, `gh pr` and chat-service writes for every role except the relay |
+| PreToolUse guard | Blocks `git push`, `gh pr` and chat-service writes for every role, the relay included |
 | Stop | Reminds the role to update its handoff before the session ends |
 
 How these plug into the file bus: [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -420,6 +457,14 @@ Sabha does not depend on these and has no integration code for them; each can be
   (`Name:agent:model:effort`), so the two agree on which role gets the strong model.
 - superpowers: its planning, TDD and debugging skills can be used inside any worker session; they shape how a worker
   does a brief, while sabha shapes how briefs move between sessions.
+
+## Opt-in workflow flags
+
+All off by default in the code; set them in `sabha.conf`. `sabha.conf.example` turns `SABHA_RELAY_GUARD` on, so a conf copied from it has the guard.
+
+| Flag | What it does |
+| --- | --- |
+| `SABHA_RELAY_GUARD=1` | `sabha-up.sh` gives the relay (only) Claude hooks running `bin/sabha-relay-guard`: Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents, ToolSearch and Skill pass (Agent, Task*, Monitor and the rest do not); Read, Grep, Glob and Bash refuse `.env`, `.env.*`, `*.env` (so `.testsigma-github.env`, `.lab-agent.env`), `.envrc`, `.npmrc`, `.netrc`, `.pgpass`, `.git-credentials`, `kubeconfig`, `credentials*`, `creds`, `*.pem`, `*.key`, `id_*`, anything under `.aws/`, `.git/config` and `.docker/config.json` by name in any case (a Bash word naming a symlink by its target too; a Grep/Glob glob that could match one of them, or with a `{`, is refused), with no recursive read (Bash `grep -r`/`-R`/`-d recurse`/`--include`, `-f`/`--file`, or a directory operand other than the pattern word; the Grep tool over a directory needs a narrow glob such as `**/*.md`); Write and Edit only under `SABHA_IMPL/inbox/`, the relay's own `status/<name>.md` and `status/<name>-night-*.md` (the handoff the 250k warning asks for), `SABHA_IMPL/for-me.items`, the relay's own flat project memory dir and the paths in `SABHA_RELAY_WRITE` (absolute, space-separated, a glob in the last part only, one directory deep), never a `.conf`; paths are resolved, so a symlinked dir or file does not lead out. Bash only for a short read-only list (ls, cat, head, tail, wc, grep, stat, du, date, pwd, cd, echo, git status/log/diff/show/rev-parse/branch --show-current, with `-C <dir>` only for a dir whose real path is inside `SABHA_WS`, never `-O<file>` or `--no-index`) whose words hold only letters, digits and `. _ / = : @ , + -`: a quote (`git log '--output=x'` would write a file), glob, `( ) { } $`, backtick, backslash, newline, redirect (only the whole words `2>&1`, `2>/dev/null` and `>/dev/null` pass; `hi2>&1x` writes a file), word starting with `=`, a command over 2000 characters or chaining into anything else is refused (the Bash tool runs your shell, zsh on a Mac, where `=(cmd)` and `*(e:cmd:)` run code). Everything else is denied with "relay: brief the dispatcher". A prompt whose first line is "you do it" (any case, a trailing `.` or `!`) lifts the guard for that one turn, 10 minutes at most; SessionStart and Stop clear it. Memory writes are limited to the relay's own project dir (`~/.claude/projects/<SABHA_WS with every non-alphanumeric as ->/memory/`, flat). Needs `jq`; without the config or jq the guard denies every call: set `SABHA_RELAY_GUARD=0` in `sabha.conf` and restart the relay (the deny message says so). For the relay, `sabha-loop` replaces `SABHA_LOOP_LIMIT` (even one you set) with `SABHA_RELAY_STOP_K`. Limits, stated plainly: (1) the prompt hook also sees text that `sabha-nudge` types into the relay pane, so any role that can run `sabha-nudge` can send "you do it" and lift the guard; (2) the guard is a Claude hook: if hooks do not load (`disableAllHooks`, managed `allowManagedHooksOnly`, a claude that ignores `--settings`) it fails open and the relay runs unguarded, and `sabha doctor` only checks `disableAllHooks` in your user settings; (3) secret files are refused by name only: a secret under another name is still read, and `git log -p`/`--all`/`diff`/`show` print committed history, so a secret ever committed is readable; paths outside the workspace are not refused (the relay reads other repos); the guard is accident prevention for a trusted session, not a sandbox (SECURITY.md, section 5); keep the deny list (`share/claude-settings.json`); (4) a hook that times out does not block the call in claude, so the 2000-character cap on a Bash command (checked before any pattern work, which is slow on bash 3.2) is the control, not a timeout |
 
 ## License
 
