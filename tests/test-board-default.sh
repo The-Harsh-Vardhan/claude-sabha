@@ -66,6 +66,20 @@ check "the page reads the legacy bhishma collection as well as architect" 'grep 
 check "the page never writes to bhishma" '! grep -E "bhishma/|collection\(\"bhishma\"\)\.(add|doc)" "$T" | grep -q .'
 check "board-schema.md documents bhishma as an alias of architect" 'grep -q "legacy collection .bhishma. is read as an alias of .architect." "$ROOT/template/board/board-schema.md"'
 
+# "Do this next": a row with a column is placed by the column only, so the alias test sits inside the no-column branch
+NEXTF=$(grep -o 'filter(function (r) { return r.column === "blocked-me" ||.*BLOCKED_ALIAS)*; });' "$T")
+check "Do this next keeps the alias test inside the no-column branch" '[[ $NEXTF == *"|| (!r.column && (/^BLOCKED-HUMAN/.test(r.state || \"\") || String(r.state || \"\").split(\" \")[0] === BLOCKED_ALIAS)); });" ]]'
+if command -v node >/dev/null; then
+  fn=${NEXTF#filter(}; fn=${fn%);}
+  js='var BLOCKED_ALIAS = "BLOCKED-SAM"; var f = '"$fn"';
+  [[{ column: "ready", state: "BLOCKED-SAM" }, false], [{ column: "ready", state: "BLOCKED-HUMAN" }, false],
+   [{ state: "BLOCKED-SAM note" }, true], [{ state: "BLOCKED-HUMAN" }, true], [{ column: "blocked-me", state: "READY" }, true],
+   [{ state: "READY" }, false]].forEach(function (x) { if (f(x[0]) !== x[1]) { console.log("wrong: " + JSON.stringify(x[0])); process.exitCode = 1; } });'
+  check "Do this next on sample rows (node): a ready row in BLOCKED-<NAME> stays out" '[[ -n $NEXTF ]] && node -e "$js"'
+else
+  echo "skip: node not on PATH, the Do this next sample-row check did not run"
+fi
+
 echo "--- sabha.conf.example"
 check "sabha.conf.example documents SABHA_BOARD_URL (a comment, then the key)" 'grep -B3 "^SABHA_BOARD_URL=" "$ROOT/sabha.conf.example" | grep -q "^# .*SABHA_BOARD_URL\|^# The progress board"'
 check "sabha.conf.example has SABHA_RELAY_ALLOW_TOOLS empty, after SABHA_RELAY_GUARD, naming Artifact,ArtifactData" 'grep -q "^SABHA_RELAY_ALLOW_TOOLS=\"\"$" "$ROOT/sabha.conf.example" && [[ $(grep -n "^SABHA_RELAY_GUARD=" "$ROOT/sabha.conf.example" | cut -d: -f1) -lt $(grep -n "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | cut -d: -f1) ]] && grep -B6 "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | grep -q "Artifact,ArtifactData"'

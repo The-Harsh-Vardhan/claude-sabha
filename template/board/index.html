@@ -478,7 +478,7 @@ var BLOCKED_ALIAS = "BLOCKED-" + String(HUMAN).toUpperCase().replace(/[^A-Z0-9]+
   function render() {
     host.replaceChildren(n("h2", "", "Do this next"));
     if (!loaded) { host.appendChild(n("p", "dev-note", "Loading the board...")); return; }
-    var all = Object.keys(rows).map(function (k) { return rows[k]; }).filter(function (r) { return r.column === "blocked-me" || (!r.column && /^BLOCKED-HUMAN/.test(r.state || "") || String(r.state || "").split(" ")[0] === BLOCKED_ALIAS); });
+    var all = Object.keys(rows).map(function (k) { return rows[k]; }).filter(function (r) { return r.column === "blocked-me" || (!r.column && (/^BLOCKED-HUMAN/.test(r.state || "") || String(r.state || "").split(" ")[0] === BLOCKED_ALIAS)); });
     all.sort(function (a, b) {
       var d = (PR.indexOf(a.priority) < 0 ? 9 : PR.indexOf(a.priority)) - (PR.indexOf(b.priority) < 0 ? 9 : PR.indexOf(b.priority));
       if (d) return d;
