@@ -296,6 +296,7 @@ from the scripts):
 | `SABHA_NUDGE_TIMEOUT` | `120000` (milliseconds) | `sabha-nudge`: how long `herdr agent prompt --wait` waits |
 | `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
 | `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
+| `SABHA_CHAIN_<repo>` | unset | `sabha shipped`: the promotion chain of a repo, branches in order, space separated (`<repo>` = the name after the slash, other characters as `_`) |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
@@ -327,6 +328,7 @@ from the scripts):
 | `bin/sabha prs [--org ORG] [--repo OWNER/NAME] [--author LOGIN] [--md FILE] [--json] [--fresh]` | PR radar: an author's open PRs across orgs and repos, worst first (ARCHIVED, CONFLICT, BEHIND>50, UNKNOWN, CHANGES_REQUESTED, STALE>7d); read-only, through `bin/sabha-gh` ([docs/github-layer.md](docs/github-layer.md)); needs `gh` logged in, from a plain terminal |
 | `bin/sabha-gh <read> ...` | The kit's one read-only GitHub layer: named reads (`pr`, `prs-by-author`, `compare`, `repo`, `branch`, `contents`), no flag accepted, account and quota checked, 10-minute cache |
 | `bin/sabha whoami [<Name>]` | One line: role, session id (written by the SessionStart hook to `status/whoami/<Name>.txt`), cwd, conf, impl, pane, live copies; exit 3 with a `WARN duplicate` line when more than one live session holds the name. The relay gets this line before every turn (`hooks/sabha-preturn.sh`, UserPromptSubmit) |
+| `bin/sabha shipped [--fresh] [--chain "b1 b2"] <owner/repo#n>` | How far a merged PR has been promoted: `in`, `NOT IN` or `no such branch` per branch of its chain; by commit sha, so a squash promotion is not detected ([docs/shipped.md](docs/shipped.md)); read-only, through `bin/sabha-gh`; needs `gh` logged in, from a plain terminal |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |

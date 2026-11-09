@@ -23,6 +23,7 @@
 #   sabha prs [args]                       PR radar: open PRs of an author across orgs and repos, worst first (bin/sabha-prs)
 #   sabha whoami [Name]                    one line: role, session id, cwd, conf, impl, pane, live copies; exit 3 when
 #                                          more than one live session carries the name (role: Name, else SABHA_ROLE)
+#   sabha shipped <owner/repo#n>           how far a merged PR has been promoted along its branch chain (bin/sabha-shipped)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -584,5 +585,6 @@ case ${1:-} in
   whoami) shift; cmd_whoami "$@" ;;
   pack-lint) shift; exec "$BIN/sabha-pack-lint" "$@" ;;
   pack) [[ ${2:-} == lint ]] || die "pack: use 'sabha pack lint <file.md>...'"; shift 2; exec "$BIN/sabha-pack-lint" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>..." >&2; exit 2 ;;
+  shipped) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-shipped" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>... | sabha shipped <owner/repo#n>" >&2; exit 2 ;;
 esac
