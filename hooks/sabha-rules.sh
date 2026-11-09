@@ -64,7 +64,7 @@ if type == "object" and (.tool_name | type == "string") and ((.cwd // "") | type
       (if $t == "Write" then $i.content elif $t == "Edit" then $i.new_string
        elif $t == "MultiEdit" then [($i.edits // [])[].new_string // ""] | join("\n")
        elif $t == "NotebookEdit" then $i.new_source else "" end // ""),
-      (if $t == "Bash" then $i.command else "" end),
+      (if $t == "Bash" then (if $size_guard == "1" and ($i.command | utf8bytelength) > 16384 then "SABHA_TOOLONG" else $i.command end) else "" end),
       (if $t == "Read" then $i.file_path
        elif $t == "Grep" then [$i.path // "", $i.glob // ""] | join("\n")
        elif $t == "Glob" then [$i.path // "", $i.pattern // ""] | join("\n") else "" end // "")
@@ -72,7 +72,10 @@ if type == "object" and (.tool_name | type == "string") and ((.cwd // "") | type
   else empty end
 else empty end
 | map(gsub("\u001f"; " ")) | join("\u001f")'
-rec=$(printf '%s' "$in" | jq -er "$jq_prog" 2>/dev/null) ||
+# a command over 16 KB is replaced by a marker inside jq: cutting the fields apart below is quadratic on bash 3.2
+size_guard=0
+if on shared-push || on secret-read; then size_guard=1; fi
+rec=$(printf '%s' "$in" | jq -er --arg size_guard "$size_guard" "$jq_prog" 2>/dev/null) ||
   deny input "the hook input is not a tool call this hook can read (empty, truncated, not an object, or a field of the wrong type); refusing the call"
 us=$'\x1f'
 tool=${rec%%"$us"*} rec=${rec#*"$us"}
@@ -84,6 +87,14 @@ case $tool in
   Write|Edit|MultiEdit|NotebookEdit|Read|Grep|Glob|Bash) ;;
   *) exit 0 ;;
 esac
+
+# Size guard first: bash 3.2 is quadratic on a very long word and a hook that times out lets the call through, so a huge
+# command is refused before any pass that scans it.
+if [[ $tool == Bash && -n $cmd ]] && { on shared-push || on secret-read; }; then
+  if [[ $cmd == SABHA_TOOLONG || ${#cmd} -gt 16384 ]] || printf '%s\n' "$cmd" | awk '{ for (i = 1; i <= NF; i++) if (length($i) > 8192) f = 1 } END { exit !f }'; then
+    deny size "the command is too long to check in time (over 16 KB, or one word over 8 KB); split it, or write the data to a file with the Write tool"
+  fi
+fi
 
 # glob_in <word> <globs>: the word matches one of the space-separated globs
 glob_in() {
@@ -103,6 +114,7 @@ glob_in() {
 # *.example, *.sample, *.template and *.pub (public keys) are not secrets.
 is_secret() {
   local n=${1##*[/:=@]} hit=1
+  n=${n#-[A-Za-z]}  # an attached short-option value: wget -i.env
   shopt -s nocasematch
   case $n in
     *.example|*.sample|*.template|*.pub) ;;
@@ -200,10 +212,12 @@ push_args() {
     n=$((n + 1))
     [[ $n -gt 1 ]] || continue
     refs=$((refs + 1))
+    # before the colon cut: ${B:-main} would otherwise lose its $
+    case $tok in *'$'*|*'`'*|*'{'*) deny shared-push "the refspec '$tok' holds a shell expansion the hook cannot read; name your own feature branch literally" ;; esac
     dest=${tok#+}
     case $dest in *:*) dest=${dest##*:} ;; esac
-    dest=${dest#refs/heads/}
-    case $dest in *'$'*|*'`'*|*'{'*) deny shared-push "the refspec '$tok' holds a shell expansion the hook cannot read; name your own feature branch literally" ;; esac
+    # git reads refs/heads/x, heads/x and x as the same branch
+    while :; do case $dest in refs/*) dest=${dest#refs/} ;; heads/*) dest=${dest#heads/} ;; *) break ;; esac; done
     if [[ $dest == HEAD || -z $dest ]]; then
       if branch_of "$d"; then dest=$br
       else deny shared-push "the branch of this push cannot be told (directory '$d' is unknown or not a checkout); name your own feature branch in the refspec"; fi
@@ -227,11 +241,23 @@ push_args() {
 
 # git_args <words after "git">: skips git's options (-C dir moves the directory), then judges a push
 git_args() {
-  local d=$cur
+  local d=$cur t
   while [[ $# -gt 0 ]]; do
     case $1 in
       -C) jp "$d" "${2:-}"; d=$JP; shift; [[ $# -gt 0 ]] && shift ;;
-      -c|--namespace|--super-prefix|--config-env|--exec-path) shift; [[ $# -gt 0 ]] && shift ;;
+      -c)
+        case ${2:-} in
+          remote.*.push=*|remote.*.pushurl=*|alias.*) deny shared-push "git -c ${2:-} can route a push to a shared branch (a configured refspec or an alias) where the hook cannot read it; name the refspec on the command line" ;;
+        esac
+        shift; [[ $# -gt 0 ]] && shift ;;
+      --namespace|--super-prefix|--config-env|--exec-path) shift; [[ $# -gt 0 ]] && shift ;;
+      config)
+        shift
+        case " $* " in *' --get'*|*' --unset'*|*' --list'*|*' -l '*|*' --show-origin'*) return ;; esac
+        for t; do
+          case $t in remote.*.push|alias.*) deny shared-push "git config $t can route a push to a shared branch where the hook cannot read it; name the refspec on the command line" ;; esac
+        done
+        return ;;
       --git-dir|--work-tree) d='?'; shift; [[ $# -gt 0 ]] && shift ;;
       --git-dir=*|--work-tree=*) d='?'; shift ;;
       -*) shift ;;
@@ -276,17 +302,23 @@ gh_args() {
 
 # judge <one command segment>: tracks cd/pushd/popd in cur, then looks at every git and gh word of the segment
 judge() {
-  local IFS=$' \t\n' t saved=$cur envd=0 inenv=0 allas=1
+  local IFS=$' \t\n' t saved=$cur envd=0 inenv=0 allas=1 uf=0
   # shellcheck disable=SC2086  # split on purpose; globbing is off
   set -- $1
   while [[ $# -gt 0 ]]; do
     case $1 in then|do|else|'{'|'!'|time|builtin|command|sudo|exec|nohup) shift ;; *) break ;; esac
   done
+  # git config can come from the environment too: a configured push refspec or an alias hides the branch from the hook
+  for t; do
+    case $t in GIT_CONFIG_*=*) deny shared-push "$t can route a push to a shared branch (a configured refspec or an alias) where the hook cannot read it; name the refspec on the command line" ;; esac
+  done
   # GIT_DIR or GIT_WORK_TREE set as a command of its own (export, declare, a bare assignment) holds for the rest of the
   # command, so every later push has an unknown directory until it is unset
   case ${1:-} in
     export|declare|typeset|readonly) for t in "${@:2}"; do case $t in GIT_DIR|GIT_DIR=*) gd=1 ;; GIT_WORK_TREE|GIT_WORK_TREE=*) gw=1 ;; esac; done ;;
-    unset) for t in "${@:2}"; do case $t in GIT_DIR) gd=0 ;; GIT_WORK_TREE) gw=0 ;; esac; done ;;
+    unset) uf=0  # unset -f names a function, so GIT_DIR stays set
+      for t in "${@:2}"; do case $t in -v) ;; -*) uf=1 ;; esac; done
+      if [[ $uf == 0 ]]; then for t in "${@:2}"; do case $t in GIT_DIR) gd=0 ;; GIT_WORK_TREE) gw=0 ;; esac; done; fi ;;
     *) for t; do case $t in [A-Za-z_]*=*) ;; *) allas=0 ;; esac; done
        if [[ $allas == 1 && $# -gt 0 ]]; then
          for t; do case $t in GIT_DIR=*) gd=1 ;; GIT_WORK_TREE=*) gw=1 ;; esac; done
@@ -341,13 +373,9 @@ unwrap_sh_c() {
 }
 
 # The two rules that walk a command word by word get it with line continuations joined and every other backslash
-# deleted (g\it, pu\sh, .e\nv are the same words to the shell), after a size check: bash 3.2 is quadratic on a very
-# long word, and a hook that times out lets the call through, so a huge command is refused instead.
+# deleted (g\it, pu\sh, .e\nv are the same words to the shell); the size guard near the top has already run.
 ncmd=
 if [[ -n $cmd ]] && { on shared-push || on secret-read; }; then
-  if [[ ${#cmd} -gt 16384 ]] || printf '%s\n' "$cmd" | awk '{ for (i = 1; i <= NF; i++) if (length($i) > 8192) f = 1 } END { exit !f }'; then
-    deny size "the command is too long to check in time (over 16 KB, or one word over 8 KB); split it, or write the data to a file with the Write tool"
-  fi
   bsnl=$'\\\n'
   ncmd=${cmd//"$bsnl"/}
   ncmd=$(printf '%s\n' "$ncmd" | sed -E 's/\\([^"'"'"'])/\1/g')
@@ -360,7 +388,10 @@ if on shared-push && [[ -n $ncmd ]]; then
     # a quoted string with a space is data (a commit message): it becomes Q; other quotes are dropped; a string that holds
     # a $ or a backtick stays, so $(git push ...) inside double quotes is seen. Every command, subshell and substitution
     # goes on its own line.
+    # A substitution leaves a marker word with a $ in the segment before it, so git push origin $(echo main) is a refspec
+    # the hook cannot read, not a bare push.
     code=$(printf '%s\n' "$src" | sed -E \
+      -e 's/(\$\(|`)/ __SUBST__$ \1/g' \
       -e "s/\"[^\"\$\`]*[[:space:]][^\"\$\`]*\"/Q/g" \
       -e "s/'[^']*[[:space:]][^']*'/Q/g" \
       -e "s/[\"']//g" \

@@ -377,6 +377,53 @@ check "R2 S7 a 4 KB word is checked, not refused" 'allows bash_in "echo $small"'
 check "R2 S7 a 4 KB word then a secret read is denied" 'denies bash_in "echo $small; cat .env" && rule secret-read'
 check "R2 S7 SABHA_RULES=ascii skips the size check" 'SABHA_RULES=ascii allows bash_in "echo $big"'
 
+# round 3 (review 225): M1 expansion in a refspec, M2 heads/ destinations, S1 size first, S2 config routes, S4 unset -f,
+# S5 attached short option
+m1a='git push origin ${B:-main}'
+m1b='git push origin HEAD:${B:-main}'
+m1c='git push origin ${HOME:+main}'
+m1d='git push origin HEAD:${HOME:+dev}'
+m1e='git push origin $(echo main)'
+m1f='git push origin "$(printf main)"'
+m1g='git push origin `echo main`'
+m1h='git push origin HEAD:$(echo main)'
+m1i='git push origin HEAD:"$(echo main)"'
+for v in m1a m1b m1c m1d m1e m1f m1g m1h m1i; do
+  check "R3 M1 expansion refspec $v denied" 'denies bash_in "${!v}" && rule shared-push'
+done
+check "R3 M1 own branch beside an unrelated substitution allowed" 'allows bash_in "echo \$(date); git push origin feat/x"'
+check "R3 M1 git -C \$(pwd) with an own branch allowed" 'allows bash_in "git -C \$(pwd) push origin feat/x"'
+m2a='git push origin HEAD:heads/main'
+m2b='git push origin HEAD:heads/dev'
+m2c='git push origin HEAD:heads/release/x'
+m2d='git push origin heads/main'
+m2e='git push origin HEAD:refs/heads/heads/main'
+for v in m2a m2b m2c m2d m2e; do
+  check "R3 M2 heads/ destination $v denied" 'denies bash_in "${!v}" && rule shared-push'
+done
+check "R3 M2 heads/ own branch allowed" 'allows bash_in "git push origin HEAD:heads/feat/y"'
+check "R3 M2 refs/heads/ own branch allowed" 'allows bash_in "git push origin HEAD:refs/heads/feat/y"'
+check "R3 allowed: plain push of the feature branch" 'allows bash_in "git push origin feat/x"'
+check "R3 allowed: push -u of the feature branch" 'allows bash_in "git push -u origin feat/x"'
+check "R3 allowed: cat of .env.example" 'allows bash_in "cat .env.example"'
+check "R3 allowed: gh pr view and git log reads" 'allows bash_in "gh pr view 12 && git log --oneline -n 3 && git status"'
+big2=$(head -c 200000 /dev/zero | tr '\0' a)
+check "R3 S1 a 200 KB word then a secret read is refused as size, and fast" 'SECONDS=0; denies bash_in "echo $big2; cat .env" && rule size && (( SECONDS < 10 ))'
+s2a='git -c remote.origin.push=HEAD:x push'
+s2b='git -c alias.p=push p origin x'
+s2c='GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:x git push origin'
+s2d='git config remote.origin.push HEAD:x && git push'
+s2e='export GIT_CONFIG_COUNT=1; git push origin feat/x'
+for v in s2a s2b s2c s2d s2e; do
+  check "R3 S2 config route $v denied" 'denies bash_in "${!v}" && rule shared-push'
+done
+check "R3 S2 git config --get of the push key allowed" 'allows bash_in "git config --get remote.origin.push; git push origin feat/x"'
+check "R3 S2 git -c user.name push of an own branch allowed" 'allows bash_in "git -c user.name=t push origin feat/x"'
+check "R3 S4 unset -f GIT_DIR does not clear it" 'denies bash_in "export GIT_DIR=$dir/shared/.git; unset -f GIT_DIR; git push" && rule shared-push'
+check "R3 S4 plain unset GIT_DIR still clears it" 'allows bash_in "export GIT_DIR=$dir/shared/.git; unset GIT_DIR; git push"'
+check "R3 S5 wget -i.env denied" 'denies bash_in "wget -i.env example.test" && rule secret-read'
+check "R3 S5 wget -i.env.example allowed" 'allows bash_in "wget -i.env.example example.test"'
+
 # switches and edges
 check "SABHA_RULES limits the rules" 'SABHA_RULES="ascii" allows bash_in "git push origin main"'
 check "SABHA_RULES keeps the named rule" 'SABHA_RULES="shared-push" denies bash_in "git push origin main"'

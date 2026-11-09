@@ -59,10 +59,26 @@ The hook and its settings file are not protected: a session can edit them.
   built at run time), a graphql mutation hidden in `-F query=@q.graphql` or `--input q.json`, the mutation
   `enablePullRequestAutoMerge`, `gh repo sync -b main`, and a push hidden behind a split word (`"pu""sh"`).
 - A bare `export GIT_DIR=...` or `GIT_DIR=...;` makes the directory of every later push unknown until `unset GIT_DIR`;
-  a push that names its own branch literally is still allowed after it.
+  a push that names its own branch literally is still allowed after it. Still open (review 225 S4): the name built
+  at run time (`export $'GIT_DIR'=...`, `k=GIT_DIR; export $k=...`), and an `unset GIT_DIR` that runs in a subshell or a
+  pipeline, which clears the flag although the parent shell keeps the variable (`unset -f` does not clear it).
+- Routes to a shared branch that the hook cannot read: a refspec or alias already in a config file (`git config` run in
+  an earlier command, `.git/config` or `~/.gitconfig` edited by another tool, a pre-existing `alias.*`), and
+  `git config` options other than the ones named (`-c remote.*.push=`, `-c alias.*`, `GIT_CONFIG_*` and a `git config
+  remote.*.push` / `alias.*` write are denied; `--get`, `--unset` and `--list` reads are allowed). The refspec is judged
+  as git reads it: `refs/heads/x`, `heads/x` and `x` are the same branch.
+- Command words built at run time are not seen: `git${IFS}push${IFS}origin${IFS}main`, `$'git' push origin main`,
+  `git $'push' origin main`, `$(printf git) push origin main`, `{git,push,origin,main}`, `git pu{s,}h origin main`,
+  `gh api ... -X $'PUT'`. The same holds for the `.e""nv`-style secret names above, and for `curl -d @"$f"` (a variable in
+  a quoted name).
+- A command substitution in the refspec of a push (`git push origin $(echo main)`) is denied as a refspec the hook
+  cannot read, whatever it prints (a false positive for `git push origin "$(git branch --show-current)"`: name the
+  branch). `cp a $(echo /dev/null)` is also denied (a `/dev` word on a `cp` line with a substitution).
 - Size: a command over 16 KB, or any word over 8 KB, is refused with the rule `size` ("split the command, or write the
   data with the Write tool"). Bash 3.2 is quadratic on long words and a hook that times out lets the call through, so the
-  hook fails closed instead. It applies when `shared-push` or `secret-read` is on.
+  check runs first: inside the `jq` call for a command over 16 KB (a 1 MB command is refused in about 0.3 s, measured),
+  then before every scan for a word over 8 KB. It applies when `shared-push` or `secret-read` is on; a hook run
+  with a shorter timeout than the machine needs (heavy load) can still time out and let the call through.
 - Input: two JSON documents on stdin are read as one (the first); Claude Code sends one.
 - Tests: tests/test-rules.sh runs on bash 3.2 from the repository; tests/test-hooks.sh fails inside a sandbox whose write
   list excludes the working directory (a bash 3.2 here-string needs a temp file there) and passes from an archive copy or
