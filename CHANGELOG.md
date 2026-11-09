@@ -87,6 +87,11 @@
   `SABHA_RELAY_WINDOW_K` (1000k); for the relay this replaces any `SABHA_LOOP_LIMIT` the user set.
   `sabha.conf.example` turns `SABHA_RELAY_GUARD` on and ships a `SABHA_PROMPT_Relay`
   with no pushes and no pane restarts. Tests: `tests/test-hooks.sh`, `bin/sabha-loop --self-test`.
+- `sabha upstream` (`bin/sabha-upstream`), the upstream move watcher: once a day, read-only through `bin/sabha-gh`, it checks
+  a repos list for an archived or renamed repo, a changed default branch, a lost base branch, a layout path that appeared
+  or disappeared and an upstream branch merged in. A new finding is one `for-me.items` entry and the run's findings one brief
+  to `SABHA_UPSTREAM_TO`; the first run only records facts. `sabha-watch` calls it daily when `SABHA_UPSTREAM_CONF` is set.
+  Needs `bin/sabha-gh` (merge after the PR radar, which carries the same file). docs/upstream-watch.md.
 
 ## 2.0.1 - 2026-10-20
 

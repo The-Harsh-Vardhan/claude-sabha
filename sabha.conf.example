@@ -155,6 +155,15 @@ SABHA_RELAY_GUARD=1
 #SABHA_RELAY_WAIT=1500
 #SABHA_PERMISSION_MODE=default
 #SABHA_PERMISSION_ALLOW="default"
+# Upstream move watcher (docs/upstream-watch.md): `sabha upstream` reads, once a day when sabha-watch runs it, whether a
+# repo in your repos list (columns repo, dir, base-ref) was archived, renamed, lost its base branch, changed layout or had
+# its upstream merged in, through the read-only bin/sabha-gh. A new finding is a for-me.items entry and one brief to
+# SABHA_UPSTREAM_TO. Probes are paths tracked on the base branch; a pair is repo:base:upstream. Set SABHA_GH_USER too.
+#SABHA_UPSTREAM_CONF=/path/to/repos.conf
+#SABHA_UPSTREAM_ORG=your-org
+#SABHA_UPSTREAM_PROBE_myrepo="apps/ docs/"
+#SABHA_UPSTREAM_PAIRS="myrepo:release/next:dev"
+#SABHA_UPSTREAM_TO=Dispatcher
 SABHA_WAITING="Reviewer1 Reviewer2"
 # Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
 #SABHA_TASK_FALLBACK="Name=task text"

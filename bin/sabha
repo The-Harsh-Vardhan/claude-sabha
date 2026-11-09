@@ -19,6 +19,7 @@
 #   sabha owe [--sent FILE]                what you owe people: send-type for-me items, unsent drafts, the board rows they block
 #   sabha pack lint <file.md>...           rejects inline # comments, "..." elisions, non-ASCII and a missing "cd /abs &&" prefix
 #                                          in the command lines of push packs and PR bodies (bin/sabha-pack-lint)
+#   sabha upstream [args]                  upstream move watcher: archived, renamed, layout moved, reverse-merged (bin/sabha-upstream)
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 #   sabha prs [args]                       PR radar: open PRs of an author across orgs and repos, worst first (bin/sabha-prs)
 #   sabha whoami [Name]                    one line: role, session id, cwd, conf, impl, pane, live copies; exit 3 when
@@ -578,6 +579,7 @@ case ${1:-} in
   tips) python3 "$BIN/sabha-for-me" --tips ;;
   help) python3 "$BIN/sabha-for-me" --tip-help "${2:-}" ;;
   owe) shift; [[ ${1:-} == --sent ]] || set -- --owe; SABHA_CONF=$CONF exec python3 "$BIN/sabha-for-me" "$@" ;;
+  upstream) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-upstream" "$@" ;;
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
   roster) shift; cmd_roster "$@" ;;
   stamp) cmd_stamp ;;

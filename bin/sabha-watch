@@ -103,6 +103,10 @@ if [[ -n $DISPATCHER ]] && mkdir -p "$SEEN" 2>/dev/null; then
     ( "$nudge" "$to" "see inbox/$role/$n.done" </dev/null >>"$IMPL/status/done-nudge.log" 2>&1 || echo "nudge $to failed for inbox/$role/$n.done" >>"$IMPL/status/done-nudge.log" ) &
   done
 fi
+# the upstream watcher rides on this report too: once per local day, in the background, off unless SABHA_UPSTREAM_CONF is set
+if [[ -n ${SABHA_UPSTREAM_CONF:-} && -x $BIN/sabha-upstream && -x $BIN/sabha-gh ]] && mkdir -p "$IMPL/status/upstream" 2>/dev/null; then
+  ( SABHA_UPSTREAM_TO=${SABHA_UPSTREAM_TO:-$DISPATCHER} SABHA_IMPL=$IMPL "$BIN/sabha-upstream" --daily </dev/null >>"$IMPL/status/upstream/watch.log" 2>&1 || true ) &
+fi
 # the headless runner rides on this report instead of a loop of its own (docs/headless-runner.md)
 [[ ${SABHA_RUN_AUTO:-0} == 1 ]] && "$BIN/sabha-run"
 exit 0
