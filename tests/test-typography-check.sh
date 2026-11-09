@@ -352,6 +352,60 @@ r2 "M2 SKILL.md says --browser runs scripts only with --allow-scripts" 'grep -q 
 r2 "M1 SKILL.md says which files are opened" 'grep -q -i "outside the input folder" "$sk"'
 r2 "M3 SKILL.md explains UNKNOWN and --strict" 'grep -q "UNKNOWN" "$sk" && grep -q -- "--strict" "$sk"'
 
+# ---- 19. round 3 (review 245): NUL paths, any crash exits 2, @import followed inside the folder, URL schemes, honest docs ----
+# A NUL byte cannot sit in the input file's NAME or in an env value: the OS refuses to start a process with one, so only
+# stylesheet hrefs, @import and font url() values can carry it.
+q=$work/r3; mkdir -p "$q/sub"
+cp "$fx/clean.html" "$q/base.html"
+{ cat "$q/base.html"; printf '<link rel="stylesheet" href="a\000b.css">\n'; } > "$q/nul-href.html"
+{ cat "$q/base.html"; printf '<style>@import "a\000b.css";</style>\n'; } > "$q/nul-import.html"
+{ cat "$q/base.html"; printf '<style>@font-face { font-family: "Inter"; src: url("a\000b.woff2"); }</style>\n'; } > "$q/nul-font.html"
+for k in href import font; do
+  out=$(typo "$q/nul-$k.html" --allow "$A" 2>&1); rc=$?
+  r2 "R3 MUST NUL in a $k: rc 0, a visible note, no traceback, no false finding" '[[ $rc -eq 0 ]] && grep -q -F "note: not read: bad path (NUL byte): a\\x00b" <<<"$out" && ! grep -q -E "Traceback|src file not found" <<<"$out"'
+done
+cat > "$work/boom.py" <<'PYEOF'
+import sys
+src = open(sys.argv[1]).read()
+marker = "def check_html_static(R, A, path, data):\n"
+assert marker in src
+src = src.replace(marker, marker + "    raise RuntimeError('forced')\n", 1)
+sys.argv = sys.argv[1:]
+exec(compile(src, sys.argv[0], "exec"), {"__name__": "__main__", "__file__": sys.argv[0]})
+PYEOF
+out=$("$PY" "$work/boom.py" "$tool" "$fx/clean.html" --allow "$A" 2>&1 >/dev/null); rc=$?
+r2 "R3 MUST a forced internal error exits 2 (not 1), one line with the cause, no traceback" '[[ $rc -eq 2 && $(wc -l <<<"$out" | tr -d " ") -eq 1 ]] && grep -q "internal error (RuntimeError): forced" <<<"$out" && ! grep -q Traceback <<<"$out"'
+out=$(SABHA_TYPO_DEBUG=1 "$PY" "$work/boom.py" "$tool" "$fx/clean.html" --allow "$A" 2>&1 >/dev/null); rc=$?
+r2 "R3 MUST SABHA_TYPO_DEBUG=1 keeps the traceback available" '[[ $rc -eq 2 ]] && grep -q "Traceback" <<<"$out" && grep -q "RuntimeError: forced" <<<"$out"'
+# SHOULD 1: a local @import is followed with the same folder fence as a <link> sheet
+printf 'p { font-size: 99px; }\n@import "sub/deep.css";\n' > "$q/main.css"
+printf '.deepsel { color: #ff0000; }\n@import "../../outside-up.css";\n' > "$q/sub/deep.css"
+printf '.leaked-up { color: #00ff00; }\n' > "$work/outside-up.css"
+printf '<style>@import "main.css"; @import url(a-loop.css);</style>\n' > "$q/imp.html"
+printf '@import "b-loop.css"; .la { color: #111111; }\n' > "$q/a-loop.css"; printf '@import "a-loop.css"; .lb { color: #222222; }\n' > "$q/b-loop.css"
+out=$(typo "$q/imp.html" --allow "$A" 2>&1)
+r2 "R3 SHOULD1 an @import file is read (its finding appears)" 'grep -q "^SIZE | where: p | found: 99px" <<<"$out"'
+r2 "R3 SHOULD1 an @import of an @import is read, relative to its own folder" 'grep -q "^COLOR | where: .deepsel" <<<"$out"'
+r2 "R3 SHOULD1 an @import leaving the folder is noted and not read" 'grep -q -F "outside the input folder: ../../outside-up.css" <<<"$out" && ! grep -q "leaked-up" <<<"$out"'
+r2 "R3 SHOULD1 an @import loop ends with a note" 'grep -q -F "@import loop: " <<<"$out" && grep -q "^COLOR | where: .lb" <<<"$out"'
+for i in 1 2 3 4 5 6 7; do printf '@import "d%d.css"; .x%d { font-size: 99px; }\n' $((i + 1)) "$i" > "$q/d$i.css"; done
+printf '.x8 { font-size: 98px; }\n' > "$q/d8.css"; printf '<style>@import "d1.css";</style>\n' > "$q/deep.html"
+out=$(typo "$q/deep.html" --allow "$A" --json 2>&1)
+r2 "R3 SHOULD1 depth 5 stops the chain with a note" 'grep -q -F "@import nested deeper than 5: d6.css" <<<"$out" && ! grep -q "\.x6" <<<"$out"'
+printf '<style>@import "https://x.invalid/a.css"; @import "%s/outside-up.css";</style>\n' "$work" > "$q/imp-abs.html"
+out=$(typo "$q/imp-abs.html" --allow "$A" 2>&1)
+r2 "R3 SHOULD1 remote and absolute @import are noted, not read" 'grep -q "external @import not fetched" <<<"$out" && grep -q -F "outside the input folder: $work/outside-up.css" <<<"$out" && ! grep -q "leaked-up" <<<"$out"'
+# SHOULD 2: a URL scheme is not a file name
+{ cat "$q/base.html"; printf '<link rel="stylesheet" href="ftp://x.invalid/a.css"><link rel="stylesheet" href="data:text/css,a{}"><style>@import "file:///etc/hosts"; @font-face { font-family: "Inter"; src: url(file:///etc/hosts), url(ftp://x.invalid/f.woff); }</style>\n'; } > "$q/scheme.html"
+out=$(typo "$q/scheme.html" --allow "$A" 2>&1); rc=$?
+r2 "R3 SHOULD2 ftp:, data:, file: are skipped with 'not read: URL scheme' (4 distinct notes, the same file: URL is one) and no false 'src file not found'" '[[ $rc -eq 0 ]] && [[ $(grep -c -F "note: not read: URL scheme:" <<<"$out") -eq 4 ]] && ! grep -q "src file not found" <<<"$out"'
+# SHOULD 3: the fake-playwright caveat is stated wherever the request block is
+for f in "$sk" "$rd" "$mjs"; do
+  r2 "R3 SHOULD3 $(basename "$f") says tested only against a fake playwright; not run in a real Chrome" 'tr "\n" " " <"$f" | tr -s " " | grep -q -F "tested only against a fake playwright; not run in a real Chrome"'
+done
+out=$(typo --help 2>&1)
+r2 "R3 SHOULD3 --help says tested only against a fake playwright; not run in a real Chrome" 'tr "\n" " " <<<"$out" | tr -s " " | grep -q -F "tested only against a fake playwright; not run in a real Chrome"'
+
 # ---- 18. no bytes above 127 in what this change ships ----
 for f in "$tool" "$root/bin/sabha-typography-check" "$root/tools/typography-computed.mjs" "$root/tools/typography-requirements.txt" "$root/template/typography.example.json" "$root/skills/sabha-typography-check/SKILL.md" "$0" "$fx"/* "$fx"/fake-playwright/*; do
   [[ -f $f ]] || continue

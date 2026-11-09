@@ -8,7 +8,8 @@
   the value found and the nearest allowed value. PDF input needs `pdfminer.six` in a repo-local `.venv`; HTML has a
   static CSS lint and a `--browser` mode that runs a runner only through `sabha-heavy run typography --`. Linked
   stylesheets and font files are read only inside the input's folder; page scripts are off in `--browser` unless
-  `--allow-scripts`; hsl, alpha and percent colours are resolved and what cannot be resolved prints as UNKNOWN
+  `--allow-scripts`; `@import` files are followed inside that folder (depth 5, loops noted), URL schemes are noted as not
+  read, a NUL byte in a path is skipped with a note and any internal error exits 2 with one line; hsl, alpha and percent colours are resolved and what cannot be resolved prints as UNKNOWN
   (`--strict` counts it); empty input is exit 2. Skill
   `skills/sabha-typography-check`, example list `template/typography.example.json`, test `tests/test-typography-check.sh`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):

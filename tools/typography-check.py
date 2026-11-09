@@ -6,14 +6,16 @@
 
 Inputs, cheapest first:
   *.pdf         every text span: face, size, weight (from the face name), colour, background fill, page edge. No browser.
-  *.html, *.htm static CSS lint of <style>, local <link> sheets and style="" attributes. No browser.
+  *.html, *.htm static CSS lint of <style>, local <link> sheets, their @import files and style="" attributes. No browser.
                 --browser also runs a runner under `sabha-heavy run typography --` and checks the computed styles it dumps.
   *.json        a computed-styles dump written by a runner (see tools/typography-computed.mjs for the format).
 Files read: the named input, the allow-list, and linked local stylesheets and @font-face files ONLY when they stay inside
 the folder of the named input (symlinks resolved); anything outside is skipped with the note "not read: outside the input
-folder". Remote URLs are never fetched. Images and @import files are never opened.
+folder". @import files are followed the same way (depth 5; loops and more than 100 files are skipped with a note). Remote
+URLs and other URL schemes (ftp:, file:, ...) are never fetched or opened and are noted as not read. Images are never opened.
 --browser starts Chrome (needs playwright and Chrome). Page scripts are OFF unless you add --allow-scripts (then it prints a
-warning on every run: use it only on files you trust); the runner blocks every request that leaves the page's folder.
+warning on every run: use it only on files you trust); the runner is written to abort every request that
+leaves the page's folder (tested only against a fake playwright; not run in a real Chrome).
 Never run in a real browser, and the PDF path never on a real Chrome PDF (first real run removes this line): the browser path
 is tested with a stub runner and a fake playwright, the PDF path with base-14 fixture PDFs. If Chrome or playwright is
 missing the tool says so and exits 2.
@@ -21,8 +23,8 @@ Colours it cannot resolve (currentColor with no value, a gradient or image backg
 background, a form it does not read) are printed as UNKNOWN lines and counted separately; they change the exit code only
 under --strict. Font stacks are checked against the allow-list's fallbacks for the first family.
 Empty input, a page with no CSS and a PDF with no text are tool errors (exit 2), never a clean pass.
-Exit 0 = no findings, 1 = findings (or UNKNOWN with --strict), 2 = usage, unreadable or empty input or Chrome missing,
-75 = the heavy gate says wait (browser not run).
+Exit 0 = no findings, 1 = findings (or UNKNOWN with --strict), 2 = usage, unreadable or empty input, Chrome missing or an
+internal error (one line with the cause; SABHA_TYPO_DEBUG=1 adds the traceback), 75 = the heavy gate says wait (browser not run).
 A finding is a question for the owner or designer, never an auto-fix.
 """
 import colorsys
@@ -97,8 +99,8 @@ def read_file(path, kind):
     path = os.path.expanduser(os.path.expandvars(path))
     try:
         st = os.stat(path)
-    except OSError as e:
-        raise Fail("cannot read %s: %s" % (clean(path), clean(e.strerror or e)))
+    except (OSError, ValueError) as e:
+        raise Fail("cannot read %s: %s" % (clean(path), clean(getattr(e, "strerror", None) or e)))
     if not stat.S_ISREG(st.st_mode):
         raise Fail("not a regular file: %s" % clean(path))
     if st.st_size > LIMITS[kind]:
@@ -650,9 +652,18 @@ def role_findings(R, roles):
                 R.add("ROLE", tag, found, "one %s per heading level" % what[:-1])
 
 
-def local_ref(R, base, ref):
-    """The path a page reference names, or None (with a visible note) when it leaves the input's folder, symlinks resolved."""
-    p = os.path.join(base, ref.split("?")[0].split("#")[0])
+SCHEME = re.compile(r"[a-z][a-z0-9+.-]*:", re.I)
+MAX_IMPORT_DEPTH = 5
+MAX_IMPORT_FILES = 100
+
+
+def local_ref(R, base, ref, rel=None):
+    """The path a page reference names, or None (with a visible note) when it leaves the input's folder, symlinks resolved.
+    rel is the folder the reference is written in (an imported sheet's own folder); the fence is always base."""
+    if "\0" in ref:
+        R.note("not read: bad path (NUL byte): %s" % clean(ref))
+        return None
+    p = os.path.join(rel or base, ref.split("?")[0].split("#")[0])
     try:
         b, r = os.path.realpath(base), os.path.realpath(p)
     except (OSError, ValueError):
@@ -671,6 +682,43 @@ def check_html_static(R, A, path, data):
     if len(re.findall(r"<style\b", html, re.I)) > len(re.findall(r"</style>", html, re.I)):
         R.note("a <style> block has no closing tag (truncated page?)")
     remote = False
+    rules, fontfaces = [], []
+    budget = [MAX_IMPORT_FILES]
+
+    def take(css, cdir, depth, chain):
+        nonlocal remote
+        imps = []
+        walk_css(css, None, rules, fontfaces, imps)
+        for imp in imps:
+            if re.match(r"(https?:)?//", imp, re.I):
+                remote = True
+                R.note("external @import not fetched: %s" % clean(imp))
+            elif "$" in imp or "[(" in imp or "{{" in imp:
+                R.note("@import is a template placeholder, not read: %s" % clean(imp))
+            elif SCHEME.match(imp):
+                R.note("not read: URL scheme: %s" % clean(imp))
+            elif depth >= MAX_IMPORT_DEPTH:
+                R.note("not read: @import nested deeper than %d: %s" % (MAX_IMPORT_DEPTH, clean(imp)))
+            else:
+                sheet = local_ref(R, base, imp, cdir)
+                if not sheet:
+                    continue
+                key = os.path.realpath(sheet)
+                if key in chain:
+                    R.note("not read again: @import loop: %s" % clean(imp))
+                elif budget[0] <= 0:
+                    R.note("not read: more than %d @import files: %s" % (MAX_IMPORT_FILES, clean(imp)))
+                else:
+                    budget[0] -= 1
+                    try:
+                        sub = read_file(sheet, "html").decode("utf-8", "replace")
+                    except Fail as e:
+                        R.note("@import not read: %s" % e)
+                        continue
+                    take(sub, os.path.dirname(sheet), depth + 1, chain | {key})
+
+    for c in chunks:
+        take(c, base, 0, frozenset())
     for m in re.finditer(r"<link\b[^>]*>", html, re.I):
         tag = m.group(0)
         if not re.search(r"rel\s*=\s*[\"']?[^\"'>]*stylesheet", tag, re.I):
@@ -684,20 +732,16 @@ def check_html_static(R, A, path, data):
             R.note("external stylesheet not fetched: %s" % clean(href))
         elif "$" in href or "[(" in href or "{{" in href:
             R.note("stylesheet link is a template placeholder, not read: %s" % clean(href))
+        elif SCHEME.match(href):
+            R.note("not read: URL scheme: %s" % clean(href))
         else:
             sheet = local_ref(R, base, href)
             try:
                 if sheet:
-                    chunks.append(read_file(sheet, "html").decode("utf-8", "replace"))
+                    take(read_file(sheet, "html").decode("utf-8", "replace"), os.path.dirname(sheet), 0,
+                         frozenset([os.path.realpath(sheet)]))
             except Fail as e:
                 R.note("stylesheet not read: %s" % e)
-    rules, fontfaces, imports = [], [], []
-    for c in chunks:
-        walk_css(c, None, rules, fontfaces, imports)
-    for imp in imports:
-        if re.match(r"(https?:)?//", imp, re.I):
-            remote = True
-            R.note("external @import not fetched: %s" % clean(imp))
     cvars = {}
     for sel, decls, ctx in rules:
         if not ctx and any(p.strip() in (":root", "html") for p in split_commas(sel)):
@@ -714,6 +758,9 @@ def check_html_static(R, A, path, data):
                 continue
             if "$" in u or "[(" in u or "{{" in u:
                 R.note("@font-face src is a template placeholder, not checked: %s" % clean(u))
+                continue
+            if SCHEME.match(u):
+                R.note("not read: URL scheme: %s" % clean(u))
                 continue
             font = local_ref(R, base, u)
             if font and not os.path.exists(font):
@@ -1105,12 +1152,24 @@ def main(argv):
     return 1 if total else 0
 
 
-if __name__ == "__main__":
+def entry(argv):
     try:
-        sys.exit(main(sys.argv[1:]))
+        return main(argv)
     except Fail as e:
         sys.stderr.write("sabha-typography-check: %s\n" % clean(e))
-        sys.exit(e.rc)
+        return e.rc
     except RecursionError:
         sys.stderr.write("sabha-typography-check: input too deeply nested\n")
-        sys.exit(2)
+        return 2
+    except Exception as e:
+        # exit 1 means "findings", so a crash must never look like it
+        sys.stderr.write("sabha-typography-check: internal error (%s): %s (SABHA_TYPO_DEBUG=1 prints the traceback)\n"
+                         % (type(e).__name__, clean(e)))
+        if os.environ.get("SABHA_TYPO_DEBUG"):
+            import traceback
+            traceback.print_exc()
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(entry(sys.argv[1:]))

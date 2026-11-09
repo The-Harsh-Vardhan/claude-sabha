@@ -25,21 +25,25 @@ Not for: screenshots (version 1 reads files, not pixels), spelling, copy, layout
 2. PDF: `bin/sabha-typography-check report.pdf --allow typography.json`. Needs the repo-local `.venv` with
    `pdfminer.six` (the README gives the `uv` line); never a global install. No browser is started.
 3. HTML or artifact, no browser: `bin/sabha-typography-check page.html --allow typography.json`. This lints the CSS
-   (`<style>`, local `<link>` sheets, `style=""`). It opens the named file and the allow-list, and a linked stylesheet or
+   (`<style>`, local `<link>` sheets, their `@import` files, `style=""`). It opens the named file and the allow-list, and a linked stylesheet or
    `@font-face` file only when it stays inside the folder of the named file (symlinks resolved); anything outside is
-   skipped with the note "not read: outside the input folder". Remote URLs are never fetched; images and `@import`
-   files are never opened.
+   skipped with the note "not read: outside the input folder". `@import` files are followed with the same fence (depth 5;
+   a loop or more than 100 files is skipped with a note). Remote URLs and other URL schemes (`ftp:`, `file:`, `data:` in a
+   link) are never fetched or opened and are noted "not read: URL scheme". A NUL byte in a stylesheet href, `@import` or
+   font `url()` is skipped with a note; one cannot occur in the input file's name (the OS refuses it). Images are never opened.
 4. HTML with computed styles: add `--browser`. It is a heavy job; the tool runs the runner only through
    `sabha-heavy run typography --`. Exit 75 means the gate said wait: nothing ran, say so and try later; never force
    the slot. A dump from an earlier run can be checked without a browser: `... computed.json --allow ...`.
-   Page scripts are OFF by default and the runner aborts every request that leaves the page's folder. `--allow-scripts`
+   Page scripts are OFF by default and the runner is written to abort every request that leaves the page's folder (tested
+   only against a fake playwright; not run in a real Chrome). `--allow-scripts`
    turns the page's JavaScript on (for styles that scripts set) and prints a warning on every run: use it
    only on files you trust. If Chrome or playwright is missing the tool says so and exits 2.
 5. `--json` gives the same report as data; `--limit N` caps the groups shown (the count stays whole); `--strict` makes
    UNKNOWN lines count as findings; `--help` prints the full usage.
 
 Exit 0 = no findings, 1 = findings (or UNKNOWN under `--strict`), 2 = bad input (missing file, empty file, a page with
-no CSS, a PDF with no text, unreadable PDF, bad allow-list, Chrome missing), 75 = wait.
+no CSS, a PDF with no text, unreadable PDF, bad allow-list, Chrome missing, or an internal error: one line with the
+cause; `SABHA_TYPO_DEBUG=1` adds the traceback), 75 = wait.
 
 ## Read the report
 

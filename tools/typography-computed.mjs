@@ -5,7 +5,7 @@
 // family, size_px, weight, color, bg, line_height_px, scroll_w, client_w, scroll_h, client_h, overflow_x, overflow_y,
 // text_overflow, face_loaded}]}. face_loaded is false when document.fonts.check() says the first declared face is not loaded.
 // Page scripts are OFF unless SABHA_TYPO_SCRIPTS=1 (sabha-typography-check --allow-scripts: only for files you trust).
-// Every request that leaves the page's folder is aborted. Exit 4 = playwright or Chrome missing (the message says which).
+// Written to abort every request that leaves the page's folder (tested only against a fake playwright; not run in a real Chrome). Exit 4 = playwright or Chrome missing (the message says which).
 // Never run against a real Chrome (first real run removes this line); tests use a fake playwright (tests/fixtures/typography/).
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
