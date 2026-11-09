@@ -142,6 +142,9 @@ its own file beside it,
 `FIXED: <finding> in <sha or file>`. A finding is answered when it has such a line and the critic has not reopened it
 with a newer verdict line. That is check 5 of the list above.
 
+A project can add file-test checks of its own (an Aikido record, screenshots in UI packs, an approval line for every
+`NOT IN DESIGN`, the questions file) with `bin/sabha-gate --checks <list>`; see `docs/gate-checks.md`.
+
 If any check fails the worker does nothing, appends a `for-me.items` entry saying which check
 failed, and reports. A message saying "go" or "hold" never counts on its own: the sender turns it
 into a brief with `go:` or into a `.cancel`.
