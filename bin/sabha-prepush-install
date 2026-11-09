@@ -13,17 +13,19 @@ hooks=$(cd "$repo" && mkdir -p "$hp" && cd "$hp" && pwd)
 dst=$hooks/pre-push
 # sourced, not exec'd: one bash start per push. -p: bash then ignores BASH_ENV from the push's environment.
 want=$(printf '#!/bin/bash -p\n. %q' "$src")
-if [[ -f $dst && ! -L $dst && $(cat "$dst") == "$want" ]]; then echo "already installed: $dst -> $src"; exit 0; fi
+cfg=$(git -C "$repo" config --get core.hooksPath || true)
+shared_warning() {
+  [[ -n $cfg && -z $(git -C "$repo" config --local --get core.hooksPath || true) ]] || return 0
+  echo "WARNING: core.hooksPath comes from a global or system git config ($(git -C "$repo" config --show-origin --get core.hooksPath | cut -f1)): $hooks is shared by every repository that uses it, so this hook now runs on their pushes too. Undo: rm $dst" >&2
+}
+if [[ -f $dst && ! -L $dst && $(cat "$dst") == "$want" ]]; then shared_warning; echo "already installed: $dst -> $src"; exit 0; fi
 if [[ -e $dst || -L $dst ]]; then
-  echo "sabha-prepush-install: kept the existing pre-push hook $dst; nothing was installed or changed. To run both, add a line to that hook that runs $src with the same stdin and arguments; to replace it on purpose, move it aside (mv) and run this again. (An older stub of this hook is replaced the same way.)" >&2
+  echo "sabha-prepush-install: kept the existing pre-push hook $dst; nothing was installed or changed. To run both, add a line to that hook, after it saves its stdin once (in=\$(cat)), that pipes the saved lines to ours: echo \"\$in\" | bash $src \"\$@\" (git sends the ref lines only once, so a second reader that reads stdin gets nothing); to replace it on purpose, move it aside (mv) and run this again. (An older stub of this hook is replaced the same way.)" >&2
   exit 1
 fi
-cfg=$(git -C "$repo" config --get core.hooksPath || true)
 if [[ -n $cfg ]]; then
   echo "note: core.hooksPath is set (${cfg}); installing there, not in .git/hooks. If that directory is tracked, the new file shows up as untracked: do not commit it." >&2
-  if [[ -z $(git -C "$repo" config --local --get core.hooksPath || true) ]]; then
-    echo "WARNING: core.hooksPath comes from a global or system git config ($(git -C "$repo" config --show-origin --get core.hooksPath | cut -f1)): $hooks is shared by every repository that uses it, so this hook now runs on their pushes too. Undo: rm $dst" >&2
-  fi
+  shared_warning
 fi
 printf '%s\n' "$want" >"$dst"
 chmod +x "$dst"

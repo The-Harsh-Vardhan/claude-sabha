@@ -80,11 +80,13 @@ that sources `hooks/git-pre-push.sh` from this clone). `-p` makes bash ignore a 
 (proved on bash 3.2.57 with a `BASH_ENV` file holding `exit 0`: without `-p` the hook is skipped, with it the hook
 runs). A second run on an installed repository says `already installed`. A different `pre-push` hook, or a stub of the
 older kind (`#!/usr/bin/env bash`), is never touched: the installer says it kept that hook, that nothing was installed
-or changed, and how to proceed on purpose (add a line to the existing hook that runs `hooks/git-pre-push.sh` with the
-same stdin and arguments, or move the old file aside and run the installer again). When `core.hooksPath` comes from a
-global or system git config (not from the repository), the directory it names is shared by every repository that uses
-it: the installer prints `installed <file> -> <script>` and a `WARNING` that the hook now runs on all of their pushes
-(review 244 S3). Undo: delete the file it names.
+or changed, and how to proceed on purpose. To chain, remember that git writes the ref lines to a pre-push hook's stdin
+once, so a second reader gets nothing: make the existing hook save its stdin (`in=$(cat)`), then pipe it to both,
+`echo "$in" | bash /path/to/hooks/git-pre-push.sh "$@"` (or move the old file aside and run the installer
+again). When `core.hooksPath` comes from a global or system git config (not from the repository), the directory it
+names is shared by every repository that uses it: the installer prints `installed <file> -> <script>` and a `WARNING`
+that the hook now runs on all of their pushes (review 244 S3); a second repository that uses the same directory gets
+the same `WARNING` with `already installed` (review 246 S2). Undo: delete the file it names.
 
 ## Known gaps
 
