@@ -7,6 +7,8 @@ SABHA_IMPL="$HOME/my-claude-sabha"
 #SABHA_FORME_DIR=$SABHA_WS/path/to/board
 #SABHA_NIGHTLY_DIR=$SABHA_WS/path/to/updates   # sabha nightly drafts, one <date>.md per day (default: SABHA_IMPL/nightly)
 #SABHA_CSV_DIR=$SABHA_WS/path/to/tracker   # agents.csv and for-me.csv, written on every render
+#SABHA_PRUNE_CMD=$SABHA_WS/path/to/wt-inventory.sh   # sabha prune: the inventory script, run with --actions only
+#SABHA_PRUNE_DIR=$SABHA_WS/path/to/reports   # sabha prune reports, one <date>.md per day (default: SABHA_IMPL/prune)
 # Tracker: html (default: offline page from the CSVs, no login, tracker/build-html.py), xlsx (tracker/build-xlsx.py, import
 # into any spreadsheet) or sheet (Google Sheet: the better option for phone use, sharing and the Inbox/Decisions round
 # trip; one-time `bin/sabha-sheet auth`, then `bin/sabha-sheet sync` copies the CSVs, no agent needed).

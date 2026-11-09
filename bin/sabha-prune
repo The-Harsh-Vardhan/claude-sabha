@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# sabha-prune: weekly worktree clean-up candidates, as one report file. It runs the inventory script named by
+# SABHA_PRUNE_CMD with --actions (that mode is read-only; the script is never given --apply) and writes the
+# lines it prints to DIR/<date>.md. It archives and removes nothing: acting on the list stays with you.
+#   sabha-prune [--date YYYY-MM-DD] [--out DIR] [--stdout]
+# The date is only the report's name (default today). DIR: --out, else SABHA_PRUNE_DIR, else $SABHA_IMPL/prune.
+# A rerun with the same lines prints "unchanged"; a same-day rerun with new lines replaces that day's file; another
+# day's file is never touched. A failed inventory run writes nothing. Exit 0 ok, 2 usage, 1 error.
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+case ${1:-} in -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+sabha_load sabha-prune
+
+LINE_MAX=200 LINES_MAX=100 BYTES_MAX=1048576 LOCK_STALE_MIN=10
+say() { printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ' | clean)"; }
+die() { say "sabha-prune: $1" >&2; exit "${2:-1}"; }
+expand() { local v=$1 t='~'; case $v in "$t"|"$t"/*) v=$HOME${v#"$t"} ;; esac; printf '%s' "${v//\$HOME/$HOME}"; }
+# the one clean function: printable ASCII only (ESC, OSC, BEL, CR, NUL, DEL, C1 and all multi-byte controls go),
+# blanks squeezed, empty lines dropped, long lines cut
+clean() { LC_ALL=C tr -c '\040-\176\n' ' ' | LC_ALL=C sed 's/  */ /g; s/^ //; s/ $//' | LC_ALL=C grep -v '^$' | LC_ALL=C cut -c1-"$LINE_MAX"; }
+
+date_arg=$(date +%Y-%m-%d) out_arg=${SABHA_PRUNE_DIR:-} to_stdout=0
+while (($#)); do
+  case $1 in
+    --date|--out)
+      (($# >= 2)) && [[ -n $2 && $2 != --* ]] || die "$1 needs a value" 2
+      if [[ $1 == --date ]]; then date_arg=$2; else out_arg=$2; fi
+      shift 2 ;;
+    --stdout) to_stdout=1; shift ;;
+    *) die "unknown argument: $(printf '%s' "$1" | clean)" 2 ;;
+  esac
+done
+[[ $date_arg =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]] || die "--date wants YYYY-MM-DD" 2
+[[ -n ${SABHA_PRUNE_CMD:-} ]] || die "SABHA_PRUNE_CMD is not set (the inventory script, run with --actions)"
+cmd=$(expand "$SABHA_PRUNE_CMD")
+[[ -f $cmd && -x $cmd ]] || die "could not run the inventory script: $(printf '%s' "$cmd" | clean)"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/sabha-prune.XXXXXX") || die "no temp folder"
+lock="" target=""
+cleanup() { rm -rf "$work"; if [[ -n $lock ]]; then rmdir "$lock" 2>/dev/null; fi; }
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+"$cmd" --actions >"$work/raw" 2>"$work/err" </dev/null
+rc=$?
+((rc == 0)) || die "could not read the inventory (the script exited $rc); nothing written"
+head -c "$BYTES_MAX" "$work/raw" | clean >"$work/lines"
+total=$(grep -c . "$work/lines")
+
+{
+  echo "# Worktree prune candidates $date_arg"
+  echo
+  echo "Report only. Nothing was archived or removed. The inventory script's own --apply is yours to run."
+  echo
+  echo "## Candidates ($total)"
+  if ((total == 0)); then echo "- none"; else head -n "$LINES_MAX" "$work/lines" | sed 's/^/- /'; fi
+  if ((total > LINES_MAX)); then echo "- and $((total - LINES_MAX)) more"; fi
+} >"$work/body"
+
+if ((to_stdout)); then cat "$work/body"; exit 0; fi
+
+out=$(expand "${out_arg:-$SABHA_IMPL/prune}")
+# no .. segment, and the folder (its deepest existing parent, symlinks resolved) must sit under the workspace
+[[ /$out/ != */../* ]] || die "--out must not contain .."
+contained() {
+  local p=$1 rest="" r root
+  while [[ ! -d $p ]]; do rest=/$(basename "$p")$rest; p=$(dirname "$p"); done
+  r=$(cd -P "$p" && pwd -P)$rest
+  for root in "${SABHA_WS:-}" "${SABHA_IMPL:-}"; do
+    [[ -n $root ]] && root=$(cd -P "$root" 2>/dev/null && pwd -P) || continue
+    [[ $r == "$root" || $r == "$root"/* ]] && return 0
+  done
+  return 1
+}
+contained "$out" || die "--out must be inside the workspace: $out"
+mkdir -p "$out" 2>/dev/null || die "cannot create $(printf '%s' "$out" | clean)"
+target=$out/$date_arg.md
+for _ in 1 2; do
+  if mkdir "$out/.prune.lock" 2>/dev/null; then lock=$out/.prune.lock; break; fi
+  find "$out/.prune.lock" -maxdepth 0 -mmin +"$LOCK_STALE_MIN" -exec rmdir {} \; 2>/dev/null
+done
+[[ -n $lock ]] || die "another run holds $out/.prune.lock"
+
+if [[ -e $target || -L $target ]]; then
+  [[ -f $target && ! -L $target ]] || die "$target is not a regular file"
+  [[ $(head -n 1 "$target") == "# Worktree prune candidates "* ]] || die "$target is not a prune report"
+  cmp -s "$work/body" "$target" && { say "unchanged $target"; exit 0; }
+  verb=updated
+else
+  verb=wrote
+fi
+tmp=$target.tmp.$$
+if ! { cp "$work/body" "$tmp" && mv -f "$tmp" "$target"; }; then rm -f "$tmp"; die "cannot write $target"; fi
+say "$verb $target"
