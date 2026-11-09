@@ -145,3 +145,9 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #opta: develop | newest code, may be unstable | includes yesterday's unreviewed merge
 #optb: release/1.2 | stable, a day old | what Alex already reviewed
 #rec: b
+
+# sabha intake: the folder (default <SABHA_IMPL>/intake, with drop/ for notes), the inbox that gets one brief per ask, and
+# the sender of the briefs and owner of the board rows.
+#SABHA_INTAKE_DIR=$SABHA_IMPL/intake
+#SABHA_INTAKE_TO=Dispatcher
+#SABHA_INTAKE_FROM=intake

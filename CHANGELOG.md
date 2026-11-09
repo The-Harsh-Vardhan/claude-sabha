@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `sabha intake [--apply] [FILE ...]`: a meeting note or a Slack transcript (text) becomes a digest (facts, decisions, asks) under
+  `<SABHA_IMPL>/intake/digests/`, one brief to `SABHA_INTAKE_TO` (default Dispatcher) and one `for-me.items` row per ask. Dry run
+  unless `--apply`; a ledger makes a rerun file nothing twice and lets a stopped run continue. Nothing is fetched or sent.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates
