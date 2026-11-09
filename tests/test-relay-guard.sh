@@ -134,6 +134,38 @@ check "a 20 KB command is denied in a few seconds" '(( rc == 2 && took <= 3 ))'
 hook pre 'not json'
 check "unreadable input is denied" '(( rc == 2 ))'
 
+# SABHA_RELAY_ALLOW_TOOLS: exact extra tool names; only tools that fall to the default deny, malformed fails closed
+allowconf() { { cat "$dir/sabha.conf"; printf 'SABHA_RELAY_ALLOW_TOOLS=%q\n' "$1"; } > "$dir/allow.conf"; }
+with() { SABHA_CONF=$dir/allow.conf "$@"; }
+for t in Artifact ArtifactData; do check "empty allow list: $t is denied" 'denies $t x y'; done
+allowconf "Artifact,ArtifactData"
+check "allow Artifact,ArtifactData: Artifact is allowed" 'with allows Artifact x y'
+check "allow Artifact,ArtifactData: ArtifactData is allowed" 'with allows ArtifactData x y'
+check "allow Artifact,ArtifactData: WebFetch is still denied" 'with denies WebFetch x y'
+allowconf "  Artifact,ArtifactData  "
+check "surrounding spaces are trimmed" 'with allows ArtifactData x y'
+allowconf "Artifact"
+check "allow Artifact: ArtifactData is denied" 'with denies ArtifactData x y'
+allowconf "Artifact,Bash,Write,Edit,WebFetch"
+check "a listed Bash does not widen the read-only Bash rule" 'with denies Bash command "touch x"'
+check "a listed Write does not widen the Write paths" 'with denies Write file_path "$dir/ws/main.go"'
+check "a listed Edit does not widen the Edit paths" 'with denies Edit file_path "$dir/ws/main.go"'
+check "a listed tool still allows Artifact" 'with allows Artifact x y'
+allowconf "Artifact,ArtifactData"
+check "an unlisted tool is denied with a list set" 'with denies Agent x y'
+allowconf "Artifac"
+check "a prefix of a name does not allow it" 'with denies Artifact x y'
+allowconf "artifact"
+check "names are case-sensitive" 'with denies Artifact x y'
+for v in "Artifact,,ArtifactData" "Artifact ArtifactData" "Artifact*" "*" "Artifact,ArtifactData," "'Artifact'" \
+         $'Artifact\nArtifactData' $'Artifact,ArtifactData\n' "Artifact;ArtifactData"; do
+  allowconf "$v"
+  check "malformed allow list fails closed: $(printf %q "$v")" \
+    'with denies Artifact x y && [[ $err == *"SABHA_RELAY_ALLOW_TOOLS is malformed"* ]]'
+done
+allowconf "  "
+check "a blank allow list allows nothing extra" 'with denies Artifact x y'
+
 hook prompt '{"prompt":"Ok, you do it this time"}'
 check "\"you do it\" inside a sentence does not lift the guard" '[[ ! -e $I/status/.relay-override ]]'
 hook prompt '{"prompt":"please do not let me say you do it"}'
