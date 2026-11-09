@@ -17,9 +17,15 @@ SABHA_HERDR_BIN=$HERMETIC_BIN/herdr
 HERMETIC_FAKE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sabha-fakeherdr.XXXXXX") || exit 2
 FAKE_HERDR_DIR=$HERMETIC_FAKE_DIR
 FAKE_HERDR_LOG=$FAKE_HERDR_DIR/log FAKE_HERDR_CALLS=$FAKE_HERDR_DIR/calls
+# the same for gh: bin/sabha-gh refuses to run under SABHA_TEST=1 without SABHA_GH_BIN, so a test never reaches GitHub
+SABHA_GH_BIN=$HERMETIC_BIN/gh FAKE_GH_DIR=$HERMETIC_FAKE_DIR/gh
 trap 'rm -rf "$HERMETIC_FAKE_DIR"' EXIT
-export SABHA_TEST SABHA_HERDR_BIN PATH HERMETIC_FAKE_DIR FAKE_HERDR_DIR FAKE_HERDR_LOG FAKE_HERDR_CALLS
+export SABHA_TEST SABHA_HERDR_BIN SABHA_GH_BIN FAKE_GH_DIR PATH HERMETIC_FAKE_DIR FAKE_HERDR_DIR FAKE_HERDR_LOG FAKE_HERDR_CALLS
 if [[ $(command -v herdr) != "$SABHA_HERDR_BIN" ]]; then
   echo "hermetic: the fake herdr is not first on PATH ($(command -v herdr)); refusing to run tests" >&2
+  exit 2
+fi
+if [[ $(command -v gh) != "$SABHA_GH_BIN" ]]; then
+  echo "hermetic: the fake gh is not first on PATH ($(command -v gh)); refusing to run tests" >&2
   exit 2
 fi

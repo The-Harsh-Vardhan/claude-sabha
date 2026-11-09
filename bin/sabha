@@ -17,6 +17,7 @@
 #   sabha stamp                            the time from the clock (UTC, then local) for briefs and status lines
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
+#   sabha prs [args]                       PR radar: open PRs of an author across orgs and repos, worst first (bin/sabha-prs)
 # Env: SABHA_CONF (config path; else the nearest .sabha/local/sabha.conf upward from the cwd, else ../sabha.conf beside this script),
 # SABHA_SETTINGS (Claude settings.json to check for the statusline hook, default ~/.claude/settings.json).
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -552,5 +553,6 @@ case ${1:-} in
   sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
   roster) shift; cmd_roster "$@" ;;
   stamp) cmd_stamp ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync" >&2; exit 2 ;;
+  prs) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-prs" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options]" >&2; exit 2 ;;
 esac

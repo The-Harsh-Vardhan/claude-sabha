@@ -147,6 +147,14 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 # Optional: "Name=task text;Name=task text" for a role whose status file has no Current: or Idle: line.
 #SABHA_TASK_FALLBACK="Name=task text"
 
+# GitHub reads (docs/github-layer.md). SABHA_GH_USER: the login gh must be on, so a wrong account stops with one line;
+# SABHA_GH_TTL: cache seconds (600); SABHA_GH_MIN_LEFT: stop below this much API quota (200). `sabha prs` searches
+# SABHA_PRS_ORGS and SABHA_PRS_REPOS (space separated) for the open PRs of SABHA_PRS_AUTHOR.
+#SABHA_GH_USER=your-github-login
+#SABHA_PRS_AUTHOR=your-github-login
+#SABHA_PRS_ORGS="your-org"
+#SABHA_PRS_REPOS="you/your-repo"
+
 # Example question item for for-me.items (blocks are separated by a line that is exactly ---). Keys: ask, q, explain,
 # opta..opth ("option text | consequence | example"), rec. Plain items need none of them.
 #---
