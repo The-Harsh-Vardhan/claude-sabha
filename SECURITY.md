@@ -5,7 +5,7 @@ catch the honest mistake (the push a model emits out of habit) and make a delibe
 
 ## 1. The guard (`hooks/sabha-guard.sh`)
 
-A PreToolUse hook on the Bash tool. For every role except the relay it refuses a command whose first word (after env
+A PreToolUse hook on the Bash tool. For every role, the relay included, it refuses a command whose first word (after env
 assignments, `command`, `exec`, `sudo`, `env`, `timeout`, a path prefix, or an `&&`, `||`, `;`, `|`, `&`, `(`, `$(`,
 `then`, `do` or newline) is:
 
@@ -120,6 +120,38 @@ holds by model behaviour, not by code: the audit cannot tell an injected allow f
 Also not covered: a timeout above 600 s and a killed hook giving the pane prompt rather than a denial are documented
 but UNVERIFIED by a live run; prompts the hook never sees (a sandboxed command's network request, protected paths)
 stay in the pane.
+
+## 5. The relay guard (`bin/sabha-relay-guard`, `SABHA_RELAY_GUARD=1`)
+
+Claude hooks that `sabha-up.sh` gives the relay only (README, "Opt-in workflow flags"). Write and Edit pass only for
+`inbox/`, the relay's own `status/<name>.md` and `status/<name>-night-*.md`, `for-me.items`, its flat project memory
+dir and the paths in `SABHA_RELAY_WRITE` (absolute, a glob in the last part only, one directory deep); a `.conf` and
+the conf itself never. Paths are resolved (a symlinked dir or file does not lead out). Read, Grep, Glob and Bash refuse
+`.env`, `.env.*`, `*.env` (so `.testsigma-github.env`, `.lab-agent.env`), `.envrc`, `.npmrc`, `.netrc`, `.pgpass`,
+`.git-credentials`, `kubeconfig`, `credentials*`, `creds`, `*.pem`, `*.key`, `id_*`, anything under `.aws/`,
+`.git/config` and `.docker/config.json` by name, in any case (the last part of a word after `/`, `:` or `=`; a Bash
+word naming a symlink is judged by its target too). A Grep or Glob glob with a `{` is refused, and one that could match
+a secret name (`.e[n]v`, `*`, `.en?`) too; a literal `[id]` in a path is fine. No recursive read: Bash `grep` takes no
+option word holding `r`, `R` or `d`, no `--recursive`, `--directories`, `--include`/`--exclude` and no directory
+operand (the pattern word may name one); `-f` and `--file` (read the pattern from any file) are refused; the Grep tool
+over a directory (or with no path) needs a narrow glob such as `**/*.md`. git refuses global options except
+`-C <dir>` whose real path is inside `SABHA_WS` (and, for a relative dir, no `cd` earlier in the line), and refuses
+`-O<file>` and `--no-index` (they read any file), besides `-c`, `--output` and `--ext-diff`. Bash words are plain (no quote, glob or
+expansion). The conf runs in its own bash and passes back only the values the guard reads, so a conf that exits
+(even `exit 100`, the internal allow code) or sets a trap is a broken setup and denies. A prompt whose first line is "you do it" lifts the guard for that turn, 10 minutes at most; SessionStart
+and Stop clear it. Escape: with no conf or a broken one the guard denies every call, Read too; set
+`SABHA_RELAY_GUARD=0` in `sabha.conf` and restart the relay (the deny message says so). Known limits: secrets are
+matched by name only, so a secret under another name is still read; `git log -p`, `--all`, `git diff` and `git show`
+print committed history, so a secret that was ever committed is readable; the directory-operand check for `grep` and
+a relative symlink in a Bash word are judged from the hook's cwd, not a `cd` earlier in the same line (the recursion
+flags are the control); a secret reached through a symlinked parent directory in a Bash word (`lnk/file` with `lnk` ->
+`.aws`) passes, since only a word that is itself a symlink is resolved; the `grep` pattern word is a guess (the first
+plain word, unless `-e` or `--regexp` is seen), so an option argument such as `-A 3` takes the pattern's place and the
+real pattern is then checked as an operand, which can only deny more; a Grep or Glob glob is tried against a fixed list
+of sample secret names (`.env`, `.env.local`, `x.env`, `x.pem`, `id_rsa` and the like), so a glob that matches only an
+unlisted variant passes; paths outside the workspace (`/etc/hosts`) are not refused, since the relay reads other repos.
+The guard prevents accidents in a trusted session and is not a sandbox: a read gap found from here on is documented as
+a limit unless it opens a push, a post, a delete or a write. Keep the deny list.
 
 ## The deny list (`share/claude-settings.json`)
 

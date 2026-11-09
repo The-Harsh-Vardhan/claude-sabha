@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse(Bash): only the relay may reach outside the machine; every other role hands the human a brief instead.
+# PreToolUse(Bash): no role reaches outside the machine, the relay included; the human pushes and posts from a brief.
 # A safety net for honest mistakes, not enforcement (SECURITY.md): a role that wants to push can get around a text check.
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh" 2>/dev/null || exit 0
 if ! hk_init; then
@@ -10,7 +10,6 @@ if ! hk_init; then
   fi
   exit 0
 fi
-[ "$HK_BASE" = "$HK_RELAY" ] && exit 0
 
 # jq gives the exact command; without it the command field is cut out of the raw JSON and its \n \t \" unescaped
 cmd=

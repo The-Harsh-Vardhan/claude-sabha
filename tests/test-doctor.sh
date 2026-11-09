@@ -112,6 +112,11 @@ echo "$o" | grep -q 'belongs to another project' && fail "inside its own workspa
 # the active config is another project's and this copy's own sabha.conf names a different SABHA_IMPL
 o=$(cd "$dir/elsewhere" && PATH="$dir/fakebin:$SB" SABHA_CONF=$dir/sabha.conf SABHA_SETTINGS=$dir/settings.json SABHA_DOCTOR_COPIES= "${BASH:-bash}" "$dir/runcopy/bin/sabha" doctor 2>&1)
 echo "$o" | grep -q "^warn  this copy's own $dir/runcopy/sabha.conf names SABHA_IMPL=$other, but the active config $dir/sabha.conf names $dir/impl" || fail "a copy with its own config for another project must WARN when another config is active: $o"
+echo "SABHA_RELAY_GUARD=1" >>"$dir/sabha.conf"
+o=$(D); echo "$o" | grep -q 'disableAllHooks' && fail "guard on, hooks enabled: no hooks warning"
+echo '{"disableAllHooks":true,"statusLine":{"command":"bash /x/statusline-sabha.sh"}}' >"$dir/settings.json"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  SABHA_RELAY_GUARD=1 but disableAllHooks' || fail "guard on with disableAllHooks must warn, rc 0: $o"
 
 rm "$dir/sabha.conf"; o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  no config' || fail "no config is a warning"
