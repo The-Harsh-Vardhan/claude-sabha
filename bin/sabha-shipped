@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""sabha shipped: where a merged PR has reached along a promotion chain of branches. Read-only: every GitHub read goes
+through bin/sabha-gh (cached, quota-checked, no write possible).
+
+  sabha-shipped [--fresh] [--chain "b1 b2 ..."] <owner/repo#number>
+
+The chain is the branches a change is promoted through, in order, from SABHA_CHAIN_<repo> (the part after the slash,
+every character that is not a letter or digit turned into _), from the environment or sabha.conf, or from --chain.
+For each branch: `in` when the PR's merge commit is reachable from it, `NOT IN` when it is not, `no such branch`
+when the branch does not exist. Reachability is by commit sha (the compare of the branch against the merge commit):
+a promotion by squash or cherry-pick makes a new sha, so such a branch reads NOT IN although the change is there.
+Exit: 0 answered, 1 the PR is not merged or a read failed, 2 usage or no chain, 3 wrong GitHub account, 4 under the
+quota floor, 10 answered from a stale cache. gh needs a plain terminal, not the Claude sandbox.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.abspath(__file__))
+GH = os.path.join(BIN, "sabha-gh")
+
+
+class GhError(Exception):
+    def __init__(self, msg, rc):
+        Exception.__init__(self, msg)
+        self.msg, self.rc = msg, rc
+
+
+stale = []
+
+
+def gh(fresh, *args):
+    cmd = [GH] + (["--fresh"] if fresh else []) + list(args)
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if p.returncode == 10:
+        stale.append(p.stderr.strip().splitlines()[0] if p.stderr.strip() else "cached copy")
+    elif p.returncode != 0:
+        raise GhError(p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "sabha-gh failed", p.returncode)
+    try:
+        return json.loads(p.stdout)
+    except ValueError:
+        raise GhError("sabha-gh printed something that is not JSON", 1)
+
+
+def conf_value(key):
+    if os.environ.get(key) is not None:
+        return os.environ[key]
+    path = os.environ.get("SABHA_CONF") or os.path.join(BIN, "..", "sabha.conf")
+    try:
+        for line in open(path, encoding="ascii", errors="replace"):
+            m = re.match(r"^%s=(.*)$" % re.escape(key), line.strip())
+            if m:
+                return m.group(1).strip().strip("\"'")
+    except OSError:
+        pass
+    return ""
+
+
+def usage(msg=None):
+    if msg:
+        print("sabha shipped: " + msg, file=sys.stderr)
+    print("usage: sabha shipped [--fresh] [--chain \"b1 b2 ...\"] <owner/repo#number>", file=sys.stderr)
+    sys.exit(2)
+
+
+def main(argv):
+    fresh, chain, target = False, "", ""
+    args = list(argv)
+    while args:
+        a = args.pop(0)
+        if a == "--fresh":
+            fresh = True
+        elif a == "--chain" and args:
+            chain = args.pop(0)
+        elif a.startswith("-") or target:
+            usage("unexpected argument '%s'" % a)
+        else:
+            target = a
+    m = re.match(r"^([A-Za-z0-9_.-]+/([A-Za-z0-9_.-]+))#([0-9]+)$", target)
+    if not m:
+        usage("want <owner/repo#number>")
+    repo, name, num = m.group(1), m.group(2), m.group(3)
+    key = "SABHA_CHAIN_" + re.sub(r"[^A-Za-z0-9]", "_", name)
+    branches = (chain or conf_value(key)).split()
+    if not branches:
+        print("sabha shipped: no chain for %s: set %s=\"branch1 branch2 ...\" in sabha.conf or pass --chain" % (repo, key),
+              file=sys.stderr)
+        return 2
+    try:
+        pr = gh(fresh, "pr", repo, num)
+        if not pr or pr.get("state") != "MERGED" or not (pr.get("mergeCommit") or {}).get("oid"):
+            print("%s#%s is not merged (state %s)" % (repo, num, (pr or {}).get("state", "unknown")))
+            return 1
+        oid = pr["mergeCommit"]["oid"]
+        lines = []
+        for b in branches:
+            if not gh(fresh, "branch", repo, b).get("exists"):
+                lines.append((b, "no such branch"))
+                continue
+            status = gh(fresh, "compare", repo, b, oid).get("status")
+            lines.append((b, "in" if status in ("behind", "identical") else "NOT IN"))
+    except GhError as e:
+        print("sabha shipped: %s" % e.msg, file=sys.stderr)
+        return e.rc if e.rc in (3, 4) else 1
+    if stale:
+        print("STALE: %s" % stale[0])
+    print("%s#%s merged into %s at %s (%s)" % (repo, num, pr.get("baseRefName", "?"), oid[:10], (pr.get("mergedAt") or "?")[:10]))
+    width = max(len(b) for b, _ in lines)
+    for b, s in lines:
+        print("  %-*s  %s" % (width, b, s))
+    if any(s == "NOT IN" for _, s in lines):
+        print("NOT IN is by commit sha: a squash or cherry-pick promotion makes a new sha and is not detected.")
+    return 10 if stale else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
