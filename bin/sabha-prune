@@ -8,13 +8,14 @@
 # day's file is never touched. A failed inventory run writes nothing. Exit 0 ok, 2 usage, 1 error.
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
-case ${1:-} in -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+case ${1:-} in -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$BIN/sabha-lib.sh"
 sabha_load sabha-prune
 
 LINE_MAX=200 LINES_MAX=100 BYTES_MAX=1048576 LOCK_STALE_MIN=10
-die() { echo "sabha-prune: $*" >&2; exit "${2:-1}"; }
+say() { printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ' | clean)"; }
+die() { say "sabha-prune: $1" >&2; exit "${2:-1}"; }
 expand() { local v=$1 t='~'; case $v in "$t"|"$t"/*) v=$HOME${v#"$t"} ;; esac; printf '%s' "${v//\$HOME/$HOME}"; }
 # the one clean function: printable ASCII only (ESC, OSC, BEL, CR, NUL, DEL, C1 and all multi-byte controls go),
 # blanks squeezed, empty lines dropped, long lines cut
@@ -61,6 +62,19 @@ total=$(grep -c . "$work/lines")
 if ((to_stdout)); then cat "$work/body"; exit 0; fi
 
 out=$(expand "${out_arg:-$SABHA_IMPL/prune}")
+# no .. segment, and the folder (its deepest existing parent, symlinks resolved) must sit under the workspace
+[[ /$out/ != */../* ]] || die "--out must not contain .."
+contained() {
+  local p=$1 rest="" r root
+  while [[ ! -d $p ]]; do rest=/$(basename "$p")$rest; p=$(dirname "$p"); done
+  r=$(cd -P "$p" && pwd -P)$rest
+  for root in "${SABHA_WS:-}" "${SABHA_IMPL:-}"; do
+    [[ -n $root ]] && root=$(cd -P "$root" 2>/dev/null && pwd -P) || continue
+    [[ $r == "$root" || $r == "$root"/* ]] && return 0
+  done
+  return 1
+}
+contained "$out" || die "--out must be inside the workspace: $out"
 mkdir -p "$out" 2>/dev/null || die "cannot create $(printf '%s' "$out" | clean)"
 target=$out/$date_arg.md
 for _ in 1 2; do
@@ -71,11 +85,12 @@ done
 
 if [[ -e $target || -L $target ]]; then
   [[ -f $target && ! -L $target ]] || die "$target is not a regular file"
-  cmp -s "$work/body" "$target" && { echo "unchanged $target"; exit 0; }
+  [[ $(head -n 1 "$target") == "# Worktree prune candidates "* ]] || die "$target is not a prune report"
+  cmp -s "$work/body" "$target" && { say "unchanged $target"; exit 0; }
   verb=updated
 else
   verb=wrote
 fi
 tmp=$target.tmp.$$
 if ! { cp "$work/body" "$tmp" && mv -f "$tmp" "$target"; }; then rm -f "$tmp"; die "cannot write $target"; fi
-echo "$verb $target"
+say "$verb $target"

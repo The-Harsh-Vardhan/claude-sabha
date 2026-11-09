@@ -9,7 +9,8 @@ set -u
 BIN=$(cd "$(dirname "$0")/../bin" && pwd)
 dir=$(mktemp -d "${TMPDIR:-/tmp}/sabha-prune.XXXXXX") || exit 1
 [[ -d $dir ]] || exit 1
-trap 'rm -rf "$dir" "$HERMETIC_FAKE_DIR"' EXIT
+outside=$(mktemp -d "${TMPDIR:-/tmp}/sabha-prune-out.XXXXXX") || exit 1
+trap 'rm -rf "$dir" "$outside" "$HERMETIC_FAKE_DIR"' EXIT
 fails=0
 check() { if eval "$2"; then echo "ok:   $1"; else echo "FAIL: $1"; fails=$((fails + 1)); fi; }
 
@@ -30,7 +31,7 @@ case ${FAKE_MODE:-basic} in
   empty) : ;;
   many) i=0; while [ $i -lt 150 ]; do echo "row $i"; i=$((i + 1)); done ;;
   long) head -c 5000 /dev/zero | tr '\0' 'a'; echo ;;
-  huge) head -c 2500000 /dev/zero | tr '\0' 'b' ;;
+  huge) yes x | head -c 2500000 ;;
 esac
 exit "${FAKE_RC:-0}"
 X
@@ -70,7 +71,7 @@ FAKE_MODE=long P --out "$out" --date 2026-11-09 >/dev/null 2>&1
 check "a 5000 byte line is cut" '[[ $(awk "{ if (length(\$0) > m) m = length(\$0) } END { print m }" "$out/2026-11-09.md") -le 205 ]]'
 reset
 FAKE_MODE=huge P --out "$out" --date 2026-11-09 >/dev/null 2>&1
-check "a 2.5 MB inventory is read to a cap and handled" '[[ -f $out/2026-11-09.md ]] && [[ $(wc -c <"$out/2026-11-09.md") -lt 2000 ]]'
+check "a 2.5 MB inventory is read to a 1 MiB cap (524288 two-byte rows, not 1250000)" 'grep -q "^## Candidates (524288)" "$out/2026-11-09.md" && grep -q "^- and 524188 more" "$out/2026-11-09.md"'
 
 reset
 P --out "$out" --date 2026-11-09 >/dev/null 2>&1
@@ -112,7 +113,11 @@ check "a stale lock is reaped and the run goes through" '[[ $rc == 0 && -f $out/
 check "the lock is released on exit" '[[ ! -e $out/.prune.lock ]]'
 reset
 FAKE_RC=3 P --out "$out" --date 2026-11-09 >/dev/null 2>&1
-check "the temp folder is gone after a failure" '! ls "${TMPDIR:-/tmp}" 2>/dev/null | grep -q "^sabha-prune\.[A-Za-z0-9]*$" || true'
+mkdir -p "$dir/tmp"
+TMPDIR=$dir/tmp FAKE_RC=3 P --out "$out" --date 2026-11-09 >/dev/null 2>&1
+check "the temp folder is gone after a failure" '[[ -z $(ls -A "$dir/tmp") ]]'
+TMPDIR=$dir/tmp P --out "$out" --date 2026-11-09 >/dev/null 2>&1
+check "the temp folder is gone after a success" '[[ -z $(ls -A "$dir/tmp") ]]'
 
 reset
 mkdir -p "$out/2026-11-09.md"
@@ -121,6 +126,33 @@ check "a directory in the report slot is refused" '[[ $rc == 1 && -d $out/2026-1
 rm -rf "$out"; mkdir -p "$out"; : >"$dir/victim"; ln -s "$dir/victim" "$out/2026-11-09.md"
 P --out "$out" --date 2026-11-09 >/dev/null 2>&1; rc=$?
 check "a symlink in the report slot is refused and its target untouched" '[[ $rc == 1 && ! -s $dir/victim ]]'
+
+reset
+mkdir -p "$out"; printf 'precious\n' >"$out/2026-11-09.md"
+P --out "$out" --date 2026-11-09 >"$dir/o6" 2>&1; rc=$?
+check "a file in the report slot that is not a prune report is refused and kept" '[[ $rc == 1 && $(cat "$out/2026-11-09.md") == precious ]] && grep -q "is not a prune report" "$dir/o6"'
+P --out "$dir/impl/a/../../x" --date 2026-11-09 >/dev/null 2>&1; rc=$?
+check "a .. segment in --out is refused and nothing is created" '[[ $rc != 0 && ! -e $dir/x ]]'
+ln -s "$outside" "$dir/link"
+P --out "$dir/link" --date 2026-11-09 >/dev/null 2>&1; rc=$?
+check "a symlinked --out folder that leaves the workspace is refused" '[[ $rc != 0 && -z $(ls -A "$outside") ]]'
+P --out "$outside/sub" --date 2026-11-09 >/dev/null 2>&1; rc=$?
+check "an --out folder outside the workspace is refused and not created" '[[ $rc != 0 && ! -e $outside/sub ]]'
+P --out "$dir/impl/inside" --date 2026-11-09 >/dev/null 2>&1
+check "an --out folder inside the workspace still works" '[[ -f $dir/impl/inside/2026-11-09.md ]]'
+P --bogus >"$dir/o7" 2>&1
+check "an error message does not carry the exit code" '[[ $(cat "$dir/o7") == "sabha-prune: unknown argument: --bogus" ]]'
+P --help >"$dir/o8" 2>&1
+check "--help ends at the exit-code line, no code line leaks in" '! grep -q "set -uo" "$dir/o8" && tail -n 1 "$dir/o8" | grep -q "Exit 0 ok, 2 usage, 1 error\.$"'
+reset
+odd=$dir/impl/odd$'\n'dir$'\033'[31m
+SABHA_PRUNE_DIR=$odd P --date 2026-11-09 >"$dir/o9" 2>&1
+check "the success line is one clean line even for an odd folder name" '[[ $(wc -l <"$dir/o9") -eq 1 ]] && ! LC_ALL=C grep -q "[^ -~]" "$dir/o9" && grep -q "^wrote " "$dir/o9"'
+for bad in "$fake --apply" "$fake;touch $dir/pwned" '$(touch '"$dir"'/pwned)'; do
+  reset
+  SABHA_PRUNE_CMD=$bad P --out "$out" --date 2026-11-09 >/dev/null 2>&1; rc=$?
+  check "a config value that is a command line is refused: $bad" '[[ $rc == 1 && ! -s $FAKE_LOG && ! -e $dir/pwned && ! -e $out/2026-11-09.md ]]'
+done
 
 home=$dir/home; mkdir -p "$home"
 ( HOME=$home SABHA_PRUNE_DIR='$HOME/reports' P --date 2026-11-09 >/dev/null 2>&1 )
@@ -135,7 +167,7 @@ reset
 "$BIN/sabha" prune --out "$out" --date 2026-11-09 >/dev/null 2>&1
 check "bin/sabha prune is the front door" '[[ -f $out/2026-11-09.md ]]'
 
-check "the changed files are pure ASCII" '! LC_ALL=C grep -q "[^ -~	]" "$BIN/sabha-prune" "$BIN/../tests/test-prune.sh"'
+check "the changed files are pure ASCII" '! LC_ALL=C grep -q "[^ -~	]" "$BIN/sabha-prune" "$BIN/../tests/test-prune.sh" "$BIN/../README.md" "$BIN/../CHANGELOG.md" "$BIN/../sabha.conf.example"'
 check "bash -n is clean" 'bash -n "$BIN/sabha-prune" && bash -n "$BIN/../tests/test-prune.sh"'
 
 echo
