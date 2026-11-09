@@ -12,7 +12,8 @@ Inputs, all read, none written. The one command it runs, bin/sabha-heavy check, 
 folder and removes stale slots (a dead pid or an old heartbeat), as it does for every caller; fill hides its stderr.
   usage     status/limits.txt (SABHA_LIMITS_FILE): the highest of the five_hour and seven_day readings. The stop line is
             SABHA_STOP (default 90; off or 0 = 100). budget = stop line - highest reading - reserve, in percent points.
-            A window whose resets_at has passed counts as 0. Both windows must be present, fresh (written within
+            A window whose resets_at has passed counts as 0; resets_at 0 means "reset time unknown" (shown as such) and
+            the stated percent counts as live. Both windows must be present, fresh (written within
             SABHA_FILL_STALE, 21600 s, and not in the future) and well formed (digits only, percent 0 to 100): a stale,
             missing or malformed window means no plan (exit 3, the reason names the window), never a plan from the
             other window alone: a guess would spend what may not be there.
@@ -122,7 +123,8 @@ def read_head(path):
 
 
 def read_limits(path, now, stale):
-    """({window: (pct, resets_at, state)}, [problem lines]). state: ok | reset. A window that is missing, stale, in the
+    """({window: (pct, resets_at, state)}, [problem lines]). state: ok | reset | unknown
+    (resets_at 0 is what statusline-sabha.sh writes when the feed has no reset time: not a passed window). A window that is missing, stale, in the
     future or malformed is a problem, never silently dropped: the caller plans nothing while any window has one."""
     text = read_head(path)
     if text is None:
@@ -147,7 +149,7 @@ def read_limits(path, now, stale):
             bad.append("%s stale (%d s old, limit %d s)" % (w, now - int(f[3]), stale))
         else:
             reset = int(f[2])
-            got[w] = (float(f[1]), reset, "reset" if reset <= now else "ok")
+            got[w] = (float(f[1]), reset, "unknown" if reset == 0 else "reset" if reset <= now else "ok")
     return got, bad
 
 
@@ -259,7 +261,7 @@ def main(argv):
         return 3
     top = max(0 if v[2] == "reset" else v[0] for v in got.values())
     budget = stop - top - reserve
-    parts = ["%s %g%% (%s)" % (w, got[w][0], "window reset" if got[w][2] == "reset" else "resets " + hhmm(got[w][1])) for w in WINDOWS]
+    parts = ["%s %g%% (%s)" % (w, got[w][0], {"reset": "window reset", "unknown": "reset time unknown"}.get(got[w][2]) or "resets " + hhmm(got[w][1])) for w in WINDOWS]
     print("usage: %s; highest %g%%, stop line %g, reserve %g, budget %g points" % (", ".join(parts), top, stop, reserve, budget))
 
     if setting("SABHA_FILL_LOAD5", True):

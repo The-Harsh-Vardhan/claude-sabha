@@ -220,8 +220,8 @@ pass
 newws h; printf 'SABHA_FILL_COST_M=9\n' >>"$W/sabha.conf"; brief Bhima 001 x M; run
 printf '%s\n' "$out" | grep -q '9 pts' || fail "H: SABHA_FILL_COST_M set only in sabha.conf: $out"
 pass
-newws h; printf 'SABHA_FILL_NOW=1000\nSABHA_FILL_LOAD5=99\n' >>"$W/sabha.conf"; unset SABHA_FILL_NOW SABHA_FILL_LOAD5; run
-[[ $out == *"proposal at 20"* && $out != *"load5: 99.0"* ]] || fail "H: the test hooks must not be read from sabha.conf: $out"
+newws h; printf 'SABHA_FILL_NOW=1000\nSABHA_FILL_LOAD5=99\n' >>"$W/sabha.conf"; unset SABHA_FILL_LOAD5; run
+[[ $rc -eq 0 && $out == *"proposal at 2027-"* && $out == *"load5: "* && $out != *"load5: 99.0"* ]] || fail "H: the test hooks must not be read from sabha.conf: $out"
 export SABHA_FILL_NOW=$NOW SABHA_FILL_LOAD5=5
 pass
 
@@ -277,6 +277,16 @@ lim 80 "$NOW" "$OK" 3 "$S" "$OK"; run
 [[ $out == *"five_hour 80% (window reset)"* && $out == *"highest 3%"* ]] || fail "J: resets_at exactly now is a passed window: $out"
 lim 80 $((NOW + 1)) "$OK" 3 "$S" "$OK"; run
 [[ $out == *"highest 80%"* ]] || fail "J: resets_at one second ahead is not passed: $out"
+pass
+lim 10 100000000001 "$OK" 10 "$S" "$OK"; run
+[[ $rc -eq 3 && $out == *"five_hour out of range"* ]] || fail "J: resets_at above the epoch bound: rc $rc: $out"
+lim 10 "$F" 100000000001 10 "$S" "$OK"; run
+[[ $rc -eq 3 && $out == *"five_hour out of range"* ]] || fail "J: written above the epoch bound: rc $rc: $out"
+pass
+lim 88 0 "$OK" 10 "$S" "$OK"; run
+[[ $rc -eq 0 && $out == *"five_hour 88% (reset time unknown)"* && $out == *"highest 88%"* && $out == *"budget -8 points"* ]] || fail "J: resets_at 0 is an unknown reset time, not a passed window: rc $rc: $out"
+lim 10 "$F" "$OK" 88 0 "$OK"; run
+[[ $rc -eq 0 && $out == *"seven_day 88% (reset time unknown)"* && $out == *"highest 88%"* ]] || fail "J: seven_day resets_at 0: rc $rc: $out"
 pass
 lim 10 "$F" "$OK" 10 "$S" "$OK"
 { head -c 100000 /dev/zero | tr '\0' 'a'; echo; cat "$W/status/limits.txt"; } >"$W/status/limits.big"; mv "$W/status/limits.big" "$W/status/limits.txt"; run
