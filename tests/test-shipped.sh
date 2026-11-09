@@ -69,7 +69,7 @@ check "gh down with a cached answer: STALE header, exit 10" '[[ $(rc) == 10 ]] &
 rm -rf "$dir/cache"
 TTL=0 FAKE_GH_FAIL=1 run acme/my-app#12
 check "gh down and no cache: exit 1, one line" '[[ $(rc) == 1 ]] && [[ $(wc -l < "$dir/err") -le 2 ]]'
-FAKE_GH_LOGIN=someone-else SABHA_GH_USER=harsh TTL=0 run --fresh acme/my-app#12
+FAKE_GH_LOGIN=someone-else SABHA_GH_USER=someuser TTL=0 run --fresh acme/my-app#12
 check "wrong account: exit 3" '[[ $(rc) == 3 ]]'
 
 check "no gh call carried a write flag" '! grep -E -- " -X|--method|--input|mutation" "$CALLS" >/dev/null'
