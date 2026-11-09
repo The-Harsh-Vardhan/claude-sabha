@@ -191,6 +191,27 @@ check "the same row twice: close refused as AMBIGUOUS" '(( rc == 1 )) && grep -q
 printf 'Relay w1:p1\nGhost w1:p5\nghost w1:p6\n' > "$map"
 out=$(reapp --close w1:p5 w1:p6); rc=$?
 check "one role named twice (any case): both its panes refused as AMBIGUOUS" '(( rc == 1 )) && [[ $(grep -c "^refused .*AMBIGUOUS" <<<"$out") == 2 ]] && no_close'
+for f in 'Builder W1:P5\n' 'Builder p5\n' 'Builder w1:p5\r\n' 'Builder  W1:P5 \r\n' ' w1:p5\n'; do
+  printf 'Relay w1:p1\nGhost w1:p5\n' > "$map"; printf '%b' "$f" >> "$map"
+  : > "$FAKE_HERDR_LOG"
+  out=$(reapp); rc=$?
+  check "second row for the pane written '$(printf '%b' "$f" | tr -d '\r\n')' (CR dropped here): listed AMBIGUOUS or MALFORMED, no ORPHAN row" '(( rc == 0 )) && grep -qE "^(AMBIGUOUS|MALFORMED) .*w1:p5" <<<"$out" && ! grep "^ORPHAN" <<<"$out" | grep -q "w1:p5"'
+  out=$(reapp --close w1:p5); rc=$?
+  check "same row: --close w1:p5 refused, nothing closed" '(( rc == 1 )) && grep -qE "^refused w1:p5: (AMBIGUOUS|MALFORMED)" <<<"$out" && no_close'
+done
+printf 'Relay w1:p1\n w1:p5\n' > "$map"
+out=$(reapp); rc=$?
+check "a map row with no role is listed as MALFORMED" '(( rc == 0 )) && grep -q "^MALFORMED " <<<"$out"'
+out=$(reapp --close w1:p5); rc=$?
+check "a pane named only by a role-less row is refused" '(( rc == 1 )) && grep -q "^refused w1:p5" <<<"$out" && no_close'
+printf 'Relay w1:p1\nGhost w1:p5\n w1:p5\n' > "$map"
+out=$(reapp --close w1:p5); rc=$?
+check "a role-less row beside the orphan row: refused as MALFORMED, never closed" '(( rc == 1 )) && grep -q "^refused w1:p5: MALFORMED" <<<"$out" && no_close'
+printf 'Relay w1:p1\nGhost w1:p5\n' > "$map"
+for h in ' W1:P5' 'p5' $'w1:p5\r' 'P5 '; do
+  out=$(HERDR_PANE_ID=$h reap --close w1:p5); rc=$?
+  check "own pane spelled '$(printf %s "$h" | tr -d '\r')' (CR dropped here) is refused" '(( rc == 1 )) && grep -q "refused w1:p5: it is the pane this command runs in" <<<"$out" && no_close'
+done
 printf 'Relay w1:p1\nGhost w1:p5\n' > "$map"
 out=$(reapp --close w1:p5); rc=$?
 check "control: one row, no live session: the orphan still closes" '(( rc == 0 )) && grep -q "^closed pane w1:p5" <<<"$out"'
