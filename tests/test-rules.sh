@@ -424,6 +424,101 @@ check "R3 S4 plain unset GIT_DIR still clears it" 'allows bash_in "export GIT_DI
 check "R3 S5 wget -i.env denied" 'denies bash_in "wget -i.env example.test" && rule secret-read'
 check "R3 S5 wget -i.env.example allowed" 'allows bash_in "wget -i.env.example example.test"'
 
+# round 4 (review 229): M1 quote scanner, M2 substitution in the remote, M3 lone colon, M4 config by case, --config-env,
+# an appended read flag and quoting, S1 large file text, S2 the current-branch substitution
+q="'"
+r4=(
+  'echo "x"; git push origin main; echo "y"'
+  'echo "x" && git push origin HEAD:heads/main && echo "y"'
+  "echo ${q}a${q}; git push origin main; echo ${q}b${q}"
+  'echo "a"; git push --mirror; echo "b"'
+  'echo "a"; git push --all; echo "b"'
+  'echo "a"; git push -f origin main; echo "b"'
+  'echo "a"; gh api repos/o/r/merges -X PUT; echo "b"'
+  "echo \"a\"; git -C $dir/shared push; echo \"b\""
+  'git push "origin" "main"'
+  "git push ${q}origin${q} ${q}main${q}"
+  'git push "origin" "HEAD:main"'
+  'git push origin "main" "feat/x"'
+  'git push -u "origin" "main"'
+  "git -C \"$dir/feat\" push \"origin\" \"main\""
+  "echo \"it${q}s\"; git push origin main; echo ${q}x y${q}"
+  "echo \"a ${q}b${q} c\"; git push origin main; echo \"d\""
+  "echo ${q}say \"hi\" now${q}; git push origin main; echo \"e f\""
+  'echo "a;b c"; git push origin main'
+)
+for v in "${r4[@]}"; do
+  check "R4 M1 quoted words around a push: $v" 'denies bash_in "$v"'
+done
+check "R4 M1 quoted config key and value denied" 'denies bash_in "git config \"remote.origin.push\" \"HEAD:main\"" && rule shared-push'
+check "R4 M1 unterminated quote fails closed with a reason" 'denies bash_in "echo \"abc; git push origin feat/x" && rule shared-push && [[ $err == *"left open"* ]]'
+check "R4 M1 unclosed substitution fails closed" 'denies bash_in "git push origin \$(echo feat/x" && [[ $err == *"left open"* ]]'
+check "R4 M1 a quoted ; in a message is data" 'allows bash_in "git commit -m \"a; git push origin main\" && git push origin feat/x"'
+check "R4 M1 commit message with an apostrophe allowed" 'allows bash_in "git commit -m \"it${q}s done\"; git push origin feat/x"'
+check "R4 M1 heredoc message with an apostrophe allowed" 'allows bash_in "git commit -F - <<EOF
+don${q}t push yet
+EOF
+git push origin feat/x"'
+check "R4 M1 heredoc to a shell is still judged" 'denies bash_in "bash <<EOF
+git push origin main
+EOF" && rule shared-push'
+m2=(
+  'git push $(echo origin) HEAD:main'
+  'git push `echo origin` HEAD:main'
+  'git push "$(echo origin)" HEAD:main'
+  'git push -u $(echo origin) HEAD:main'
+  'git push $(echo origin main)'
+  'git push --repo $(echo origin) HEAD:main'
+  'git push $(echo) origin main'
+)
+for v in "${m2[@]}"; do
+  check "R4 M2 substitution in the remote: $v" 'denies bash_in "$v" && rule shared-push'
+done
+m3=('git push origin :' 'git push origin +:' "git push origin ${q}:${q}" 'git push origin "+:"')
+for v in "${m3[@]}"; do
+  check "R4 M3 matching refspec: $v" 'denies bash_in "$v" && rule shared-push'
+done
+m4=(
+  'git -c Remote.origin.Push=HEAD:main push'
+  'git -c REMOTE.origin.PUSH=HEAD:main push'
+  'git -c Alias.p=push p origin main'
+  'git config remote.origin.Push HEAD:main; git push'
+  'git config REMOTE.origin.push HEAD:main; git push'
+  "git config Alias.p ${q}push origin HEAD:main${q}; git p"
+  'V=HEAD:main git --config-env=remote.origin.push=V push'
+  'git --config-env remote.origin.push=V push'
+  "V=${q}push origin main${q} git --config-env=alias.p=V p"
+  'git config remote.origin.push HEAD:main --list; git push'
+  'git config remote.origin.push HEAD:main --get; git push'
+  'git config remote.origin.push HEAD:main --unset; git push'
+  'git config remote.origin.push HEAD:main --show-origin; git push'
+  'git -c "alias.p=push origin HEAD:main" p'
+  "git -c ${q}alias.p=push origin HEAD:main${q} p"
+  'git -c x=y -c "alias.p=push origin HEAD:main" p'
+  'git -c remote.origin.mirror=true push'
+  'git -c push.default=matching push'
+)
+for v in "${m4[@]}"; do
+  check "R4 M4 config route: $v" 'denies bash_in "$v" && rule shared-push'
+done
+check "R4 M4 git config --unset of the push key allowed" 'allows bash_in "git config --unset remote.origin.push; git push origin feat/x"'
+check "R4 M4 git config --global --get allowed" 'allows bash_in "git config --global --get alias.p; git push origin feat/x"'
+big4=$(head -c 200000 /dev/zero | tr '\0' a)
+check "R4 S1 Write of 200 KB then a non-ASCII byte denied in time" 'SECONDS=0; denies run Write content "$big4 $(printf "\xc3\xa9")" && rule ascii && (( SECONDS < 5 ))'
+check "R4 S1 Edit of 200 KB then a marker line denied in time" 'SECONDS=0; denies run Edit new_string "$big4
+Co-Authored-By: A <a@b.c>" && rule attribution && (( SECONDS < 5 ))'
+check "R4 S1 Write of 200 KB plain ASCII allowed in time" 'SECONDS=0; allows run Write content "$big4" && (( SECONDS < 5 ))'
+check "R4 S2 push of \$(git branch --show-current) allowed" 'allows bash_in "git push origin \"\$(git branch --show-current)\""'
+check "R4 S2 push -u of \$(git branch --show-current) allowed" 'allows bash_in "git push -u origin \"\$(git branch --show-current)\""'
+check "R4 S2 push of \$(git rev-parse --abbrev-ref HEAD) allowed" 'allows bash_in "git push origin \$(git rev-parse --abbrev-ref HEAD)"'
+check "R4 S2 the same from a shared checkout denied" 'denies bash_in "git push origin \"\$(git branch --show-current)\"" "$dir/shared" && rule shared-push'
+check "R4 S2 only the whole refspec: HEAD:\$(git branch --show-current) denied" 'denies bash_in "git push origin HEAD:\$(git branch --show-current)" && rule shared-push'
+check "R4 allowed: a comment with an apostrophe after a push" 'allows bash_in "git push origin feat/x # don${q}t push main"'
+check "R4 allowed: push to Harsh's own feature branch" 'allows bash_in "git push -u origin feat/x"'
+check "R4 allowed: .env.example read" 'allows bash_in "cat .env.example; git push origin feat/x"'
+check "R4 allowed: cp a \$(pwd)/b" 'allows bash_in "cp a \$(pwd)/b"'
+check "R4 allowed: git and gh reads beside a push" 'allows bash_in "git log --oneline -n 3; gh pr list; git push origin feat/x"'
+
 # switches and edges
 check "SABHA_RULES limits the rules" 'SABHA_RULES="ascii" allows bash_in "git push origin main"'
 check "SABHA_RULES keeps the named rule" 'SABHA_RULES="shared-push" denies bash_in "git push origin main"'

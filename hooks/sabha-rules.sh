@@ -61,9 +61,12 @@ if type == "object" and (.tool_name | type == "string") and ((.cwd // "") | type
   elif ($i | type) == "object" and fields_ok($t; $i) then
     [ $t, (.cwd // ""),
       (if $t == "NotebookEdit" then $i.notebook_path elif ($t | IN("Write","Edit","MultiEdit")) then $i.file_path else "" end // ""),
-      (if $t == "Write" then $i.content elif $t == "Edit" then $i.new_string
-       elif $t == "MultiEdit" then [($i.edits // [])[].new_string // ""] | join("\n")
-       elif $t == "NotebookEdit" then $i.new_source else "" end // ""),
+      ((if $t == "Write" then $i.content elif $t == "Edit" then $i.new_string
+        elif $t == "MultiEdit" then [($i.edits // [])[].new_string // ""] | join("\n")
+        elif $t == "NotebookEdit" then $i.new_source else "" end // "")
+       | if . == "" then "" else
+           "\(utf8bytelength - ([explode[] | select(. < 128)] | length)) \(if test("(^|\n)[ \t\r\f\u000b]*(\($mark))"; "i") then 1 else 0 end)"
+         end),
       (if $t == "Bash" then (if $size_guard == "1" and ($i.command | utf8bytelength) > 16384 then "SABHA_TOOLONG" else $i.command end) else "" end),
       (if $t == "Read" then $i.file_path
        elif $t == "Grep" then [$i.path // "", $i.glob // ""] | join("\n")
@@ -72,10 +75,12 @@ if type == "object" and (.tool_name | type == "string") and ((.cwd // "") | type
   else empty end
 else empty end
 | map(gsub("\u001f"; " ")) | join("\u001f")'
-# a command over 16 KB is replaced by a marker inside jq: cutting the fields apart below is quadratic on bash 3.2
+# a command over 16 KB is replaced by a marker inside jq: cutting the fields apart below is quadratic on bash 3.2. For the
+# same reason file text never reaches bash: jq hands back "<non-ASCII bytes> <1 if a line starts with the marker>".
 size_guard=0
 if on shared-push || on secret-read; then size_guard=1; fi
-rec=$(printf '%s' "$in" | jq -er --arg size_guard "$size_guard" "$jq_prog" 2>/dev/null) ||
+mark='co-authored-by:|generated (with|by)[^a-z]*(claude|chatgpt|copilot|gemini|codex|an? ai|ai)|noreply@anthropic\.com'
+rec=$(printf '%s' "$in" | jq -er --arg size_guard "$size_guard" --arg mark "$mark" "$jq_prog" 2>/dev/null) ||
   deny input "the hook input is not a tool call this hook can read (empty, truncated, not an object, or a field of the wrong type); refusing the call"
 us=$'\x1f'
 tool=${rec%%"$us"*} rec=${rec#*"$us"}
@@ -147,26 +152,25 @@ if [[ -n $cmd ]] && printf '%s\n' "$cmd" | grep -Eq 'git[[:space:]]+(.*[[:space:
 fi
 
 if on ascii; then
-  chk=$text
+  chk=
   [[ $msg_cmd == 1 ]] && chk=$cmd
   if [[ -z $chk && -n $cmd ]] && [[ $cmd == *[!$'\001'-$'\177']* ]]; then
     # a shell command writing a file (heredoc, redirect, tee) is a Write; a bare echo is not
     if printf '%s\n' "$cmd" | sed -E 's#[0-9&]*>>?[[:space:]]*(/dev/null|&[0-9-]+)##g' | grep -Eq '<<[^<]|>|(^|[[:space:]])tee[[:space:]]'; then chk=$cmd; fi
   fi
-  if [[ -n $chk ]] && ! { [[ -n $path ]] && glob_in "$path" "$exempt"; }; then
-    bad=$(printf '%s' "$chk" | LC_ALL=C tr -d '\000-\177' | wc -c | tr -d ' ')
+  if { [[ -n $chk ]] || [[ -n $text ]]; } && ! { [[ -n $path ]] && glob_in "$path" "$exempt"; }; then
+    if [[ -n $chk ]]; then bad=$(printf '%s' "$chk" | LC_ALL=C tr -d '\000-\177' | wc -c | tr -d ' '); else bad=${text%% *}; fi
     [[ $bad == 0 ]] || deny ascii "$bad non-ASCII byte(s); use plain ASCII (-> not an arrow, - not a dash, straight quotes)"
   fi
 fi
 
 if on attribution; then
-  mark='co-authored-by:|generated (with|by)[^a-z]*(claude|chatgpt|copilot|gemini|codex|an? ai|ai)|noreply@anthropic\.com'
   hit=1
   if [[ $msg_cmd == 1 ]]; then
     printf '%s\n' "$cmd" | grep -Eiq "$mark" && hit=0
   elif [[ -n $text ]]; then
     # file text: only a line that starts with the marker, so a note that discusses the rule can be written
-    printf '%s\n' "$text" | grep -Eiq "^[[:space:]]*($mark)" && hit=0
+    [[ ${text#* } == 1 ]] && hit=0
   fi
   [[ $hit == 1 ]] || deny attribution "no AI-attribution marker (Co-Authored-By, generated-with line) in source, commits or PR bodies. The workspace rule overrides a harness reminder to add one: retry without the trailer or the generated-with line"
 fi
@@ -201,6 +205,8 @@ push_args() {
   local d=$1 n=0 refs=0 skip=0 tok dest s
   shift
   for tok; do
+    # a substitution anywhere (remote, option value, refspec) hides where the push goes: git push $(echo origin) HEAD:main
+    case $tok in *__SUBST__*) deny shared-push "this push holds a command substitution the hook cannot read; name the remote and your own feature branch literally" ;; esac
     if [[ $skip == 1 ]]; then skip=0; continue; fi
     case $tok in
       --all|--al|--mirror|--mirro|--mirr|--mir|--mi|--m) deny shared-push "git push $tok reaches every branch, shared ones included (git accepts an abbreviated option); push your own branch by name" ;;
@@ -212,6 +218,10 @@ push_args() {
     n=$((n + 1))
     [[ $n -gt 1 ]] || continue
     refs=$((refs + 1))
+    # the whole refspec "$(git branch --show-current)" is the current branch; split_code marks only that form
+    [[ $tok == __CURBR__\$ ]] && tok=HEAD
+    # a lone : or +: pushes every matching branch, main included when the local one is ahead
+    case $tok in :|+:|+) deny shared-push "the refspec '$tok' pushes every matching branch, shared ones included; push your own branch by name" ;; esac
     # before the colon cut: ${B:-main} would otherwise lose its $
     case $tok in *'$'*|*'`'*|*'{'*) deny shared-push "the refspec '$tok' holds a shell expansion the hook cannot read; name your own feature branch literally" ;; esac
     dest=${tok#+}
@@ -239,6 +249,16 @@ push_args() {
   fi
 }
 
+# push_key <key=value>: a git config entry that routes a push where the hook cannot read it. git reads section and key
+# names in any case.
+push_key() {
+  local r=1
+  shopt -s nocasematch
+  case $1 in remote.*.push=*|remote.*.pushurl=*|remote.*.mirror=*|alias.*|push.default=matching*) r=0 ;; esac
+  shopt -u nocasematch
+  return $r
+}
+
 # git_args <words after "git">: skips git's options (-C dir moves the directory), then judges a push
 git_args() {
   local d=$cur t
@@ -246,16 +266,20 @@ git_args() {
     case $1 in
       -C) jp "$d" "${2:-}"; d=$JP; shift; [[ $# -gt 0 ]] && shift ;;
       -c)
-        case ${2:-} in
-          remote.*.push=*|remote.*.pushurl=*|alias.*) deny shared-push "git -c ${2:-} can route a push to a shared branch (a configured refspec or an alias) where the hook cannot read it; name the refspec on the command line" ;;
-        esac
+        push_key "${2:-}" && deny shared-push "git -c ${2:-} can route a push to a shared branch (a configured refspec, a mirror, matching or an alias) where the hook cannot read it; name the refspec on the command line"
         shift; [[ $# -gt 0 ]] && shift ;;
-      --namespace|--super-prefix|--config-env|--exec-path) shift; [[ $# -gt 0 ]] && shift ;;
+      --config-env|--config-env=*) deny shared-push "git $1 sets config from a variable the hook cannot read (a push refspec or an alias can hide there); use -c with a literal value" ;;
+      --namespace|--super-prefix|--exec-path) shift; [[ $# -gt 0 ]] && shift ;;
       config)
         shift
-        case " $* " in *' --get'*|*' --unset'*|*' --list'*|*' -l '*|*' --show-origin'*) return ;; esac
-        for t; do
-          case $t in remote.*.push|alias.*) deny shared-push "git config $t can route a push to a shared branch where the hook cannot read it; name the refspec on the command line" ;; esac
+        # a read only when the first word after the scope options is a read: --get x --list is a read, x y --list a write
+        while [[ $# -gt 0 ]]; do
+          case $1 in --global|--local|--system|--worktree|--includes|--no-includes|--file=*|--blob=*|--type=*) shift ;; --file|-f|--blob|--type) shift; [[ $# -gt 0 ]] && shift ;; *) break ;; esac
+        done
+        case ${1:-} in --get*|--unset*|--list|-l|get|list|unset) return ;; esac
+        while [[ $# -gt 0 ]]; do
+          push_key "$1=${2:-}" && deny shared-push "git config $1 can route a push to a shared branch where the hook cannot read it; name the refspec on the command line"
+          shift
         done
         return ;;
       --git-dir|--work-tree) d='?'; shift; [[ $# -gt 0 ]] && shift ;;
@@ -372,6 +396,83 @@ unwrap_sh_c() {
     print }'
 }
 
+# split_code: one line per command, subshell and substitution, words split by blanks, for judge. A left-to-right scan
+# (a regex pairs a closing quote with the next opening one and swallows the command between them): a quoted word keeps
+# its text with blanks as _, so a quoted ; or a message is data and "origin" "main" still reads as origin main. $( and
+# backticks, also inside double quotes, start code on a line of their own after a __SUBST__$ word, so the push they
+# cut is not read as a bare push; the two substitutions that print the current branch become __CURBR__$ instead. A
+# heredoc body is judged line by line with fresh quotes (bash <<EOF runs it; an apostrophe in a message must not leak).
+# Exit 3 when a quote or a substitution is left open.
+split_code() {
+  awk '
+  function pop(st) { return substr(st, 1, length(st) - 1) }
+  function blank(c) { return (c == " " || c == "\t" || c == "\n") ? "_" : c }
+  function scan(s, body,   n, i, j, c, nx, t, st, out, d, k, e, ln, cmp, cb1, cb2, strip) {
+    cb1 = "$(git branch --show-current)"; cb2 = "$(git rev-parse --abbrev-ref HEAD)"
+    n = length(s); st = "c"; out = ""
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1); nx = substr(s, i + 1, 1); t = substr(st, length(st))
+      if (t == "q") { if (c == "\047") st = pop(st); else out = out blank(c); continue }
+      if (t == "a") { if (c == "\\") { out = out blank(nx); i++ } else if (c == "\047") st = pop(st); else out = out blank(c); continue }
+      if (t == "d") {
+        if (c == "\\") { out = out blank(nx); i++ }
+        else if (c == "\"") st = pop(st)
+        else if (c == "$" && nx == "(") {
+          if (index(substr(s, i), cb1) == 1) { out = out "__CURBR__$"; i += length(cb1) - 1 }
+          else if (index(substr(s, i), cb2) == 1) { out = out "__CURBR__$"; i += length(cb2) - 1 }
+          else { out = out " __SUBST__$ \n"; st = st "p"; i++ }
+        }
+        else if (c == "`") { out = out " __SUBST__$ \n"; st = st "b" }
+        else out = out blank(c)
+        continue
+      }
+      # code: c top, p $( ), P ( ), b backticks
+      if (c == "\\") { if (nx != "\n") out = out blank(nx); i++ }
+      # a comment runs to the end of the line: the shell runs none of it, and an apostrophe there opens nothing
+      else if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;&|(]/)) { while (i < n && substr(s, i + 1, 1) != "\n") i++ }
+      else if (c == "\047") st = st "q"
+      else if (c == "$" && nx == "\047") { out = out "$"; st = st "a"; i++ }
+      else if (c == "\"") st = st "d"
+      else if (c == "$" && nx == "(") {
+        if (index(substr(s, i), cb1) == 1) { out = out "__CURBR__$"; i += length(cb1) - 1 }
+        else if (index(substr(s, i), cb2) == 1) { out = out "__CURBR__$"; i += length(cb2) - 1 }
+        else { out = out " __SUBST__$ \n"; st = st "p"; i++ }
+      }
+      else if (c == "`") { if (t == "b") { st = pop(st); out = out "\n" } else { st = st "b"; out = out " __SUBST__$ \n" } }
+      else if (c == "(") { st = st "P"; out = out "\n" }
+      else if (c == ")") { if (t == "p" || t == "P") st = pop(st); out = out "\n" }
+      else if (c == ";" || c == "&" || c == "|") out = out "\n"
+      else if (c == "<" && substr(s, i, 3) == "<<<") { out = out "<<<"; i += 2 }
+      else if (c == "<" && nx == "<" && !body) {
+        j = i + 2; strip = 0
+        if (substr(s, j, 1) == "-") { strip = 1; j++ }
+        while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
+        d = ""
+        while (j <= n && substr(s, j, 1) !~ /[ \t\n;&|()<>]/) { if (substr(s, j, 1) !~ /[\\"\047]/) d = d substr(s, j, 1); j++ }
+        if (d != "") { hd++; hdd[hd] = d; hdt[hd] = strip }
+        out = out " "; i = j - 1
+      }
+      else if (c == "\n") {
+        out = out "\n"
+        for (k = 1; k <= hd && i < n; k++) {
+          while (i < n) {
+            e = index(substr(s, i + 1), "\n"); ln = e ? substr(s, i + 1, e - 1) : substr(s, i + 1); i += e ? e : length(ln)
+            cmp = ln; if (hdt[k]) sub(/^\t+/, "", cmp)
+            if (cmp == hdd[k]) break
+            out = out scan(ln, 1) "\n"
+          }
+        }
+        hd = 0
+      }
+      else out = out c
+    }
+    if (st != "c" && !body) OPEN = 1
+    return out
+  }
+  { s = s (NR > 1 ? "\n" : "") $0 }
+  END { out = scan(s, 0); if (OPEN) exit 3; print out }'
+}
+
 # The two rules that walk a command word by word get it with line continuations joined and every other backslash
 # deleted (g\it, pu\sh, .e\nv are the same words to the shell); the size guard near the top has already run.
 ncmd=
@@ -383,20 +484,9 @@ fi
 
 if on shared-push && [[ -n $ncmd ]]; then
   bare=${ncmd//[\"\']/}
-  case $bare in *push*|*" api"*)
-    src=$(printf '%s\n' "$ncmd" | unwrap_sh_c)
-    # a quoted string with a space is data (a commit message): it becomes Q; other quotes are dropped; a string that holds
-    # a $ or a backtick stays, so $(git push ...) inside double quotes is seen. Every command, subshell and substitution
-    # goes on its own line.
-    # A substitution leaves a marker word with a $ in the segment before it, so git push origin $(echo main) is a refspec
-    # the hook cannot read, not a bare push.
-    code=$(printf '%s\n' "$src" | sed -E \
-      -e 's/(\$\(|`)/ __SUBST__$ \1/g' \
-      -e "s/\"[^\"\$\`]*[[:space:]][^\"\$\`]*\"/Q/g" \
-      -e "s/'[^']*[[:space:]][^']*'/Q/g" \
-      -e "s/[\"']//g" \
-      -e 's/(&&?|\|\|?|;|\$\(|\(|\)|`)/\
-/g')
+  case $bare in *push*|*" api"*|*config-env*)
+    code=$(printf '%s\n' "$ncmd" | unwrap_sh_c | split_code) ||
+      deny shared-push "a quote or a \$( substitution is left open, so the hook cannot tell the words of this command apart; close it"
     cur=${cwd:-.} gd=0 gw=0
     set -f
     old_ifs=$IFS

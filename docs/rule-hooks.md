@@ -54,8 +54,7 @@ The hook and its settings file are not protected: a session can edit them.
   (`grep --exclude=.env`) is denied, as are `$PRIMARY_KEY` and `$PUBLIC_KEY` (the `_KEY` rule). A `cp` whose arguments
   hold a substitution is denied when a secret or a `/dev` or `/proc` path is on the line, so `cp <secret> "$(pwd)/"` is
   refused: name the destination literally.
-- `shared-push` and `secret-read` also miss: `xargs` fed from another command, a heredoc to a shell (`bash <<EOF`; the
-  one-line here-string `bash <<< "..."` is unwrapped), `gh api "$URL" -X PUT` and `gh api $(echo .../merge)` (a path
+- `shared-push` and `secret-read` also miss: `xargs` fed from another command, `gh api "$URL" -X PUT` and `gh api $(echo .../merge)` (a path
   built at run time), a graphql mutation hidden in `-F query=@q.graphql` or `--input q.json`, the mutation
   `enablePullRequestAutoMerge`, `gh repo sync -b main`, and a push hidden behind a split word (`"pu""sh"`).
 - A bare `export GIT_DIR=...` or `GIT_DIR=...;` makes the directory of every later push unknown until `unset GIT_DIR`;
@@ -64,21 +63,35 @@ The hook and its settings file are not protected: a session can edit them.
   pipeline, which clears the flag although the parent shell keeps the variable (`unset -f` does not clear it).
 - Routes to a shared branch that the hook cannot read: a refspec or alias already in a config file (`git config` run in
   an earlier command, `.git/config` or `~/.gitconfig` edited by another tool, a pre-existing `alias.*`), and
-  `git config` options other than the ones named (`-c remote.*.push=`, `-c alias.*`, `GIT_CONFIG_*` and a `git config
-  remote.*.push` / `alias.*` write are denied; `--get`, `--unset` and `--list` reads are allowed). The refspec is judged
-  as git reads it: `refs/heads/x`, `heads/x` and `x` are the same branch.
+  `git config` options other than the ones named. Denied, in any case of the key (git reads `Remote.origin.Push` as
+  `remote.origin.push`): `-c` or a `git config` write of `remote.*.push`, `remote.*.pushurl`, `remote.*.mirror`,
+  `alias.*`, `push.default=matching`; any `--config-env`; `GIT_CONFIG_*`. A `git config` call is a read only when the
+  first word after the scope options (`--global`, `--local`, `--file x`, ...) is `--get*`, `--unset*`, `--list`/`-l` or
+  `get`/`list`/`unset`, so `git config remote.origin.push HEAD:main --list` is a write. Still open:
+  `-c branch.<b>.merge=` with `push.default=upstream`, and a `git config` key or value built at run time. The refspec is
+  judged as git reads it: `refs/heads/x`, `heads/x` and `x` are the same branch.
+- Quotes: the push judge reads the command with a left-to-right scanner (single and double quotes, `$'...'`, backslash,
+  `$(`, backticks, heredocs, `#` comments), so a quoted word keeps its text (`git push "origin" "main"` is judged as
+  `git push origin main`) and a quoted `;` is data. A quote or a `$(` left open is refused with the rule `shared-push`.
+  A heredoc body is judged as commands whatever reads it (`bash <<EOF` runs it), so `cat <<EOF > notes.md` with a line
+  `git push origin main` is denied (a false positive: write notes with the Write tool). Not modelled: a `case ... )`
+  inside `$( )` (its `)` ends the substitution early), a quote inside `${ ... }`, and zsh-only quoting.
 - Command words built at run time are not seen: `git${IFS}push${IFS}origin${IFS}main`, `$'git' push origin main`,
   `git $'push' origin main`, `$(printf git) push origin main`, `{git,push,origin,main}`, `git pu{s,}h origin main`,
   `gh api ... -X $'PUT'`. The same holds for the `.e""nv`-style secret names above, and for `curl -d @"$f"` (a variable in
   a quoted name).
-- A command substitution in the refspec of a push (`git push origin $(echo main)`) is denied as a refspec the hook
-  cannot read, whatever it prints (a false positive for `git push origin "$(git branch --show-current)"`: name the
-  branch). `cp a $(echo /dev/null)` is also denied (a `/dev` word on a `cp` line with a substitution).
+- A command substitution anywhere in a push (remote, option value or refspec: `git push $(echo origin) HEAD:main`,
+  `git push origin $(echo main)`) is denied, whatever it prints, and so are the refspecs `:`, `+:` and `+` (push every
+  matching branch). One exception: a refspec that is exactly `$(git branch --show-current)` or
+  `$(git rev-parse --abbrev-ref HEAD)` (quoted or not) is judged as `HEAD`, the current branch; `HEAD:$(...)` is still
+  denied. `cp a $(echo /dev/null)` is also denied (a `/dev` word on a `cp` line with a substitution).
 - Size: a command over 16 KB, or any word over 8 KB, is refused with the rule `size` ("split the command, or write the
   data with the Write tool"). Bash 3.2 is quadratic on long words and a hook that times out lets the call through, so the
   check runs first: inside the `jq` call for a command over 16 KB (a 1 MB command is refused in about 0.3 s, measured),
   then before every scan for a word over 8 KB. It applies when `shared-push` or `secret-read` is on; a hook run
-  with a shorter timeout than the machine needs (heavy load) can still time out and let the call through.
+  with a shorter timeout than the machine needs (heavy load) can still time out and let the call through. Write, Edit,
+  MultiEdit and NotebookEdit text never reaches bash: `jq` counts its non-ASCII bytes and looks for a marker line, so a
+  200 KB file is judged in time and `ascii` and `attribution` stay on.
 - Input: two JSON documents on stdin are read as one (the first); Claude Code sends one.
 - Tests: tests/test-rules.sh runs on bash 3.2 from the repository; tests/test-hooks.sh fails inside a sandbox whose write
   list excludes the working directory (a bash 3.2 here-string needs a temp file there) and passes from an archive copy or
