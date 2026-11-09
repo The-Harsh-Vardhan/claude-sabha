@@ -139,7 +139,14 @@ sabha-heavy acquire <label> [secs]   # check + take a slot; polls every 30 s up 
 sabha-heavy release <label>          # frees the slot
 sabha-heavy run <label> -- <cmd...>  # acquire, run cmd, release on exit (trap), heartbeat while it runs
 sabha-heavy status                   # one line: "load 103.1/10 red | mem yellow | slots 1/2 | build-x, e2e-y"
+sabha-heavy queue add <label> [--prio 1-9] [--settle secs] | list | next | remove <label>
 ```
+
+The queue (labels only, never commands; `status/heavy/queue/<label>`) orders by priority plus waited time
+(`SABHA_HEAVY_AGE`, 600 s per point) so nothing starves; a queued label's `acquire` waits until it is the head. A
+label's own settle time is stored in its slot, and the next job waits for it. `status/heavy/jobs.tsv` records
+utc, label, start / end / giveup, load1, load5, memory and a detail column for tuning the thresholds. Memory pressure
+is checked before load.
 
 Exit 75 (EX_TEMPFAIL) with the reason on stdout, so the dispatcher can paste it to the relay. It never bypasses
 itself; a human override is `SABHA_HEAVY_FORCE=1` on that one call, which logs `FORCED by <who>` in the slot file.

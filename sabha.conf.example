@@ -61,6 +61,11 @@ SABHA_EFFICIENCY=1
 #SABHA_HEAVY_WAIT=900
 #SABHA_HEAVY_TTL=1800
 #SABHA_HEAVY_FREE_PCT=40
+# Queue (`sabha-heavy queue add|list|next|remove`): a waiting job gains one priority point per AGE seconds so it cannot
+# starve; entries older than QUEUE_TTL seconds are dropped. A job's own settle: `queue add <label> --settle <secs>`
+# or SABHA_HEAVY_SETTLE_FOR on acquire/run. Every start, end and give-up goes to status/heavy/jobs.tsv.
+#SABHA_HEAVY_AGE=600
+#SABHA_HEAVY_QUEUE_TTL=86400
 # Starter: with the flag on, `sabha-up.sh --print <Name>` prints the sabha-loop line; --print --raw prints the bare
 # claude line. MCP per role: SABHA_MCP_<Name> = full, none, or set names (a,b), each set a JSON file in the shape
 # `claude --mcp-config` reads. The relay and the dispatcher default to full, every other role to none (the roster flag
