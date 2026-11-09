@@ -17,6 +17,10 @@
   cache, stale copy on failure), and `sabha prs`, a PR radar built on it: an author's open PRs across orgs and repos with
   ARCHIVED, CONFLICT, BEHIND>50, UNKNOWN, CHANGES_REQUESTED and STALE>7d flags. `tests/hermetic-bin/gh` is the fake gh; `hermetic.sh`
   refuses a test that finds another gh first on PATH. docs/github-layer.md.
+- `sabha pack lint <file.md>...` (also `sabha pack-lint`, `bin/sabha-pack-lint`): checks the command lines of push packs and
+  PR bodies (fenced blocks, indented blocks outside lists) and rejects an inline `#` comment, a `...` or ellipsis
+  elision, a non-ASCII character and a line without a `cd /absolute/path && ` prefix. Exit 1 on a finding, with
+  `file:line: reason`. `tests/test-pack-lint.sh`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

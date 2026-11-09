@@ -17,6 +17,8 @@
 #   sabha stamp                            the time from the clock (UTC, then local) for briefs and status lines
 #   sabha update                           fast-forward pull in the install dir, then prints the head of CHANGELOG.md
 #   sabha owe [--sent FILE]                what you owe people: send-type for-me items, unsent drafts, the board rows they block
+#   sabha pack lint <file.md>...           rejects inline # comments, "..." elisions, non-ASCII and a missing "cd /abs &&" prefix
+#                                          in the command lines of push packs and PR bodies (bin/sabha-pack-lint)
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 #   sabha prs [args]                       PR radar: open PRs of an author across orgs and repos, worst first (bin/sabha-prs)
 #   sabha whoami [Name]                    one line: role, session id, cwd, conf, impl, pane, live copies; exit 3 when
@@ -580,5 +582,7 @@ case ${1:-} in
   stamp) cmd_stamp ;;
   prs) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-prs" "$@" ;;
   whoami) shift; cmd_whoami "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe" >&2; exit 2 ;;
+  pack-lint) shift; exec "$BIN/sabha-pack-lint" "$@" ;;
+  pack) [[ ${2:-} == lint ]] || die "pack: use 'sabha pack lint <file.md>...'"; shift 2; exec "$BIN/sabha-pack-lint" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>..." >&2; exit 2 ;;
 esac
