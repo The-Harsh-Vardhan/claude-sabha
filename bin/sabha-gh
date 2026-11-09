@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# The one read-only GitHub layer of the kit (docs/github-layer.md). Named reads only; the gh argv is built here, so a
+# caller cannot reach a write: no flag is accepted (-X, --method, -f, -F, --input and every other one is refused,
+# exit 2), and the GraphQL text is fixed in this file.
+#   sabha-gh [--fresh] pr <owner/repo> <n>                 title, state, isDraft, base, reviewDecision, mergeable, mergeStateStatus, ...
+#   sabha-gh [--fresh] prs-by-author <org|owner/repo> <login>   {total, items[]} of that author's open PRs (first 100)
+#   sabha-gh [--fresh] compare <owner/repo> <base> <head>  {ahead_by, behind_by, status}
+#   sabha-gh [--fresh] repo <owner/repo>                   {full_name, archived, default_branch, ...}; full_name differs after a rename
+#   sabha-gh [--fresh] branch <owner/repo> <branch>        {exists, name, sha, date}
+#   sabha-gh [--fresh] contents <owner/repo> <path> <ref>  {exists, type, sha}
+# Output is JSON on stdout. Exit: 0 ok, 1 gh failed and no cache, 2 refused or usage, 3 wrong account, 4 under the rate
+# floor and no cache, 10 stale: gh failed (or the floor was hit) and stdout is the cached copy.
+# Env or sabha.conf (the environment wins): SABHA_GH_USER (the login gh must be on; unset = no check), SABHA_GH_TTL (cache
+# seconds, 600), SABHA_GH_MIN_LEFT (stop when core or graphql quota is below it, 200). Env only: SABHA_GH_CACHE (cache dir,
+# else $SABHA_IMPL/status/gh-cache), SABHA_GH_BIN (the gh binary, default gh). gh needs the network and the keychain: run
+# from a plain terminal.
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+GH=${SABHA_GH_BIN:-gh}
+if [[ ${SABHA_TEST:-} == 1 && -z ${SABHA_GH_BIN:-} ]]; then
+  echo "sabha-gh: SABHA_TEST=1 and no SABHA_GH_BIN; refusing to reach a real gh" >&2; exit 2
+fi
+umask 077  # the cache holds private-repo PR titles
+
+die() { echo "sabha-gh: $*" >&2; exit "${2:-1}"; }
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+fresh=0
+[[ ${1:-} == --fresh ]] && { fresh=1; shift; }
+read=${1:-}
+[[ -n $read ]] || usage
+shift
+for a in "$@"; do
+  case $a in -*) die "read-only: '$a' is refused; sabha-gh takes names and values, never flags" 2 ;; esac
+done
+
+# the values go into a URL path, a search query or a GraphQL variable: only plain characters get through
+is() { [[ $2 =~ $1 ]]; }
+RE_NAME='^[A-Za-z0-9][A-Za-z0-9-]*$'
+RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+RE_REF='^[A-Za-z0-9_][A-Za-z0-9._/-]*$'
+RE_BRANCH='^[A-Za-z0-9_][A-Za-z0-9._/+@-]*$'
+RE_HEAD='^([A-Za-z0-9][A-Za-z0-9-]*:)?[A-Za-z0-9_][A-Za-z0-9._/+@-]*$'
+RE_PATH='^[A-Za-z0-9_.@+-][A-Za-z0-9._/@+-]*$'
+no_dots() { [[ $1 != *..* && /$1/ != */./* ]]; }
+is_repo() { is "$RE_REPO" "$1" && [[ /$1/ != */./* && /$1/ != */../* ]]; }
+need() { (( $# - 1 == $1 )) || die "$read: wrong number of arguments (see: sabha-gh)" 2; }
+
+# shellcheck disable=SC2016  # the $ are GraphQL variables, not shell
+Q_PR='query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){number title url state isDraft baseRefName headRefName headRepository{nameWithOwner} reviewDecision mergeable mergeStateStatus createdAt updatedAt mergedAt mergeCommit{oid} author{login}}}}'
+shopt -s nocasematch
+[[ $Q_PR == *mutation* ]] && die "a GraphQL mutation is never sent" 2
+shopt -u nocasematch
+
+ARGS=() JQ="" MISS404=""
+case $read in
+  pr)
+    need 2 "$@"; { is_repo "$1" && is '^[0-9]+$' "$2"; } || die "pr: want <owner/repo> <number>" 2
+    ARGS=(api graphql -f "query=$Q_PR" -f "owner=${1%%/*}" -f "name=${1#*/}" -F "n=$2")
+    JQ='.data.repository.pullRequest' ;;
+  prs-by-author)
+    need 2 "$@"; is_repo "$1" && scope="repo:$1" || { is "$RE_NAME" "$1" && scope="org:$1"; } || die "prs-by-author: want <org|owner/repo> <login>" 2
+    is "$RE_NAME" "$2" || die "prs-by-author: bad login" 2
+    ARGS=(api "search/issues?per_page=100&q=is:pr+is:open+author:$2+$scope")
+    JQ='{total:.total_count,items:[.items[]|{repo:(.repository_url|sub("^.*/repos/";"")),number,title,created_at,updated_at,draft,url:.html_url}]}' ;;
+  compare)
+    need 3 "$@"; { is_repo "$1" && is "$RE_BRANCH" "$2" && is "$RE_HEAD" "$3" && no_dots "$2$3"; } || die "compare: want <owner/repo> <base> <head>" 2
+    ARGS=(api "repos/$1/compare/$2...$3")
+    JQ='{ahead_by,behind_by,status}' ;;
+  repo)
+    need 1 "$@"; is_repo "$1" || die "repo: want <owner/repo>" 2
+    ARGS=(api "repos/$1")
+    JQ='{full_name,archived,default_branch,private,pushed_at}' ;;
+  branch)
+    need 2 "$@"; { is_repo "$1" && is "$RE_BRANCH" "$2" && no_dots "$2"; } || die "branch: want <owner/repo> <branch>" 2
+    ARGS=(api "repos/$1/branches/$2")
+    JQ='{exists:true,name,sha:.commit.sha,date:.commit.commit.committer.date}' MISS404=1 ;;
+  contents)
+    need 3 "$@"; { is_repo "$1" && is "$RE_PATH" "$2" && is "$RE_REF" "$3" && no_dots "$2$3"; } || die "contents: want <owner/repo> <path> <ref>" 2
+    ARGS=(api "repos/$1/contents/$2?ref=$3")
+    JQ='if type=="array" then {exists:true,type:"dir"} else {exists:true,type:.type,sha:.sha} end' MISS404=1 ;;
+  *) usage ;;
+esac
+ARGS+=(--jq "$JQ")
+
+# the conf is sourced after the environment is saved, so an env value wins over a conf key
+env_ttl=${SABHA_GH_TTL:-} env_min=${SABHA_GH_MIN_LEFT:-} env_user=${SABHA_GH_USER:-}
+# shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+if [[ -n ${SABHA_GH_CACHE:-} ]]; then
+  sabha_conf_read sabha-gh 2>/dev/null  # no conf is fine when the cache dir is given
+  CDIR=$SABHA_GH_CACHE
+else
+  sabha_load sabha-gh
+  CDIR=$SABHA_IMPL/status/gh-cache
+fi
+TTL=${env_ttl:-${SABHA_GH_TTL:-600}} MIN_LEFT=${env_min:-${SABHA_GH_MIN_LEFT:-200}}
+[[ $TTL =~ ^[0-9]+$ && $MIN_LEFT =~ ^[0-9]+$ ]] || die "SABHA_GH_TTL and SABHA_GH_MIN_LEFT must be whole numbers" 2
+[[ -n $env_user ]] && SABHA_GH_USER=$env_user
+mkdir -p "$CDIR" || die "cannot create $CDIR"
+
+sha1() { if command -v shasum >/dev/null 2>&1; then shasum -a 1; else sha1sum; fi; }
+KEY=$(printf '%s\n' "$read" "${ARGS[@]}" | sha1 | cut -c1-40)
+BODY=$CDIR/$KEY.json STAMP=$CDIR/$KEY.ts
+now=$(date +%s)
+stamp_of() { local v; v=$(cat "$1" 2>/dev/null); [[ $v =~ ^[0-9]+$ ]] && echo "$v" || echo 0; }
+
+if (( ! fresh )) && [[ -s $BODY ]] && (( now - $(stamp_of "$STAMP") < TTL )); then cat "$BODY"; exit 0; fi
+
+# the account and the quota are checked once a minute, not once per read
+preflight() {
+  local pf=$CDIR/.preflight user left
+  (( now - $(stamp_of "$pf") < 60 )) && return 0
+  user=$("$GH" api user --jq .login 2>&1) || { ERR=$user; return 1; }
+  if [[ -n ${SABHA_GH_USER:-} && $user != "$SABHA_GH_USER" ]]; then
+    ERR="gh is logged in as '$user', not '$SABHA_GH_USER' (fix: gh auth switch)"; return 3
+  fi
+  left=$("$GH" api rate_limit --jq '[.resources.core.remaining,.resources.graphql.remaining]|min' 2>&1) || { ERR=$left; return 1; }
+  if ! [[ $left =~ ^[0-9]+$ ]] || (( left < MIN_LEFT )); then ERR="GitHub quota is $left, under SABHA_GH_MIN_LEFT=$MIN_LEFT"; return 4; fi
+  echo "$now" > "$pf"
+}
+
+fetch() {
+  local out err
+  preflight || return $?
+  # stderr stays out of the cached JSON: a gh warning on exit 0 must not corrupt it
+  out=$("$GH" "${ARGS[@]}" 2>"$BODY.err") && [[ -n $out ]] || {
+    err=$(cat "$BODY.err")
+    if [[ -n $MISS404 && "$out$err" == *"HTTP 404"* ]]; then out='{"exists":false}'; : > "$BODY.err"
+    else ERR=${err:-${out:-empty reply from gh}}; rm -f "$BODY.err"; return 1; fi
+  }
+  [[ -s $BODY.err ]] && cat "$BODY.err" >&2
+  rm -f "$BODY.err"
+  printf '%s\n' "$out" > "$BODY.tmp" && mv "$BODY.tmp" "$BODY" && echo "$now" > "$STAMP"
+  cat "$BODY"
+}
+
+ERR=""
+fetch; rc=$?
+(( rc == 0 )) && exit 0
+(( rc == 3 )) && die "$ERR" 3
+if [[ -s $BODY ]]; then
+  echo "sabha-gh: STALE (cache of $(date -r "$(stamp_of "$STAMP")" '+%Y-%m-%d %H:%M' 2>/dev/null || stamp_of "$STAMP")): ${ERR%%$'\n'*}" >&2
+  cat "$BODY"; exit 10
+fi
+(( rc == 1 )) && ERR="${ERR%%$'\n'*} (no cached copy; gh needs a plain terminal, not the Claude sandbox)"
+die "${ERR%%$'\n'*}" "$rc"

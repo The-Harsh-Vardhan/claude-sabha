@@ -94,4 +94,13 @@ hk_open_briefs() {
   done
 }
 
+# hk_field <key>: a top-level string field of the hook JSON in HK_INPUT (jq when present, sed otherwise); empty if absent
+hk_field() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$HK_INPUT" | jq -r --arg k "$1" '.[$k] // empty | strings' 2>/dev/null
+  else
+    printf '%s' "$HK_INPUT" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+  fi
+}
+
 hk_status_file() { printf '%s/status/%s.md' "$HK_IMPL" "$(hk_lower "$HK_ROLE")"; }
