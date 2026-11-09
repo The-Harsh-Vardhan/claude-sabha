@@ -186,12 +186,13 @@ SABHA_FILL_RESERVE=0 SABHA_FILL_COST_M=0 run
 [[ $rc -eq 0 && $out == *"60 of 60 briefs"* ]] || fail "F: 60 briefs: $out"
 pass
 
-# ---- G: sabha dispatches to it and keeps the usage line honest
+# ---- G: sabha dispatches to it
 G=$top/g; mkdir -p "$G"; cp -R "$BIN" "$G/bin"; cp "$W/sabha.conf" "$G/sabha.conf"
 out=$(SABHA_CONF=$W/sabha.conf bash "$G/bin/sabha" fill 2>&1); rc=$?
 [[ $rc -eq 0 && $out == "sabha fill:"* ]] || fail "G: sabha fill: rc $rc: $out"
 pass
-out=$(SABHA_CONF=$W/sabha.conf bash "$G/bin/sabha" nosuch 2>&1); [[ $out == *"sabha fill"* ]] || fail "G: usage line lacks fill: $out"
+out=$(SABHA_CONF=$W/sabha.conf bash "$G/bin/sabha" fill --reserve 2>&1); rc=$?
+[[ $rc -eq 2 ]] || fail "G: sabha fill with a bare option must exit 2, got $rc: $out"
 pass
 
 echo "test-fill: $n ok"
