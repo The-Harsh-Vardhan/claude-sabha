@@ -2,9 +2,9 @@
 # sabha-nightly: drafts the day's progress note from what the sabha already recorded. Read-only on every source;
 # it writes one draft file and never sends anything.
 #   sabha-nightly [--date YYYY-MM-DD] [--out DIR] [--stdout] [--force]
-# The day is the local calendar day of --date (default today). Sources: inbox/*/NNN.done whose mtime is in the day
-# (shipped, or BLOCKED) and for-me.items blocks whose utc is in the day (opened, closed); items still open are listed
-# as waiting. The draft is DIR/<date>.md (DIR: --out, else SABHA_NIGHTLY_DIR, else $SABHA_IMPL/nightly). A draft that
+# The day is the local calendar day of --date (default today). Sources: inbox/*/NNN.done whose utc: line (else mtime)
+# is in the day (shipped, or BLOCKED) and for-me.items blocks whose utc is in the day (opened, closed); items still
+# open are listed as waiting, newest first. The draft is DIR/<date>.md (DIR: --out, else SABHA_NIGHTLY_DIR, else $SABHA_IMPL/nightly). A draft that
 # exists and differs (you may have edited it) is kept: use --force to replace it. Exit 0 ok, 2 usage, 3 kept, 1 error.
 set -uo pipefail
 BIN=$(cd "$(dirname "$0")" && pwd)
@@ -12,16 +12,19 @@ case ${1:-} in -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; e
 # shellcheck source-path=SCRIPTDIR source=sabha-lib.sh
 . "$BIN/sabha-lib.sh"
 sabha_load sabha-nightly
-export SABHA_IMPL SABHA_NIGHTLY_DIR="${SABHA_NIGHTLY_DIR:-}"
+export SABHA_IMPL SABHA_NIGHTLY_DIR="${SABHA_NIGHTLY_DIR:-}" NIGHTLY_BIN="$BIN"
 exec python3 -I - "$@" <<'PY'
-import calendar, datetime, os, re, signal, stat, sys, time
+import calendar, datetime, importlib.machinery, importlib.util, os, re, signal, stat, sys, time
 
 DONE_CAP = 65536
 ITEMS_CAP = 4 * 1024 * 1024
 LIST_MAX = 30
 LOCK_STALE = 600
-# ESC, OSC, BEL, CR, NUL, DEL, the C1 range, bidi controls and line separators: one place, every printed value
-CTRL = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+# ESC, OSC, BEL, CR, NUL, DEL, the C1 range, bidi and zero-width controls, line separators, BOM, the tag block: one
+# place, every printed value
+CTRL = re.compile(
+    "[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\U000e0000-\U000e007f]"
+)
 
 
 def clean(s, n=200):
@@ -66,7 +69,7 @@ def parse_args(argv):
     while i < len(argv):
         a = argv[i]
         if a in ("--date", "--out"):
-            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--") or not argv[i + 1]:
                 usage("%s needs a value" % a)
             o[a[2:]] = argv[i + 1]
             i += 2
@@ -91,17 +94,22 @@ def window(date):
     return d.isoformat(), start, end
 
 
-def brief_title(role_dir, num):
-    try:
-        names = sorted(os.listdir(role_dir))
-    except OSError:
+def brief_index(files):
+    idx = {}
+    for n in files:  # files is sorted: the first brief of a number wins
+        m = re.match(r"(\d+)([.-].*)?\.md$", n)
+        if m:
+            idx.setdefault(m.group(1), n)
+    return idx
+
+
+def brief_title(role_dir, idx, num):
+    n = idx.get(num)
+    if n is None:
         return ""
-    for n in names:
-        if re.match(r"%s([.-].*)?\.md$" % re.escape(num), n):
-            t = read_text(os.path.join(role_dir, n), DONE_CAP)
-            task = keys(t).get("task", "") if t else ""
-            return clean(task or re.sub(r"\.md$", "", n[len(num):].lstrip("-.")), 120)
-    return ""
+    t = read_text(os.path.join(role_dir, n), DONE_CAP)
+    task = keys(t).get("task", "") if t else ""
+    return clean(task or re.sub(r"\.md$", "", n[len(num):].lstrip("-.")), 120)
 
 
 def gather_done(impl, start, end):
@@ -117,6 +125,7 @@ def gather_done(impl, start, end):
             files = sorted(os.listdir(rd))
         except OSError:
             continue
+        idx = brief_index(files)
         for f in files:
             m = re.match(r"(\d+)\.done$", f)
             if not m:
@@ -126,35 +135,36 @@ def gather_done(impl, start, end):
                 st = os.lstat(p)
             except OSError:
                 continue
-            if not stat.S_ISREG(st.st_mode) or not (start <= st.st_mtime < end):
+            if not stat.S_ISREG(st.st_mode):
                 continue
             k = keys(read_text(p, DONE_CAP) or "")
-            result = clean(k.get("result", "(no result line)"))
-            row = (st.st_mtime, clean(role, 40), m.group(1), brief_title(rd, m.group(1)), result)
+            when = parse_utc(k.get("utc", ""))  # a copy or checkout resets mtime; the marker's own stamp does not
+            if when is None:
+                when = st.st_mtime
+            if not (start <= when < end):
+                continue
+            result = clean(k.get("result", "")) or "(no result line)"
+            row = (when, clean(role, 40), m.group(1), brief_title(rd, idx, m.group(1)), result)
             (blocked if result.upper().startswith("BLOCKED") else shipped).append(row)
     return sorted(shipped), sorted(blocked)
+
+
+def shared_split_blocks():
+    # the board's block rules (torn last block dropped whole, a block that lost its --- split at its id:) live in
+    # sabha-for-me; one parser for both tools
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("sabha_for_me", os.path.join(os.environ["NIGHTLY_BIN"], "sabha-for-me"))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("sabha_for_me", loader))
+    loader.exec_module(mod)
+    return mod.split_blocks
 
 
 def gather_items(impl, start, end):
     text = read_text(os.path.join(impl, "for-me.items"), ITEMS_CAP)
     if not text:
         return [], [], []
-    if not text.endswith("\n"):  # a torn last block is still being written
-        text = text[: text.rfind("\n") + 1]
-    blocks, cur = [], []
-    for line in text.splitlines():
-        # a block that lost its --- starts again at a second id: line, but never inside a cmd: body
-        lost = line.startswith("id:") and any(l.startswith("id:") for l in cur) and not any(l.startswith("cmd:") for l in cur)
-        if line.strip() == "---" or lost:
-            if cur:
-                blocks.append(cur)
-            cur = [] if line.strip() == "---" else [line]
-        else:
-            cur.append(line)
-    if cur:
-        blocks.append(cur)
     items = {}
-    for b in blocks:
+    for b in shared_split_blocks()(text):
         head = []
         for line in b:
             if line.startswith("cmd:"):
@@ -162,18 +172,19 @@ def gather_items(impl, start, end):
             head.append(line)
         k = keys("\n".join(head))
         iid = k.get("id", "").strip()
-        if not iid.isdigit():
+        if not iid:
             continue
         e = items.setdefault(iid, {"title": "", "owner": "", "ask": "", "opened": None, "closed": None, "state": ""})
         t = parse_utc(k.get("utc", ""))
-        state = k.get("state", "").strip().upper()
+        words = k.get("state", "").split()
+        state = words[0].upper() if words else ""  # "DONE (brief 406 ...)" is DONE
         if k.get("title"):
             e["title"] = clean(k["title"], 120)
         if k.get("owner"):
             e["owner"] = clean(k["owner"], 40)
         if k.get("ask"):
             e["ask"] = clean(k["ask"], 40)
-        if state in ("DONE", "DROPPED"):
+        if state in ("DONE", "DROPPED", "SUPERSEDED"):
             e["state"] = state
             e["closed"] = t
         elif not e["state"]:
@@ -181,14 +192,15 @@ def gather_items(impl, start, end):
             if e["opened"] is None:
                 e["opened"] = t
     opened, closed, waiting = [], [], []
-    for iid in sorted(items, key=int):
-        e = items[iid]
+    for iid, e in items.items():
         if e["opened"] is not None and start <= e["opened"] < end:
             opened.append((iid, e))
-        if e["state"] in ("DONE", "DROPPED") and e["closed"] is not None and start <= e["closed"] < end:
+        if e["state"] != "OPEN" and e["closed"] is not None and start <= e["closed"] < end:
             closed.append((iid, e))
         if e["state"] == "OPEN":
             waiting.append((iid, e))
+    # newest first, so the list cap drops the stale ones; an item with no utc is oldest
+    waiting.sort(key=lambda r: r[1]["opened"] if r[1]["opened"] is not None else 0, reverse=True)
     return opened, closed, waiting
 
 
@@ -206,12 +218,12 @@ def render(date, shipped, blocked, opened, closed, waiting):
     L.append("## Shipped or moved")
     L += bullets(["%s %s%s: %s" % (r[1], r[2], " " + r[3] if r[3] else "", r[4]) for r in shipped], "nothing recorded as done")
     L += ["", "## Board changes"]
-    rows = ["opened #%s %s (owner %s)" % (i, e["title"], e["owner"] or "?") for i, e in opened]
-    rows += ["closed #%s %s (%s)" % (i, e["title"], e["state"]) for i, e in closed]
+    rows = ["opened #%s %s (owner %s)" % (clean(i, 40), e["title"] or "(no title)", e["owner"] or "?") for i, e in opened]
+    rows += ["closed #%s %s (%s)" % (clean(i, 40), e["title"] or "(no title)", e["state"]) for i, e in closed]
     L += bullets(rows, "no item opened or closed")
     L += ["", "## Blocked and on whom"]
     rows = ["%s %s%s: %s" % (r[1], r[2], " " + r[3] if r[3] else "", r[4]) for r in blocked]
-    rows += ["#%s %s (waiting on %s)" % (i, e["title"], e["ask"] or e["owner"] or "?") for i, e in waiting]
+    rows += ["#%s %s (waiting on %s)" % (clean(i, 40), e["title"] or "(no title)", e["ask"] or e["owner"] or "?") for i, e in waiting]
     L += bullets(rows, "nothing blocked")
     L += ["", "## Plan for tomorrow", "- (write this part yourself)", ""]
     return "\n".join(L)
@@ -255,6 +267,7 @@ def main():
     opened, closed, waiting = gather_items(impl, start, end)
     body = render(date, shipped, blocked, opened, closed, waiting)
     if o["stdout"]:
+        sys.stdout.reconfigure(errors="replace")
         sys.stdout.write(body)
         return
     out = o["out"] or os.environ.get("SABHA_NIGHTLY_DIR") or os.path.join(impl, "nightly")
@@ -276,16 +289,17 @@ def main():
             sys.exit(3)
         tmp = "%s.tmp.%d" % (target, os.getpid())
         try:
-            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            with open(tmp, "w", encoding="utf-8", errors="replace", newline="\n") as f:
                 f.write(body)
             os.replace(tmp, target)
-        except OSError as e:
-            sys.stderr.write("sabha-nightly: cannot write %s: %s\n" % (target, e.strerror))
+        except Exception as e:
+            sys.stderr.write("sabha-nightly: cannot write %s: %s\n" % (target, getattr(e, "strerror", None) or type(e).__name__))
+            sys.exit(1)
+        finally:  # also on SIGTERM (SystemExit) and ^C: no temp file is left behind
             try:
                 os.unlink(tmp)
             except OSError:
                 pass
-            sys.exit(1)
     print("wrote %s" % target)
 
 
