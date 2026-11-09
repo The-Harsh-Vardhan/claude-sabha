@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""sabha-fill: propose a night order for the un-acked briefs from the spare usage, the load and the heavy gate.
+
+  sabha-fill [--reserve N]       read-only; prints the proposal and starts nothing (the dispatcher starts)
+  --reserve N                    percent points of usage kept free below the stop line (default SABHA_FILL_RESERVE, 10)
+
+Inputs, all read, none written (except that bin/sabha-heavy check creates its empty slot folder):
+  usage     status/limits.txt (SABHA_LIMITS_FILE): the highest of the five_hour and seven_day readings. The stop line is
+            SABHA_STOP (default 90; off or 0 = 100). budget = stop line - highest reading - reserve, in percent points.
+            A window whose resets_at has passed counts as 0; a reading written over SABHA_FILL_STALE (21600) seconds ago,
+            or no readable reading at all, means no plan (exit 3): a guess would spend what may not be there.
+  backlog   inbox/<Role>/NNN-*.md with no NNN.ack, NNN.done or NNN.cancel beside it. Header (lines up to the first blank
+            line): "size: S|M|L" (default M; costs SABHA_FILL_COST_S/M/L points, default 2/4/8), "task:" (else the first
+            body line), "heavy: yes|no". Without "heavy:" a brief is heavy when its header or task names a word of
+            SABHA_FILL_HEAVY_WORDS (default "gradle jest docker playwright e2e pnpm").
+  load      the 5-minute load average (SABHA_FILL_LOAD5 overrides); heavy briefs are ready only at or under
+            SABHA_FILL_LOAD5_MAX (20) AND while "bin/sabha-heavy check" (SABHA_FILL_HEAVY_BIN) says GO (exit 0).
+Order: light briefs first, then heavy, each oldest number first; a brief that does not fit the budget is listed under
+"Over budget". Exit 0 proposal printed, 2 usage, 3 usage unreadable or stale.
+"""
+import importlib.machinery
+import importlib.util
+import math
+import os
+import re
+import subprocess
+import sys
+import time
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+MAX_READ = 64 * 1024
+MAX_FILES = 5000
+WINDOWS = ("five_hour", "seven_day")
+OPTS = ("--reserve",)
+
+
+def clean(s):
+    """The one function every printed value goes through: printable ASCII, one line. Control characters (ESC, CR,
+    NUL, DEL, newlines, the C1 range) become a space, every other non-ASCII character (bidi marks, line separators
+    included) becomes '?'."""
+    s = str(s)
+    return " ".join("".join(c if " " <= c <= "~" else ("?" if ord(c) > 127 else " ") for c in s).split())
+
+
+def die(msg, code=1):
+    sys.stderr.write("sabha-fill: %s\n" % clean(msg))
+    sys.exit(code)
+
+
+def usage(code):
+    out = sys.stdout if code == 0 else sys.stderr
+    out.write("usage: sabha-fill [--reserve N]\n")
+    sys.exit(code)
+
+
+def parse_args(argv):
+    opts, i = {}, 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-h", "--help"):
+            usage(0)
+        if a in OPTS:
+            if i + 1 >= len(argv) or argv[i + 1] == "" or argv[i + 1] in OPTS:
+                die("%s needs a value" % a, 2)
+            opts[a[2:]] = argv[i + 1]
+            i += 2
+            continue
+        usage(2)
+    return opts
+
+
+def envnum(name, default, lo, hi, override=None):
+    """A number from the option or SABHA_FILL_*, inside lo..hi; a bad value is refused loudly, never defaulted."""
+    raw = override if override is not None else os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        v = float("nan")
+    if not math.isfinite(v) or not lo <= v <= hi:
+        die("%s must be a number from %s to %s, got %r" % (name, lo, hi, clean(raw)[:40]), 2)
+    return v
+
+
+def load_conf():
+    p = os.path.join(HERE, "sabha-for-me")
+    loader = importlib.machinery.SourceFileLoader("sabha_for_me", p)
+    spec = importlib.util.spec_from_loader("sabha_for_me", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod.load_conf()
+
+
+def read_head(path):
+    """At most MAX_READ bytes as ASCII text; None when unreadable. A huge brief is cut, not refused."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(MAX_READ).decode("ascii", errors="replace")
+    except OSError:
+        return None
+
+
+def read_limits(path, now, stale):
+    """({window: (pct, resets_at, state)}, why-empty). state: ok | reset. Bad lines and stale readings are dropped."""
+    text = read_head(path)
+    if text is None:
+        return {}, "no readable %s" % os.path.basename(path)
+    got, dropped = {}, 0
+    for line in text.splitlines():
+        f = line.split()
+        if len(f) < 4 or f[0] not in WINDOWS:
+            continue
+        try:
+            pct, reset, written = float(f[1]), int(f[2]), int(f[3])
+        except ValueError:
+            dropped += 1
+            continue
+        if not (math.isfinite(pct) and 0 <= pct <= 100) or reset < 0 or written < 0:
+            dropped += 1
+            continue
+        if now - written > stale:
+            dropped += 1
+            continue
+        got[f[0]] = (pct, reset, "reset" if reset <= now else "ok")
+    if not got:
+        return {}, "no fresh reading in %s (%d dropped as stale or malformed)" % (os.path.basename(path), dropped)
+    return got, ""
+
+
+def brief_info(path, role, nnn, slug, heavy_words):
+    text = read_head(path)
+    if text is None:
+        return None
+    head, body, in_head = {}, [], True
+    for line in text.splitlines():
+        if in_head:
+            if not line.strip():
+                in_head = False
+                continue
+            m = re.match(r"^([a-z][a-z0-9_-]*):\s*(.*)$", line)
+            if m:
+                head.setdefault(m.group(1), m.group(2))
+                continue
+            in_head = False
+        if line.strip():
+            body.append(line)
+            break
+    task = head.get("task") or (body[0].lstrip("# ").strip() if body else "") or slug
+    size = (re.match(r"\s*([SMLsml])\b", head.get("size", "")) or [None, "M"])[1].upper()
+    flag = head.get("heavy", "").strip().lower()
+    if flag in ("yes", "true", "1"):
+        heavy = True
+    elif flag in ("no", "false", "0"):
+        heavy = False
+    else:
+        hay = (" ".join(head.values()) + " " + task).lower()
+        heavy = any(re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(w), hay) for w in heavy_words)
+    return {"role": role, "nnn": int(nnn), "size": size, "heavy": heavy, "task": clean(task)[:90]}
+
+
+def backlog(impl, heavy_words):
+    root = os.path.join(impl, "inbox")
+    items, truncated, seen = [], False, 0
+    try:
+        roles = sorted(os.listdir(root))
+    except OSError:
+        return items, truncated
+    for role in roles:
+        d = os.path.join(root, role)
+        if os.path.islink(d) or not os.path.isdir(d):
+            continue
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        busy = os.path.lexists(os.path.join(d, "run.lock"))
+        for n in names:
+            m = re.match(r"^(\d{3})-(.*)\.md$", n)
+            if not m:
+                continue
+            seen += 1
+            if seen > MAX_FILES:
+                return items, True
+            if any(os.path.lexists(os.path.join(d, m.group(1) + s)) for s in (".ack", ".done", ".cancel")):
+                continue
+            p = os.path.join(d, n)
+            if os.path.islink(p) or not os.path.isfile(p):
+                continue
+            info = brief_info(p, role, m.group(1), m.group(2), heavy_words)
+            if info:
+                info["busy"] = busy
+                items.append(info)
+    return items, truncated
+
+
+def heavy_gate():
+    """(GO?, text). Anything but exit 0 from the gate, or no gate, is not a GO."""
+    b = os.environ.get("SABHA_FILL_HEAVY_BIN") or os.path.join(HERE, "sabha-heavy")
+    if not os.path.isfile(b):
+        return False, "no gate at bin/sabha-heavy"
+    try:
+        p = subprocess.run([b, "check"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "gate did not answer"
+    line = clean(p.stdout.decode("ascii", errors="replace"))[:120]
+    return p.returncode == 0, ("GO" if p.returncode == 0 else "WAIT") + (" (%s)" % line if line else "")
+
+
+def hhmm(epoch):
+    return time.strftime("%H:%MZ", time.gmtime(epoch))
+
+
+def main(argv):
+    opts = parse_args(argv)
+    reserve = envnum("SABHA_FILL_RESERVE", 10, 0, 100, opts.get("reserve"))
+    stale = envnum("SABHA_FILL_STALE", 21600, 1, 10 ** 7)
+    load_max = envnum("SABHA_FILL_LOAD5_MAX", 20, 0, 10 ** 4)
+    cost = {s: envnum("SABHA_FILL_COST_" + s, d, 0, 1000) for s, d in (("S", 2), ("M", 4), ("L", 8))}
+    now = int(envnum("SABHA_FILL_NOW", time.time(), 0, 10 ** 11))
+    stop_raw = os.environ.get("SABHA_STOP", "90")
+    stop = 100 if stop_raw in ("off", "0") else envnum("SABHA_STOP", 90, 1, 100)
+    words = (os.environ.get("SABHA_FILL_HEAVY_WORDS") or "gradle jest docker playwright e2e pnpm").lower().split()
+
+    conf = load_conf()
+    impl = conf["SABHA_IMPL"]
+    limits_path = os.environ.get("SABHA_LIMITS_FILE") or os.path.join(impl, "status", "limits.txt")
+    print("sabha fill: proposal at %s (nothing is started; the dispatcher starts)" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)))
+
+    got, why = read_limits(limits_path, now, stale)
+    if not got:
+        print("usage: unreadable (%s)" % clean(why))
+        print("plan: none (no usage reading, so no spare is assumed)")
+        return 3
+    top = max(0 if v[2] == "reset" else v[0] for v in got.values())
+    budget = stop - top - reserve
+    parts = ["%s %g%% (%s)" % (w, got[w][0], "window reset" if got[w][2] == "reset" else "resets " + hhmm(got[w][1])) for w in WINDOWS if w in got]
+    print("usage: %s; highest %g%%, stop line %g, reserve %g, budget %g points" % (", ".join(parts), top, stop, reserve, budget))
+
+    env_load = os.environ.get("SABHA_FILL_LOAD5")
+    if env_load not in (None, ""):
+        load5 = envnum("SABHA_FILL_LOAD5", 0, 0, 10 ** 4)
+    else:
+        try:
+            load5 = os.getloadavg()[1]
+        except OSError:
+            load5 = None
+    go, gate = heavy_gate()
+    load_ok = load5 is not None and load5 <= load_max
+    print("load5: %s (heavy briefs wait above %g); heavy gate: %s" % ("unreadable" if load5 is None else "%.1f" % load5, load_max, gate))
+    heavy_ready = load_ok and go
+
+    items, truncated = backlog(impl, words)
+    if truncated:
+        print("backlog: only the first %d brief files were read" % MAX_FILES)
+    if not items:
+        print("backlog: no un-acked briefs")
+        return 0
+    items.sort(key=lambda i: (i["heavy"], i["nnn"], i["role"]))
+    planned, over, spent = [], [], 0.0
+    for it in items:
+        c = cost[it["size"]]
+        if budget > 0 and spent + c <= budget:
+            spent += c
+            planned.append(it)
+        else:
+            over.append(it)
+
+    def row(k, it):
+        tag = "heavy" if it["heavy"] else "light"
+        note = ""
+        if it["heavy"]:
+            note = "  [ready now]" if heavy_ready else "  [queued until load5 <= %g and the gate says GO]" % load_max
+        if it["busy"]:
+            note += "  [role has run.lock]"
+        return "  %s. %s/%03d  %s  %g pts  %s  %s%s" % (k, clean(it["role"]), it["nnn"], it["size"], cost[it["size"]], tag, it["task"], note)
+
+    print("Plan, light first:" if planned else "Plan: none (budget %g points covers no brief)" % budget)
+    for k, it in enumerate(planned, 1):
+        print(row(k, it))
+    if over:
+        print("Over budget (not planned):")
+        for it in over:
+            print(row("-", it))
+    print("Planned %g of %g points, %d of %d briefs." % (spent, max(budget, 0), len(planned), len(items)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
