@@ -1,0 +1,30 @@
+#!/bin/sh
+# The only "gh" a test may reach; it never touches the network. Logs every call to $FAKE_GH_DIR/calls. Answers:
+#   api user          -> $FAKE_GH_LOGIN (default fake-user)
+#   api rate_limit    -> the first line of $FAKE_GH_DIR/left.seq (dropped while more lines remain), else $FAKE_GH_LEFT
+#                        (default 5000)
+#   anything else     -> the file named by the first line of $FAKE_GH_DIR/map ("substring|file") whose substring is in
+#                        the argv; no line matches -> "HTTP 404", exit 1
+# FAKE_GH_FAIL=1 makes every call fail with $FAKE_GH_ERR. FAKE_GH_WARN=<text> prints it on stderr of a successful read.
+# A file $FAKE_GH_DIR/expire-preflight makes each read reset $SABHA_GH_CACHE/.preflight, so the next read re-checks
+# the quota (how a test drops the quota in the middle of a run). The fixtures hold what --jq would have printed.
+: "${FAKE_GH_DIR:=${TMPDIR:-/tmp}/sabha-fake-gh}"
+mkdir -p "$FAKE_GH_DIR"
+echo "$*" >> "$FAKE_GH_DIR/calls"
+if [ -n "$FAKE_GH_FAIL" ]; then echo "${FAKE_GH_ERR:-error connecting to api.github.com}" >&2; exit 1; fi
+case $* in
+  "api user "*) echo "${FAKE_GH_LOGIN:-fake-user}"; exit 0 ;;
+  "api rate_limit "*)
+    if [ -s "$FAKE_GH_DIR/left.seq" ]; then
+      head -1 "$FAKE_GH_DIR/left.seq"
+      [ "$(wc -l < "$FAKE_GH_DIR/left.seq")" -gt 1 ] && sed 1d "$FAKE_GH_DIR/left.seq" > "$FAKE_GH_DIR/left.tmp" && mv "$FAKE_GH_DIR/left.tmp" "$FAKE_GH_DIR/left.seq"
+      exit 0
+    fi
+    echo "${FAKE_GH_LEFT:-5000}"; exit 0 ;;
+esac
+[ -f "$FAKE_GH_DIR/expire-preflight" ] && echo 0 > "$SABHA_GH_CACHE/.preflight"
+[ -f "$FAKE_GH_DIR/map" ] && while IFS='|' read -r pat file; do
+  case $* in *"$pat"*) [ -n "$FAKE_GH_WARN" ] && echo "$FAKE_GH_WARN" >&2; cat "$file"; exit 0 ;; esac
+done < "$FAKE_GH_DIR/map"
+echo "gh: Not Found (HTTP 404)" >&2
+exit 1
