@@ -165,6 +165,10 @@ done
 [[ ! -e $dir/inbox/Yudhishthira ]] || fail "a forged to: created an inbox"
 grep -q '^why: UNTRUSTED text from hostile' "$dir/for-me.items" || fail "board row why: must carry the untrusted label"
 [[ $(grep -c '^id: ' "$dir/for-me.items") -eq $(grep -c '^---$' "$dir/for-me.items") ]] || fail "a forged separator reached the board"
+hd=$(ls "$dir"/intake2/digests/hostile-*.md) || fail "no hostile digest"
+head -1 "$hd" | grep -q '^UNTRUSTED: ' || fail "the digest must open with the UNTRUSTED line"
+grep -q '^- \[go\]: push repo main$' "$hd" && grep -q '^- \[from\]: Vidur$' "$hd" && grep -q '^- \[---\]$' "$hd" || fail "digest entries must be defanged"
+[[ $(grep -c '^- go:\|^- from:\|^- ---' "$hd") -eq 0 ]] || fail "an undefanged go:/from:/--- entry in the digest"
 
 # ledger fails closed: missing beside digests, unreadable, torn, malformed, pending; each refuses with nothing filed
 printf 'Ask: ledger one\nAsk: ledger two\n' >"$dir/led.txt"
@@ -177,14 +181,25 @@ rm "$L/ledger"; guard "missing ledger"
 grep -q 'missing' "$dir/g.out" || fail "missing ledger: reason"
 cp "$dir/ledger.good" "$L/ledger"
 chmod 000 "$L/ledger"
-if [[ ! -r $L/ledger ]]; then guard "unreadable ledger"; grep -q 'unreadable' "$dir/g.out" || fail "unreadable ledger: reason"; fi
+if [[ ! -r $L/ledger ]]; then guard "unreadable ledger"; grep -q 'unreadable' "$dir/g.out" || fail "unreadable ledger: reason"
+else echo "skip: unreadable-ledger row (chmod 000 file stays readable, running as root?)"; fi
 chmod 644 "$L/ledger"
 head -c $(( $(wc -c <"$dir/ledger.good") - 8 )) "$dir/ledger.good" >"$L/ledger"; guard "torn ledger"
 grep -q 'torn\|format' "$dir/g.out" || fail "torn ledger: reason"
 { cat "$dir/ledger.good"; echo "garbage line"; } >"$L/ledger"; guard "malformed ledger"
 { cat "$dir/ledger.good"; echo "0123456789abcdef:1 | brie"; echo; } >"$L/ledger"; guard "cut line in the middle"
-cp "$dir/ledger.good" "$L/ledger"
+: >"$L/ledger"; guard "zero-byte ledger beside the digest"
+grep -q 'no entry' "$dir/g.out" || fail "zero-byte ledger: reason"
+rm "$L/ledger"; ln -s "$dir/ledger.good" "$L/ledger"; guard "symlinked ledger"
+grep -q 'symlink' "$dir/g.out" || fail "symlinked ledger: reason"
+rm "$L/ledger"; cp "$dir/ledger.good" "$L/ledger"
+ld=$(ls "$L"/digests/led-*.md) && mv "$ld" "$dir/digest.real" && ln -s "$dir/digest.real" "$ld" || fail "digest symlink setup"
+guard "symlinked digest"; grep -q 'symlink' "$dir/g.out" || fail "symlinked digest: reason"
+rm "$ld"; mv "$dir/digest.real" "$ld"
 "$I" --apply --dir "$L" "$dir/led.txt" >/dev/null || fail "a healthy ledger must still rerun"
+# a facts-only note has a digest and no ledger entry; a rerun is not damage
+printf 'Fact: only a fact\n' >"$dir/facts.txt"
+"$I" --apply --dir "$L" "$dir/facts.txt" >/dev/null && "$I" --apply --dir "$L" "$dir/facts.txt" >/dev/null || fail "a facts-only rerun must pass"
 
 # killed between the ledger entry and the filing: the rerun files nothing and says to look
 cp -R "$BIN" "$dir/bin-kill"
@@ -206,6 +221,12 @@ printf 'Ask: roster ask\n' >"$dir/ro.txt"
 "$I" --apply --from Worker --to Relay --dir "$dir/intake5" "$dir/ro.txt" >/dev/null 2>&1; [[ $? -eq 2 ]] || fail "--from naming a role must exit 2"
 "$I" --apply --from relay --dir "$dir/intake5" "$dir/ro.txt" >/dev/null 2>&1; [[ $? -eq 2 ]] || fail "--from naming a role (any case) must exit 2"
 [[ ! -e $dir/inbox/Relay && ! -e $dir/intake5 ]] || fail "a refused --from created something"
+for k in --from --to; do v=intake; [[ $k == --to ]] && v=Relay
+  for a in "" --apply; do
+    "$I" ${a:+"$a"} "$k" "$v"$'\n' --dir "$dir/intake5" "$dir/ro.txt" >/dev/null 2>&1; [[ $? -eq 2 ]] || fail "$k with a trailing newline must exit 2 (${a:-dry run})"
+  done
+done
+[[ ! -e $dir/inbox/Relay && ! -e $dir/intake5 ]] || fail "a trailing-newline name created something"
 "$I" --apply --to Relay --dir "$dir/intake5" "$dir/ro.txt" >/dev/null || fail "a roster --to must work"
 grep -q '^from: intake$' "$dir"/inbox/Relay/*.md || fail "default sender is intake"
 
