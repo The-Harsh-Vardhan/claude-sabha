@@ -124,8 +124,9 @@ def read_head(path):
 
 def read_limits(path, now, stale):
     """({window: (pct, resets_at, state)}, [problem lines]). state: ok | reset | unknown
-    (resets_at 0 is what statusline-sabha.sh writes when the feed has no reset time: not a passed window). A window that is missing, stale, in the
-    future or malformed is a problem, never silently dropped: the caller plans nothing while any window has one."""
+    (resets_at 0 is what statusline-sabha.sh writes when the feed has no reset time: not a passed window).
+    A window that is missing, stale, in the future or malformed is a problem, never silently dropped: the caller
+    plans nothing while any window has one."""
     text = read_head(path)
     if text is None:
         return {}, ["no readable %s" % os.path.basename(path)]
