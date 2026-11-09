@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hooks/: role detection, SessionStart context, the push guard (relay exempt), the stale-handoff reminder.
+# hooks/: role detection, SessionStart context, the push guard (relay included), the stale-handoff reminder.
 # Run: tests/test-hooks.sh
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/hermetic.sh" || exit 2
@@ -122,7 +122,7 @@ PATH=$dir/nojq:$PATH SABHA_ROLE=BuilderHeavy run sabha-guard.sh "$(bash_json Bui
 PATH=$dir/nojq:$PATH SABHA_ROLE=BuilderHeavy run sabha-guard.sh "$(bash_json BuilderHeavy 'git commit -m "git push"')"
 [[ $rc == 0 ]] || fail "no-jq quoted phrase should pass ($rc): $err"
 run sabha-guard.sh "$(bash_json Relay 'git push origin main')"
-[[ $rc == 0 ]] || fail "relay must be allowed to push"
+[[ $rc == 2 ]] || fail "the relay must be refused a push too ($rc)"
 run sabha-guard.sh "$(bash_json other 'git push')"
 [[ $rc == 0 ]] || fail "non-sabha session must be untouched"
 run sabha-guard.sh '{"tool_input":{"command":"git push"}}'
@@ -174,4 +174,4 @@ run sabha-preturn.sh '{"session_name":"Relay"}'
 [[ $rc == 0 && $out == *"WARN duplicate: 2 live sessions are named Relay"* ]] || fail "preturn duplicate: $rc $out"
 unset SABHA_PS_FILE
 
-echo "ok: hooks detect the role, inject handoff and open briefs, block pushes for non-relay roles, remind on a stale handoff"
+echo "ok: hooks detect the role, inject handoff and open briefs, block pushes for every role, remind on a stale handoff"

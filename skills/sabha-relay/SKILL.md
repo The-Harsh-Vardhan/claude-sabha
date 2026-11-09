@@ -58,3 +58,8 @@ never a code block.
 
 You restart like every pane, above 30 percent context. Write `status/<your name>.md` first: open questions for the
 human, what is pending, links (see `sabha-handoff-writing`).
+
+After a restart, first write a "who am I" line to your status file: `Session: <Name> [<ref>] started <utc>`, your
+own name and id as ListAgents lists them. Address every other role by its newest row's exact name plus id; when two
+rows answer to one role (`Vidur-old [x]`, `Vidur [y]`), `bin/sabha-check --agents FILE` (a pasted ListAgents list)
+names the newest. Mark the old row retired in your status file with its id, and let the human close its pane.
