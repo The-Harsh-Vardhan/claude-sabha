@@ -1,0 +1,29 @@
+{
+  "name": "example allow-list, built from the header tokens of a run-report template",
+  "comment": "Copy it, change the values to your own tokens, point --allow (or SABHA_TYPO_ALLOW) at the copy. A key you leave out switches that check off and the report says so. Sizes take a number (px) or a string with px, pt, rem or em.",
+  "families": [
+    {"name": "Inter", "fallbacks": ["sans-serif"]},
+    {"name": "Roboto Mono", "fallbacks": ["monospace"]}
+  ],
+  "sizes": ["6pt", "6.5pt", "7.5pt", "8.5pt", "9pt", "10.5pt", "15pt"],
+  "weights": [400, 600],
+  "colors": {
+    "ink": "#172c4f",
+    "muted": "#435370",
+    "link": "#0a4b5c",
+    "pill-text": "#283b5c",
+    "pill-bg": "#f1f2f4",
+    "fail": "#ce2c31",
+    "fail-bg": "#feeced",
+    "fail-pill": "#e5484d",
+    "pass": "#1f7a53",
+    "skip": "#996100",
+    "not-run": "#5d697e",
+    "white": "#ffffff"
+  },
+  "line_height": {"min": 1.2, "max": 1.6},
+  "min_contrast": 4.5,
+  "tolerance": {"size_px": 0.3},
+  "page_background": "#ffffff",
+  "pdf_require_embedded": true
+}

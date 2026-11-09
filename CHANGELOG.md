@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `bin/sabha-typography-check`: checks a PDF, an HTML page or an artifact against an allow-list of font families, sizes,
+  weights, text colours, line heights and a minimum contrast, and reports off-list values, silent fallbacks (a face
+  that did not load), low contrast, clipped, ellipsised or overflowing text and one role styled two ways, each with where,
+  the value found and the nearest allowed value. PDF input needs `pdfminer.six` in a repo-local `.venv`; HTML has a
+  static CSS lint and a `--browser` mode that runs a runner only through `sabha-heavy run typography --`. Skill
+  `skills/sabha-typography-check`, example list `template/typography.example.json`, test `tests/test-typography-check.sh`.
 - Efficiency (`SABHA_EFFICIENCY=1`, default on; any other value = the behaviour before it; docs/specs/efficiency-profiles.md):
   a profile (lite, standard, full) from the lower tier of cores and RAM, or `SABHA_PROFILE`, caps the grid's panes when
   `SABHA_PANES` is unset and sets the defaults of `SABHA_RUN_MAX` and `SABHA_HEAVY_MAX`. New `bin/sabha-heavy` gates

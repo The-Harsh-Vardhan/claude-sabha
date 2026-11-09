@@ -284,6 +284,8 @@ from the scripts):
 | `SABHA_ALERT_TIMEOUT` | `600000` (milliseconds) | `sabha-alert`: each `herdr agent wait`; it waits again after a timeout |
 | `SABHA_META_TTL` | `300000` (milliseconds) | statusline hook: how long the brief and ctx tokens stay in the herdr sidebar |
 | `SABHA_RFC_SECTIONS` | `Summary,Problem,Goals,Non-goals,Design,Alternatives,Risks,Open questions` | `sabha-rfc-check`: the required `##` sections |
+| `SABHA_TYPO_ALLOW` | none | `sabha-typography-check`: the allow-list file when `--allow` is not given (`~` and `$VAR` are expanded) |
+| `SABHA_TYPO_RUNNER` | `node tools/typography-computed.mjs` | `sabha-typography-check --browser`: the command that writes the computed styles (it gets the page and the output file); needs playwright resolvable from `SABHA_TYPO_PLAYWRIGHT_DIR` (default: the current directory) |
 | `SABHA_NOTIFY_DESKTOP` | `1` | usage alerts: `0` keeps them to `status/alerts.log` (tests, headless hosts) |
 | `SABHA_SETTINGS` | `~/.claude/settings.json` | `sabha doctor`: the Claude settings file checked for the statusline hook |
 
@@ -307,6 +309,7 @@ from the scripts):
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |
 | `bin/sabha update` | Fast-forward pull of the install directory, then the head of `CHANGELOG.md`; runs nothing it pulled |
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate, an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
+| `bin/sabha-typography-check <file> --allow ALLOW.json` | Checks a PDF, an HTML page or an artifact for off-list fonts, sizes, weights and colours, low contrast, clipped or overflowing text, and one role styled two ways; each finding names where it is, what was found and the nearest allowed value. A PDF needs the repo-local `.venv` (`uv venv .venv && uv pip install --python .venv/bin/python -r tools/typography-requirements.txt`); `--browser` computes styles through `sabha-heavy run typography --`; example list `template/typography.example.json`; skill `skills/sabha-typography-check` |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
 
 ## Setup
@@ -393,6 +396,7 @@ All rows are UNTESTED live.
 | `sabha-gate-review` | How a reviewer or critic writes a verdict file the gate can read |
 | `sabha-relay` | The relay's job: talk to the user, brief the dispatcher, do no work |
 | `sabha-dispatch` | The dispatcher's job: route by difficulty, track acks and dones, run work in parallel |
+| `sabha-typography-check` | When to run the typography check (UI PRs, exports, artifacts), how to read its report, and that a finding is a question for the owner, never an auto-fix |
 
 | Hook | What |
 | --- | --- |
