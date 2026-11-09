@@ -1,8 +1,8 @@
 # Claude Sabha 3.0 - design (step 3 of 3)
 
-Bhishma, 8 Nov 2026 (from the relay's overnight-work and upstream-radar briefs). Design only: no code.
-Base: `origin/main` at d1fe294 (#61). Step 2 is `docs/3.0/coupling-audit.md` (Arjun, 16 Oct), copied unchanged into
-this branch. Every `path:line` below is in this branch unless it starts with `<workspace>/` (the owner's workspace
+Design of 8 Nov 2026 (from the relay's overnight-work and upstream-radar briefs). Design only: no code.
+Base: `origin/main` at d1fe294 (#61). Step 2 is `docs/3.0/coupling-audit.md` (audit of 16 Oct), copied into
+this branch with only its byline reworded. Every `path:line` below is in this branch unless it starts with `<workspace>/` (the owner's workspace
 root), which is where the real-use evidence lives.
 
 Effort: S = hours, M = a day or two, L = a redesign of that piece (same scale as the audit, coupling-audit.md:3).

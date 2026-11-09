@@ -1,6 +1,6 @@
 # Claude Sabha 3.0 - coupling audit (step 2 of 3)
 
-Arjun, 16 Oct (brief 035). Read-only. Scope: `bin/` (sabha-up.sh, .ps1, .cmd, sabha-run, sabha-lib.sh, sabha-down.sh, sabha-watch, sabha-check, sabha-for-me), `sabha.conf.example`, `tests/`, `README.md`. `.bak*` copies skipped. Effort: S = hours, M = a day or two, L = a redesign of that piece.
+Audit of 16 Oct 2026. Read-only. Scope: `bin/` (sabha-up.sh, .ps1, .cmd, sabha-run, sabha-lib.sh, sabha-down.sh, sabha-watch, sabha-check, sabha-for-me), `sabha.conf.example`, `tests/`, `README.md`. `.bak*` copies skipped. Effort: S = hours, M = a day or two, L = a redesign of that piece.
 
 ## Findings
 
