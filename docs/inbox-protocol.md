@@ -177,6 +177,10 @@ status files. Nobody edits them. `sabha-item` re-renders them after each append 
 off; a failed render only warns), and `sabha-watch` prints a `STALE BOARD` line with both times when `for-me.items` is
 newer than `FOR-ME.md` by more than `SABHA_FORME_STALE_SECS` (default 300, 0 = off).
 
+`sabha decide` answers a question item without touching `for-me.items`: it writes `board-updates/item-<id>.update`, a
+closing block that adds `decision: D<n>`, `answer:`, `reply:` and `note:` to `state: DONE`, which you append yourself;
+a block in the questions file; and `D<n> | <utc> | item <id> | <letter> | <text>` in `decisions.log`.
+
 ## 8. Status files
 
 `status/<role>.md` is written by its role only, in the handoff shape (`Task:`, `Done:`, `Next:`,

@@ -20,6 +20,7 @@
 #   sabha pack lint <file.md>...           rejects inline # comments, "..." elisions, non-ASCII and a missing "cd /abs &&" prefix
 #                                          in the command lines of push packs and PR bodies (bin/sabha-pack-lint)
 #   sabha upstream [args]                  upstream move watcher: archived, renamed, layout moved, reverse-merged (bin/sabha-upstream)
+#   sabha decide "Answer <id>: <B - text>" | <id> <B|text> [--note T]   one answer -> board update file, questions file, decision log line
 #   sabha sheet-auth | sheet-sync [args]   Google Sheet tracker, handled by bin/sabha-sheet ("not installed" when absent)
 #   sabha prs [args]                       PR radar: open PRs of an author across orgs and repos, worst first (bin/sabha-prs)
 #   sabha whoami [Name]                    one line: role, session id, cwd, conf, impl, pane, live copies; exit 3 when
@@ -588,5 +589,7 @@ case ${1:-} in
   pack-lint) shift; exec "$BIN/sabha-pack-lint" "$@" ;;
   pack) [[ ${2:-} == lint ]] || die "pack: use 'sabha pack lint <file.md>...'"; shift 2; exec "$BIN/sabha-pack-lint" "$@" ;;
   shipped) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-shipped" "$@" ;;
-  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>... | sabha shipped <owner/repo#n>" >&2; exit 2 ;;
+  decide) shift; SABHA_CONF=$CONF exec python3 "$BIN/sabha-decide" "$@" ;;
+  sheet-auth|sheet-sync) c=$1; shift; cmd_sheet "$c" "$@" ;;
+  *) echo "usage: sabha init [options] | sabha doctor | sabha roster [--check|--write] | sabha stamp | sabha keep-awake [mode] | sabha tips | sabha help <tip> | sabha update | sabha sheet-auth | sabha sheet-sync | sabha prs [options] | sabha whoami [Name] | sabha owe | sabha pack lint <file.md>... | sabha shipped <owner/repo#n> | sabha decide" >&2; exit 2 ;;
 esac

@@ -324,6 +324,7 @@ from the scripts):
 | `bin/sabha-watch` | Read-only report: context percent, restart lines, open items, unacked briefs, usage banner |
 | `bin/sabha-for-me` | Renders `FOR-ME.md` and `FOR-ME.html` (the board) from `for-me.items`, status files and `GOALS.md`; `--csv` writes the tracker CSVs |
 | `bin/sabha upstream [--conf FILE] [--fresh] [--daily]` | Upstream move watcher: a daily read-only check of a repos list for an archived or renamed repo, a lost base branch, a moved layout, an upstream merged in; a new finding becomes a `for-me.items` entry and one brief; needs `bin/sabha-gh` and `gh` logged in ([docs/upstream-watch.md](docs/upstream-watch.md)) |
+| `bin/sabha decide` | One answer to a question item becomes a board update file, a block in the questions file and a decision log line; prints the command that closes the item, never runs it |
 | `bin/sabha-run` | Headless runner: one `claude -p` per brief for roles with no pane ([docs/headless-runner.md](docs/headless-runner.md)) |
 | `bin/sabha-helper` | Durable helpers: long work as a headless session that survives a dispatcher restart; `start`, `list`, `reattach`, `wait`, `stop` ([docs/durable-helpers.md](docs/durable-helpers.md)) |
 | `bin/sabha sheet-auth`, `bin/sabha sheet-sync` | Google Sheet tracker (above) |

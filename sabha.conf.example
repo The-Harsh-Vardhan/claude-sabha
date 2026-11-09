@@ -178,6 +178,11 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 # `sabha shipped owner/repo#n`: the branches a change is promoted through, in order, one key per repo (the part after
 # the slash, other characters as _). SABHA_GH_USER, SABHA_GH_TTL and SABHA_GH_MIN_LEFT are described in docs/github-layer.md.
 #SABHA_CHAIN_your_repo="dev staging main"
+# sabha decide: where its three files go (a relative value is read from SABHA_IMPL; each can also be given on the
+# command line). Without SABHA_DECIDE_QUESTIONS each answer goes to questions/item-<id>.md.
+#SABHA_DECIDE_OUT=$SABHA_IMPL/board-updates
+#SABHA_DECIDE_QUESTIONS=$SABHA_IMPL/questions/my-pr-questions.md
+#SABHA_DECISION_LOG=$SABHA_IMPL/decisions.log
 
 # Example question item for for-me.items (blocks are separated by a line that is exactly ---). Keys: ask, q, explain,
 # opta..opth ("option text | consequence | example"), rec. Plain items need none of them.
