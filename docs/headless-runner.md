@@ -43,8 +43,20 @@ that exact line per due brief and writes nothing.
 ## Limits
 
 - Two passes started in the same instant can both see a free slot and exceed the cap by one.
-- An acked brief with no `.done` (a run killed with `kill -9` on the runner itself) is not retried; the role's later
-  briefs still run, and `sabha-watch` shows the role mid-task. Resume it by hand with `sabha-up.sh <Name>`.
+- `needs:` gates only briefs this runner serves; a pane role reads its inbox itself and is not held by it.
+- An amendment written while a headless run is on its brief is not seen by that run (`claude -p` takes no message);
+  `sabha-brief --amend` warns. Write `NNN.cancel` and re-brief when the run must see it.
+
+## Brief lifecycle: amendments, needs, attempts
+
+| Question | Choice | Why |
+| --- | --- | --- |
+| A change after the brief was sent | a new file `NNN.K-<from>-<slug>.md` (`sabha-brief --amend NNN`), never an edit; due() never takes it as a brief, the run's prompt lists every amendment after the brief in K order; an acked pane brief gets a `sabha-nudge` with the file name | an edit after the ack is invisible to a worker that already read it; `sabha-watch` reports a brief edited after its ack (advisory: it compares mtimes, so a git checkout, rsync or `touch` of the inbox can trigger it) |
+| Order between briefs | `needs: NNN Name/NNN ...` in the header block; a brief waits while a need is open and the next brief of the role runs | dependency order without a queue file |
+| A need that can never be met | unknown id, the brief itself, a cycle, a need that is cancelled or ended `BLOCKED`/`CANCELLED`: the runner writes `NNN.done` with `result: BLOCKED needs: <why>`, so the sender is told and briefs that need this one block too | claude-queue treats a missing need as met and never propagates a failed one |
+| Attempts | one line per start in `NNN.attempts`, written when the run starts, so a crash still uses one | a crashing run cannot loop |
+| Retries | `SABHA_RUN_ATTEMPTS` (default 1 = no retry). Only a run that exits non-zero with no `.done`, a spawn that fails, or a run that died (headless ack, no `.done`, no live `run.lock`) is retried: the ack is removed and `NNN.retry` names the earliest restart, `SABHA_RUN_BACKOFF` s doubled per attempt (cap 16x: 60, 120, 240, 480, 960 s, then 960 s). A timeout, an exit 0 with no `.done`, or the agent's own `BLOCKED` done is final | retry the machine, not the agent; another hour of a timed-out model is a cost decision |
+| A dead run | a headless ack with no `.done`, no live `run.lock` and no live `claude -n <Name>` is retried while attempts are left, else closed `BLOCKED headless run died without a done`. An ack with no `NNN.attempts` (written before attempts were counted) has used one, so at the default it is closed, not run again | it used to stay open forever; a worker resumed by hand in a pane (`sabha-up.sh <Name>`) keeps the brief |
 - `sabha-down.sh` sees a headless run as a running role (it carries `-n <Name>`) and sends it a save brief it never
   reads; such a run ends on its own or at its timeout, and a later pass then runs that save brief headless. (A run
   started as a durable helper is stopped by `sabha-down.sh` first, so this does not apply to it.)

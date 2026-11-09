@@ -87,7 +87,8 @@ hk_open_briefs() {
   for f in "$dir"/[0-9][0-9][0-9]*-*.md; do
     [ -f "$f" ] || continue
     b=${f##*/}
-    n=${b%%-*}
+    # an amendment NNN.K-*.md is open while its brief NNN is
+    n=${b%%-*}; n=${n%%.*}
     [ -e "$dir/$n.done" ] || [ -e "$dir/$n.cancel" ] && continue
     [ "$1" = acked ] && [ ! -e "$dir/$n.ack" ] && continue
     printf '%s\n' "$b"

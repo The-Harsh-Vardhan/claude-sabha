@@ -25,6 +25,9 @@ PROJECT=${SABHA_PROJECT:-this project}
 MAX=${SABHA_RUN_MAX:-2}
 TIMEOUT=${SABHA_RUN_TIMEOUT:-3600}
 LOGS=${SABHA_RUN_LOGS:-$SABHA_IMPL/runs}
+# runs per brief before an infrastructure failure becomes a BLOCKED done; the wait doubles from SABHA_RUN_BACKOFF s
+ATTEMPTS=${SABHA_RUN_ATTEMPTS:-1}
+BACKOFF=${SABHA_RUN_BACKOFF:-60}
 utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 sq() { local q="'\\''"; case $1 in *[!A-Za-z0-9_./:=-]*) printf "'%s'" "${1//\'/$q}" ;; *) printf %s "$1" ;; esac; }
 
@@ -43,6 +46,21 @@ role_cmd() {
   # nobody is at a terminal: a prompt must turn into a denial, not a hang until the timeout
   CMD+=(--permission-prompts none)
   CMD+=("You are $who in $PROJECT session setup, running headless (claude -p): nobody answers you or a permission prompt. Read $(sabha_reads "$name"), then the brief $2 (sabha-run already wrote its $n.ack). Do the brief, update status/$lower.md, write inbox/$name/$n.done (result for $to), then stop. A denied action ends the work: append the denial to $SABHA_IMPL/for-me.items, write $n.done with result: BLOCKED <the denial>, and stop; never work around a denial. Start no other brief.${SABHA_RUN_RESUME:+ A previous run of this brief died before its done: read status/$lower.md and what is already on disk (worktrees, files, notes) first and resume from there; never redo or overwrite finished work.}")
+  # a brief is frozen once sent; changes come as numbered amendment files, read after it in order
+  local a list=""
+  while read -r a; do [[ -n $a ]] && list+="${list:+, }$a"; done < <(amendments "$(dirname "$2")" "$n")
+  [[ -n $list ]] && CMD[${#CMD[@]}-1]+=" The brief has amendments; read them right after it, in this order (a later file wins on the lines it names): $list."
+  return 0
+}
+
+# amendments <inbox dir> <NNN>: prints the amendment files NNN.K-*.md of a brief, lowest K first
+amendments() {
+  local f k
+  for f in "$1/$2".[0-9]*-*.md; do
+    [[ -e $f ]] || continue
+    k=${f##*/}; k=${k#*.}; k=${k%%-*}
+    echo "$k $f"
+  done | sort -n | cut -d' ' -f2-
 }
 
 # served: true when this pass may run <Name> (named = on the command line)
@@ -62,16 +80,114 @@ served() {
   esac
 }
 
-# due <Name>: prints the lowest brief with no .ack, .cancel or .done
+# due <Name>: prints the lowest brief that may start now: no .ack, .cancel or .done, no retry wait, every need met.
+# On the way it retries or closes a brief whose headless run died, and closes one whose needs can never be met.
 due() {
-  local b n d=$SABHA_IMPL/inbox/$1
+  local b n d=$SABHA_IMPL/inbox/$1 after
   for b in "$d"/[0-9][0-9][0-9]*-*.md; do
     [[ -e $b ]] || continue
     n=$(basename "$b"); n=${n%%-*}
-    [[ -e $d/$n.ack || -e $d/$n.cancel || -e $d/$n.done ]] && continue
+    # NNN.K-*.md amends brief NNN; it is never a brief of its own
+    [[ $n == *.* ]] && continue
+    [[ -e $d/$n.cancel || -e $d/$n.done ]] && continue
+    [[ -e $d/$n.ack ]] && { orphan "$1" "$n" || continue; }
+    if [[ -e $d/$n.retry ]]; then
+      after=$(sed -n 's/^after: *//p' "$d/$n.retry")
+      if (( ${after:-0} > $(date +%s) )); then
+        echo "sabha-run: $1 $n: waiting, retry in $(( after - $(date +%s) ))s" >&2; continue
+      fi
+    fi
+    needs_check "$d" "$n"
+    case $? in
+      1) echo "sabha-run: $1 $n: waiting on $WHY" >&2; continue ;;
+      2)
+        echo "sabha-run: $1 $n: needs can never be met: $WHY" >&2
+        (( PRINT )) || (set -C; printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED needs: %s\ncontext: 0\n' \
+          "$(utc)" "$1" "$WHY" >"$d/$n.done") 2>/dev/null
+        continue ;;
+    esac
     echo "$b"; return 0
   done
   return 1
+}
+
+# brief_file <inbox dir>/<NNN>: prints the brief file of that number
+brief_file() {
+  local f
+  for f in "$1"-*.md; do [[ -e $f ]] && { echo "$f"; return 0; }; done
+  return 1
+}
+
+# needs_check <inbox dir> <NNN>: 0 = every brief on the needs: header line is done, 1 = some are still open (WHY),
+# 2 = can never start (WHY). An id is NNN (same inbox) or Name/NNN. Unlike claude-queue, an unknown id, the brief
+# itself, a cycle, or a need that ended BLOCKED or CANCELLED blocks: none is ever taken as met.
+needs_check() {
+  local top=$1/$2 cur f id nd nn r rc=0 i=0 seen=" " todo ids
+  local re='^([A-Za-z0-9_-]+/)?[0-9]{3,}$'
+  WHY="" todo=("$top")
+  while (( i < ${#todo[@]} )); do
+    cur=${todo[i]}; i=$(( i + 1 ))
+    f=$(brief_file "$cur") || continue
+    # ids are words, split on purpose; set -f so a * or ? in an id is never matched against files in the cwd
+    set -f
+    # shellcheck disable=SC2207
+    ids=($(awk 'NF == 0 { exit } sub(/^needs:[ \t]*/, "") { gsub(/,/, " "); print }' "$f"))
+    set +f
+    for id in ${ids[@]+"${ids[@]}"}; do
+      if ! [[ $id =~ $re ]]; then [[ $cur == "$top" ]] && { WHY="bad id $id"; return 2; }; continue; fi
+      if [[ $id == */* ]]; then nd=$SABHA_IMPL/inbox/${id%/*} nn=${id##*/}; else nd=${cur%/*} nn=$id; fi
+      if [[ $nd/$nn == "$top" ]]; then
+        WHY="a cycle through $id"; [[ $cur == "$top" ]] && WHY="it needs itself"; return 2
+      fi
+      if [[ -e $nd/$nn.done ]]; then
+        r=$(sed -n 's/^result: *\([A-Za-z]*\).*/\1/p' "$nd/$nn.done" | head -1 | tr '[:lower:]' '[:upper:]')
+        [[ $cur == "$top" && ( $r == BLOCKED || $r == CANCELLED ) ]] && { WHY="$id ended $r"; return 2; }
+        continue
+      fi
+      if [[ $cur == "$top" ]]; then
+        [[ -e $nd/$nn.cancel ]] && { WHY="$id was cancelled"; return 2; }
+        if ! brief_file "$nd/$nn" >/dev/null && [[ ! -e $nd/$nn.claim ]]; then WHY="unknown brief $id"; return 2; fi
+        rc=1 WHY+="${WHY:+, }$id"
+      fi
+      [[ $seen == *" $nd/$nn "* ]] || { seen+="$nd/$nn "; todo+=("$nd/$nn"); }
+    done
+  done
+  return $rc
+}
+
+# holds <Name>: true when a live claude -n <Name> (a pane or a hand start) owns the role
+holds() { awk -v n="$1" '$1 == n { f = 1 } END { exit !f }' <<<"$procs"; }
+
+# orphan <Name> <NNN>: an acked brief whose headless run died (no .done, no live run.lock) is retried or closed;
+# true when it went back to the queue. A pane's ack is never touched.
+orphan() {
+  local d=$SABHA_IMPL/inbox/$1
+  (( PRINT )) && return 1
+  grep -q '\[headless\]' "$d/$2.ack" 2>/dev/null || return 1
+  live_lock "$d/run.lock" && return 1
+  # a worker resumed by hand in a pane on a brief a headless run acked: the brief is the pane's now
+  holds "$1" && return 1
+  # a durable helper's brief belongs to sabha-helper reattach, which resumes a dead one (SABHA_HELPER_RETRIES)
+  [[ -e $(sabha_helper_file "$1-$2") ]] && return 1
+  # an ack written before attempts were counted had its one start; without this line it would run again
+  [[ -e $d/$2.attempts ]] || echo "unknown (acked before attempts were counted)" >"$d/$2.attempts"
+  retry_or_block "$d" "$2" "headless run died without a done" && return 0
+  printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run died without a done (no live run.lock)\ncontext: 0\n' \
+    "$(utc)" "$1" >"$d/$2.done"
+  return 1
+}
+
+# retry_or_block <inbox dir> <NNN> <why>: after an infrastructure failure, puts the brief back in the queue (ack
+# removed, NNN.retry names the earliest restart) while attempts are left; false when none are, and the caller closes it.
+# Never for a run whose agent wrote its own done (BLOCKED included).
+retry_or_block() {
+  local tries
+  tries=$(grep -c . "$1/$2.attempts" 2>/dev/null); tries=${tries:-0}
+  (( tries < ATTEMPTS )) || return 1
+  (( tries > 5 )) && tries=5
+  printf 'utc: %s\nafter: %s\nwhy: %s\n' "$(utc)" "$(( $(date +%s) + BACKOFF * (1 << (tries > 0 ? tries - 1 : 0)) ))" "$3" \
+    >|"$1/$2.retry"
+  rm -f "$1/$2.ack"
 }
 
 # live_lock <file>: true when the lock names a live pid; a dead one is removed
@@ -90,7 +206,8 @@ if [[ ${1:-} == --child ]]; then
   dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
   # the child writes its own pid before anything else, so its EXIT trap can never run before the lock names it;
   # the pass waits for this line as its proof that the run started
-  echo $$ >|"$dir/run.lock"
+  # temp file + mv: live_lock must never read the lock empty (truncated, not yet written) and remove it
+  echo $$ >"$dir/run.lock.$$" && mv -f "$dir/run.lock.$$" "$dir/run.lock"
   # every way out but SIGKILL ends with the helper's done and its sentinel; rc stays 1 until the run sets it
   rc=1 hdone=0 cp=""
   child_exit() {
@@ -140,6 +257,10 @@ if [[ ${1:-} == --child ]]; then
   # the sender waits on a .done; a run that died without one still has to say so
   if [[ ! -e $dir/$n.done && $cancelled == 1 ]]; then
     printf 'utc: %s\nsession: %s [headless]\nresult: CANCELLED stopped by %s.cancel\ncontext: 0\n' "$(utc)" "$name" "$n" >"$dir/$n.done"
+  # a non-zero exit with no done is the CLI or the machine failing, not the agent: retry while attempts are left.
+  # A timeout is not retried (another hour of the same model), nor an exit 0 with no done, nor a durable helper.
+  elif [[ ! -e $dir/$n.done && $why == "exit $rc" && $rc -ne 0 && -z ${SABHA_HELPER_ID:-} ]] && retry_or_block "$dir" "$n" "$why"; then
+    echo "sabha-run: $(utc) $name $n queued for a retry ($(grep -c . "$dir/$n.attempts") of $ATTEMPTS used)" >>"$log"
   elif [[ ! -e $dir/$n.done ]]; then
     printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run ended without a done (%s), log %s\ncontext: 0\n' \
       "$(utc)" "$name" "$why" "$log" >"$dir/$n.done"
@@ -197,7 +318,7 @@ for name in "${want[@]}"; do
   served "$name" "$named" || { (( named )) && skip "$name: the relay is never run headless"; continue; }
   brief=$(due "$name") || { (( DETACHED )) && skip "$name: no brief is due"; continue; }
   dir=$SABHA_IMPL/inbox/$name; n=$(basename "$brief"); n=${n%%-*}
-  if awk -v n="$name" '$1 == n { f = 1 } END { exit !f }' <<<"$procs"; then
+  if holds "$name"; then
     skip "$name $n: a live claude -n $name holds the role; left to it"; continue
   fi
   if live_lock "$dir/run.lock"; then skip "$name $n: a run is already on $name (run.lock)"; continue; fi
@@ -230,6 +351,8 @@ for name in "${want[@]}"; do
     rm -f "$dir/run.lock"; skip "$name $n: already acked"; continue
   fi
   mkdir -p "$LOGS"
+  # an attempt counts when it starts, so a run that crashes the machine still uses one
+  utc >>"$dir/$n.attempts"
   if (( DETACHED )); then
     sabha_role "$name"
     # written before the spawn: a run that ends at once must find its entry and not be overwritten by a late "starting"
@@ -256,9 +379,14 @@ for name in "${want[@]}"; do
     sleep 0.1
   done
   started_ok && ok=1
+  # a fast child that already queued its retry removed the ack: it did start
+  [[ ! -e $dir/$n.ack ]] && ok=1
   if (( ! ok )); then
     # never leave an ack with no done and a lock nobody holds: the sender would wait forever
     kill "$cpid" 2>/dev/null
+    if (( ! DETACHED )) && retry_or_block "$dir" "$n" "headless run did not start"; then
+      rm -f "$dir/run.lock"; echo "sabha-run: $name $n: run did not start; queued for a retry"; continue
+    fi
     printf 'utc: %s\nsession: %s [headless]\nresult: BLOCKED headless run did not start (child %s), log %s\ncontext: 0\n' \
       "$(utc)" "$name" "${SABHA_RUN_SELF:-$SELF}" "$log" >"$dir/$n.done"
     rm -f "$dir/run.lock"

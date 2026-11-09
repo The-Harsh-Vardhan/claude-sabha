@@ -78,14 +78,19 @@ if [[ -f $IMPL/for-me.items ]]; then
   fi
 fi
 
-unacked=""
+unacked="" edited=""
 for b in "$IMPL"/inbox/*/[0-9][0-9][0-9]*-*.md; do
   [[ -e $b ]] || continue
   n=$(basename "$b"); n=${n%%-*}; d=$(dirname "$b")
+  # NNN.K-*.md amends brief NNN and is never acked itself
+  [[ $n == *.* ]] && continue
+  # a brief is frozen after its ack (a change is an amendment file): an edit after it likely never reached the worker
+  [[ -e $d/$n.ack && ! -e $d/$n.done && $b -nt $d/$n.ack ]] && edited+="inbox/$(basename "$d")/$n "
   [[ -e $d/$n.ack || -e $d/$n.cancel ]] && continue
   (( $(age_min "$b") > UNACKED_MIN )) && unacked+="inbox/$(basename "$d")/$n (sent $(date -r "$b" +%H:%M)) "
 done
 echo "unacked briefs: ${unacked:-none}"
+[[ -n $edited ]] && echo "edited after ack (write an amendment file instead): $edited"
 # wake the receiver of each .done once: status/done-seen/<Role>-<NNN> is claimed with noclobber, so two watchers
 # nudge only once; the nudge runs in the background (it waits for the agent to settle) and logs to status/done-nudge.log
 SEEN=$IMPL/status/done-seen

@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # sabha-brief: claim the next brief number in an inbox and write the brief with its header block (inbox protocol,
 # section 2). Prints the brief path. Bash 3.2 safe.
-#   sabha-brief <to> <from> <slug> "<task>" [--output TEXT] [--go TEXT] [--reply ack|done|none] [--body FILE]
+#   sabha-brief <to> <from> <slug> "<task>" [--output TEXT] [--go TEXT] [--reply ack|done|none] [--needs IDS]
+#               [--amend NNN] [--body FILE]
 # The body is read from --body FILE, else from stdin when stdin is a pipe or a file (not a tty, not closed). IMPL = $SABHA_IMPL (default: current dir).
 #   sabha-brief --self-test
 set -u
 if [[ ${1:-} == --self-test ]]; then exec "$(cd "$(dirname "$0")/.." && pwd)/tests/test-brief.sh"; fi
 if [[ $# -lt 4 ]]; then
-  sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2
+  sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2
 fi
 to=$1 from=$2 slug=$3 task=$4; shift 4
-output="" go="" reply=done body=""
+output="" go="" reply=done body="" needs="" amend=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --output) output=${2:-}; shift 2 ;;
     --go) go=${2:-}; shift 2 ;;
     --reply) reply=${2:-}; shift 2 ;;
     --body) body=${2:-}; shift 2 ;;
+    --needs) needs=${2:-}; shift 2 ;;
+    --amend) amend=${2:-}; shift 2 ;;
     *) echo "sabha-brief: unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -24,22 +27,56 @@ case $reply in ack|done|none) ;; *) echo "sabha-brief: --reply must be ack, done
 for v in "$to" "$from" "$slug"; do
   [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "sabha-brief: bad name '$v' (letters, digits, - _)" >&2; exit 2; }
 done
-[[ $task != *$'\n'* && $output != *$'\n'* && $go != *$'\n'* ]] || { echo "sabha-brief: header values are one line" >&2; exit 2; }
+[[ $task != *$'\n'* && $output != *$'\n'* && $go != *$'\n'* && $needs != *$'\n'* ]] || { echo "sabha-brief: header values are one line" >&2; exit 2; }
+# the runner closes a brief with a bad need BLOCKED; refuse it here, before a number is claimed
+re='^([A-Za-z0-9_-]+/)?[0-9]{3,}$'
+set -f
+for id in ${needs//,/ }; do
+  [[ $id =~ $re ]] || { echo "sabha-brief: bad needs id '$id' (NNN or Name/NNN)" >&2; exit 2; }
+done
+set +f
 [[ -z $body || -f $body ]] || { echo "sabha-brief: no such body file $body" >&2; exit 2; }
 dir=${SABHA_IMPL:-.}/inbox/$to
 mkdir -p "$dir" || exit 1
 cd "$dir" || exit 1
 from=$(printf '%s' "$from" | tr 'A-Z' 'a-z')
-# shellcheck disable=SC2010  # names are NNN.claim and NNN-<from>-<slug>.md, plain ASCII by the protocol
-n=$(ls | sed -n 's/^\([0-9]\{3,\}\)[.-].*/\1/p' | sort -n | tail -1)
-n=$(printf '%03d' $(( 10#${n:-0} + 1 )))
-until (set -C; : > "$n.claim") 2>/dev/null; do n=$(printf '%03d' $(( 10#$n + 1 ))); done
+if [[ -n $amend ]]; then
+  # a brief is frozen once sent: a change is the next amendment file NNN.K-<from>-<slug>.md (inbox protocol, section 2)
+  [[ $amend =~ ^[0-9]{3,}$ ]] || { echo "sabha-brief: --amend takes a brief number (NNN)" >&2; exit 2; }
+  ls "$amend"-*.md >/dev/null 2>&1 || { echo "sabha-brief: no brief $amend in inbox/$to" >&2; exit 2; }
+  [[ -e $amend.done || -e $amend.cancel ]] && { echo "sabha-brief: brief $amend is closed; write a new brief" >&2; exit 2; }
+  # shellcheck disable=SC2012  # names are NNN.K-<from>-<slug>.md and NNN.K.claim, plain ASCII by the protocol
+  k=$(ls | sed -n "s/^$amend\.\([0-9][0-9]*\)[.-].*/\1/p" | sort -n | tail -1)
+  k=$(( ${k:-0} + 1 ))
+  until (set -C; : > "$amend.$k.claim") 2>/dev/null; do k=$(( k + 1 )); done
+  n=$amend.$k
+else
+  # shellcheck disable=SC2010  # names are NNN.claim and NNN-<from>-<slug>.md, plain ASCII by the protocol
+  n=$(ls | sed -n 's/^\([0-9]\{3,\}\)[.-].*/\1/p' | sort -n | tail -1)
+  n=$(printf '%03d' $(( 10#${n:-0} + 1 )))
+  until (set -C; : > "$n.claim") 2>/dev/null; do n=$(printf '%03d' $(( 10#$n + 1 ))); done
+fi
 file=$n-$from-$slug.md
 {
   echo "to: $to"; echo "from: $from"; echo "utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "task: $task"
   [[ -n $output ]] && echo "output: $output"
   [[ -n $go ]] && echo "go: $go"
+  [[ -n $needs ]] && echo "needs: $needs"
+  [[ -n $amend ]] && echo "amends: $amend"
   echo "reply: $reply"; echo
   if [[ -n $body ]]; then cat "$body"; elif [[ -p /dev/stdin || -f /dev/stdin ]]; then cat; fi
 } > "$file.tmp" && mv "$file.tmp" "$file" || { echo "sabha-brief: cannot write $file" >&2; exit 1; }
 echo "$PWD/$file"
+# a worker already on the brief read it at the start: wake a pane with the new file name. A headless run cannot be
+# told; it sees the amendment only on a retry.
+if [[ -n $amend && -e $amend.ack && ! -e $amend.done ]]; then
+  if grep -q '\[headless\]' "$amend.ack"; then
+    echo "sabha-brief: a headless run holds $amend and will not see $file; write $amend.cancel and re-brief if it must" >&2
+  else
+    nudge=${SABHA_NUDGE_BIN:-$(cd "$(dirname "$0")" && pwd)/sabha-nudge}
+    log=$(cd ../.. && pwd)/status/done-nudge.log
+    mkdir -p "${log%/*}" 2>/dev/null
+    ( "$nudge" "$to" "see inbox/$to/$file (amends $amend)" </dev/null >>"$log" 2>&1 \
+      || echo "nudge $to failed for inbox/$to/$file" >>"$log" ) &
+  fi
+fi
