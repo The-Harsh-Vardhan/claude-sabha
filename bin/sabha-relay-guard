@@ -4,8 +4,9 @@
 #   sabha-relay-guard pre <Name>   PreToolUse: lets Read, Grep, Glob, SendMessage, AskUserQuestion, ListAgents (the
 #                                  opening check), ToolSearch (loads SendMessage) and Skill through, but no read of a
 #                                  secret file (secret() names them) and no recursive read; Write, Edit and MultiEdit only
-#                                  to the paths writable() names; Bash only for a short read-only list. Anything else
-#                                  exits 2: "relay: brief the dispatcher".
+#                                  to the paths writable() names; Bash only for a short read-only list; a tool named in
+#                                  SABHA_RELAY_ALLOW_TOOLS that no rule above handles (extra()). Anything else exits 2:
+#                                  "relay: brief the dispatcher".
 #   sabha-relay-guard prompt       UserPromptSubmit: a prompt whose first line is "you do it" (any case, trailing . or !)
 #                                  lifts the guard for that turn, at most 10 minutes
 #   sabha-relay-guard stop|start   Stop / SessionStart: the guard is back
@@ -30,10 +31,15 @@ CONF=${SABHA_CONF:-$BIN/../sabha.conf}
 # an unbound reference in the conf is not fatal
 if [[ -f $CONF ]]; then
   # shellcheck disable=SC2016  # expanded by the inner bash
-  vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_IMPL:-}" "${SABHA_RELAY_WRITE:-}" "${SABHA_WS:-}" ok' _ "$CONF") ||
+  vals=$("$BASH" -c 'set +u; . "$1" >/dev/null 2>&1; printf "%s\n" "${SABHA_IMPL:-}" "${SABHA_RELAY_WRITE:-}" "${SABHA_WS:-}" "${SABHA_RELAY_ALLOW_TOOLS:-}" ok' _ "$CONF") ||
     broken "the conf did not finish cleanly"
   [[ $vals == *$'\n'ok ]] || broken "the conf did not finish cleanly"
   { IFS= read -r SABHA_IMPL; IFS= read -r SABHA_RELAY_WRITE; IFS= read -r SABHA_WS; } <<<"$vals"
+  # the allow list comes last and runs up to the closing ok, so a newline in it stays in it (and makes it malformed)
+  nl=$'\n' SABHA_RELAY_ALLOW_TOOLS=${vals#*$'\n'}
+  SABHA_RELAY_ALLOW_TOOLS=${SABHA_RELAY_ALLOW_TOOLS#*"$nl"}
+  SABHA_RELAY_ALLOW_TOOLS=${SABHA_RELAY_ALLOW_TOOLS#*"$nl"}
+  SABHA_RELAY_ALLOW_TOOLS=${SABHA_RELAY_ALLOW_TOOLS%"$nl"ok}
 fi
 [[ -n ${SABHA_IMPL:-} ]] || broken "the guard found no SABHA_IMPL"
 command -v jq >/dev/null || broken "the guard needs jq"
@@ -218,6 +224,23 @@ read_only() {
   return 0
 }
 
+# extra <tool>: the tool is named in SABHA_RELAY_ALLOW_TOOLS, a comma-separated list of exact, case-sensitive names.
+# Asked only at the default deny, so the list adds tools no rule above handles and never loosens the Read, Grep, Glob,
+# Write, Edit or Bash rules (those branches end in allow or deny). A malformed list allows nothing and says so.
+# Agent, Task and NotebookEdit stay denied even when listed: the relay does no work itself
+extra() {
+  local v=${SABHA_RELAY_ALLOW_TOOLS:-} t LC_ALL=C re='^[A-Za-z][A-Za-z0-9_]*(,[A-Za-z][A-Za-z0-9_]*)*$' names
+  case $1 in Agent|Task|NotebookEdit) why="; $1 is never allowed to the relay, even when listed"; return 1 ;; esac
+  while [[ $v == [[:blank:]]* ]]; do v=${v:1}; done
+  while [[ $v == *[[:blank:]] ]]; do v=${v%?}; done
+  [[ -n $v ]] || return 1
+  [[ $v =~ $re ]] || { why="; SABHA_RELAY_ALLOW_TOOLS is malformed, nothing extra is allowed"; return 1; }
+  IFS=, read -r -a names <<<"$v"
+  for t in "${names[@]}"; do [[ $t == "$1" ]] && return 0; done
+  return 1
+}
+
+why=
 tool=$(jq -r '.tool_name // ""' <<<"$in" 2>/dev/null)
 case $tool in
   Read|Grep|Glob)
@@ -251,7 +274,8 @@ case $tool in
     [[ -n $cmd ]] && read_only "$cmd" && allow
     deny "Bash beyond the read-only list" ;;
 esac
-deny "${tool:-unreadable hook input}"
+[[ -n $tool ]] && extra "$tool" && allow
+deny "${tool:-unreadable hook input}$why"
 }
 
 (guard)
