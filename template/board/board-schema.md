@@ -18,9 +18,18 @@ Nothing else in the file is edited.
 | `__TIMEZONE__` | an IANA time zone, default `UTC` (for example `Europe/London`, `America/New_York`) | every displayed time, the hour chart, day boundaries, new-task ids |
 | `__LANES__` | a JSON array of project names: board filter chips | `["Alpha", "Beta", "Other"]` |
 | `__PROJECTS__` | a JSON array of project names: review groups and the add-task form | `["Alpha", "Beta", "Other"]` |
+| `__SABHA_HOME__` | the absolute path of the claude-sabha install (the folder that holds `bin/`) | every command on the Commands tab |
+| `__WORKSPACE__` | the absolute path the human starts sabha from (`SABHA_WS`, or the folder whose `.sabha/local/sabha.conf` is the conf) | the Commands tab's first command, `cd <path>` |
+| `__CMD_WRAPPER__` | optional: a command the human runs every sabha command through (for example a script of their own that sets a token); empty for none | in front of every `bin/` command on the Commands tab |
+| `__ROLE__` | a worker role name from `SABHA_ROSTER` (default `BuilderHeavy`) | the start, print, force and loop examples on the Commands tab |
+| `__HERDR_SESSION__` | `SABHA_HERDR_SESSION`, default `sabha` | the herdr pane list and close commands on the Commands tab |
 
 `__LANES__` and `__PROJECTS__` are written as bare JSON, quotes and brackets included. Keep `Other` last: rows whose
 project is not in the list land in it, and unknown projects are appended after the listed ones.
+
+The Commands tab is static text: it reads no collection. Its paths are pasted into a shell as they are, so
+`__SABHA_HOME__`, `__WORKSPACE__` and `__CMD_WRAPPER__` must not contain spaces. The wrapper is the human's own; the
+template never ships one and never names a token or an env file.
 
 The time zone offset is read once when the page loads, so a clock change inside the viewed day shifts that day by an
 hour. Free text of the form `4 Nov approx 20:10 (...)` in `lastChange` is read in this zone, with the current year.

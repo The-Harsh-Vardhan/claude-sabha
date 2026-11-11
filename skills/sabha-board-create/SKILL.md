@@ -20,11 +20,14 @@ only from the human's own account, so the page is theirs; never create a board f
 1. Stop if `SABHA_BOARD_URL` in `sabha.conf` is already set: a board exists. Update it through the Artifact tool, do not make a second one.
 2. Ask the human, one question at a time, with a default: board title (default "Sabha board"), their name, the relay
    and architect role names (read them from the theme in `sabha.conf` when set), the time zone (default `UTC`), the lanes,
-   and the project list (default `["General", "Other"]`). Get a yes before publishing: it creates a page on their account.
+   and the project list (default `["General", "Other"]`). For the Commands tab: the install path, the workspace path,
+   an optional command wrapper of their own (default none), an example worker role and the herdr session (default
+   `SABHA_HERDR_SESSION`, else `sabha`). Get a yes before publishing: it creates a page on their account.
 3. Copy `template/board/index.html` to a scratch file and replace every placeholder from `board-schema.md`. Replace
    `__LANES__` and `__PROJECTS__` with JSON arrays, the other placeholders (`__HUMAN_NAME__`, `__RELAY_NAME__`,
-   `__ARCHITECT_NAME__`, `__TIMEZONE__`, `__BOARD_TITLE__`) with plain text with no quotes, angle brackets, backslash
-   or newline. Each JSON array must pass `python3 -I -c 'import json,sys; json.loads(sys.argv[1])' '<array>'` and
+   `__ARCHITECT_NAME__`, `__TIMEZONE__`, `__BOARD_TITLE__`, `__SABHA_HOME__`, `__WORKSPACE__`, `__CMD_WRAPPER__`,
+   `__ROLE__`, `__HERDR_SESSION__`) with plain text with no quotes, angle brackets, backslash or newline; the three
+   paths also without spaces. `__CMD_WRAPPER__` may be replaced with nothing. Each JSON array must pass `python3 -I -c 'import json,sys; json.loads(sys.argv[1])' '<array>'` and
    contain no `<`. Check that no placeholder remains: `grep -c '__[A-Z_]*__' <file>` must print 0.
 4. Artifact `quickstart` (intent `other`), then load the `artifact-design` and `artifact-capabilities` skills as it says.
    Publish the scratch file with `capabilities` set to the contents of `template/board/board.capabilities.json`, an

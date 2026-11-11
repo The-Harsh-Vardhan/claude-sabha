@@ -80,6 +80,21 @@ else
   echo "skip: node not on PATH, the Do this next sample-row check did not run"
 fi
 
+echo "--- Commands tab"
+check "the Commands tab is in the view list and has its section" 'grep -qF "[\"commands\", \"Commands\"]" "$T" && grep -q "<section id=\"commands-view\"" "$T" && grep -q "renderCommands()" "$T"'
+check "the Commands tab ships no wrapper, token or env file name" '! grep -qiE "with-[a-z]*-token|\.env\b|token wrapper" "$T"'
+if command -v node >/dev/null; then
+  CG=$(sed -n "/^  function sb(cmd)/,/^  \];/p" "$T")
+  js='var SABHA_HOME = "/opt/sabha", WORKSPACE = "/w", ROLE = "Worker", HERDR_SESSION = "sabha", CMD_WRAPPER = "";
+  '"$CG"'
+  var all = []; CMD_GROUPS.forEach(function (g) { g[1].forEach(function (c) { all.push(c[1]); }); });
+  if (all.length !== 19 || all[0] !== "cd /w" || all[1] !== "/opt/sabha/bin/sabha-up.sh") { console.log("wrong: " + all.slice(0, 2)); process.exitCode = 1; }
+  CMD_WRAPPER = "wrap"; if (sb("sabha-watch") !== "wrap /opt/sabha/bin/sabha-watch") { console.log("wrapper not prefixed"); process.exitCode = 1; }'
+  check "Commands on sample settings (node): 19 commands, cd first, wrapper prefixed only when set" '[[ -n $CG ]] && node -e "$js"'
+else
+  echo "skip: node not on PATH, the Commands sample check did not run"
+fi
+
 echo "--- sabha.conf.example"
 check "sabha.conf.example documents SABHA_BOARD_URL (a comment, then the key)" 'grep -B3 "^SABHA_BOARD_URL=" "$ROOT/sabha.conf.example" | grep -q "^# .*SABHA_BOARD_URL\|^# The progress board"'
 check "sabha.conf.example has SABHA_RELAY_ALLOW_TOOLS empty, after SABHA_RELAY_GUARD, naming Artifact,ArtifactData" 'grep -q "^SABHA_RELAY_ALLOW_TOOLS=\"\"$" "$ROOT/sabha.conf.example" && [[ $(grep -n "^SABHA_RELAY_GUARD=" "$ROOT/sabha.conf.example" | cut -d: -f1) -lt $(grep -n "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | cut -d: -f1) ]] && grep -B6 "^SABHA_RELAY_ALLOW_TOOLS=" "$ROOT/sabha.conf.example" | grep -q "Artifact,ArtifactData"'

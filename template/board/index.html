@@ -286,6 +286,17 @@ textarea { width: 100%; min-height: 80px; padding: 10px; border: 1px solid var(-
 .next-do { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .next-links { display: flex; flex-wrap: wrap; gap: 6px; }
 .next-links a { min-height: 32px; display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font-size: 12px; text-decoration: none; background: var(--surface); }
+/* Commands view */
+.cmd-note { margin: 10px 0 0; padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-fg); font-size: 13px; }
+.cmd-note p { margin: 0; overflow-wrap: anywhere; }
+.cmd-note p + p { margin-top: 4px; }
+.cmd { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cmd .why { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.cmd pre { margin: 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.cmd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cmd-row .chip-btn { flex: 0 0 auto; }
+.cmd-msg { font-size: 12px; color: var(--muted); }
+.cmd-msg.err { color: var(--bad-fg); }
 @media (prefers-reduced-motion: no-preference) { .card { transition: border-color .15s; } }
 </style>
 <script>
@@ -296,6 +307,12 @@ var ARCHITECT = "__ARCHITECT_NAME__";
 var TZ = "__TIMEZONE__";
 var S1_BY = RELAY + "-s1";
 var BLOCKED_ALIAS = "BLOCKED-" + String(HUMAN).toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+// Commands tab: the install dir, the workspace to cd into, an optional command wrapper (may be empty), an example role, the herdr session.
+var SABHA_HOME = "__SABHA_HOME__";
+var WORKSPACE = "__WORKSPACE__";
+var CMD_WRAPPER = "__CMD_WRAPPER__";
+var ROLE = "__ROLE__";
+var HERDR_SESSION = "__HERDR_SESSION__";
 </script>
 
 <header class="top">
@@ -379,6 +396,15 @@ var BLOCKED_ALIAS = "BLOCKED-" + String(HUMAN).toUpperCase().replace(/[^A-Z0-9]+
 <div id="wbanner"></div>
 <div id="wmsg" class="msg" role="status"></div>
 <div id="wlist" class="dlist mt10"></div>
+</section>
+<section id="commands-view" hidden aria-label="Commands">
+<p class="lead">The commands to start, watch, stop and recover Claude Sabha. Press Copy, then paste into Terminal.</p>
+<div class="cmd-note" role="note">
+<p>Run these from a plain terminal, not inside Claude: osascript and the Claude sandbox block them there.</p>
+<p>sabha-down.sh --yes refuses to run inside a Claude session.</p>
+<p>Run the first command once per terminal window. Every command after it uses absolute paths, and your command wrapper when the board was made with one.</p>
+</div>
+<div id="clist"></div>
 </section>
 <div id="sheet-host"></div>
 <script>
@@ -1120,6 +1146,89 @@ function dayHighlights(doc) {
     return card;
   }
 
+  // ---- Commands (static text; the page reads no store for it)
+  function sb(cmd) { return (CMD_WRAPPER ? CMD_WRAPPER + " " : "") + SABHA_HOME + "/bin/" + cmd; }
+  var CMD_GROUPS = [
+    ["Go to the workspace", [
+      ["Run once per terminal window, before the commands below.", "cd " + WORKSPACE]
+    ]],
+    ["Start", [
+      ["Open the whole grid: the relay stays by hand, panes start one role each.", sb("sabha-up.sh")],
+      ["Open the grid on a plan: roster and panes come from sabha.<plan>.conf.", sb("sabha-up.sh --plan max5")],
+      ["Start one role in this terminal.", sb("sabha-up.sh " + ROLE)],
+      ["Start a copy of a role with its own inbox and status file.", sb("sabha-up.sh " + ROLE + "-2")],
+      ["Start a copy of the BuilderPrecise role.", sb("sabha-up.sh BuilderPrecise-2")],
+      ["Print a role's one-line restart command and the sabha-loop command its pane runs. Starts nothing.", sb("sabha-up.sh --print " + ROLE)],
+      ["Start a role even when a claude process already holds its name.", sb("sabha-up.sh --force " + ROLE)]
+    ]],
+    ["Watch and check", [
+      ["Read-only report: each role's context percent, age and state, open items, unacked briefs.", sb("sabha-watch")],
+      ["Read-only: every claude process per role, marked DUPLICATE when two hold one name. Exit 1 on a duplicate.", sb("sabha-check")],
+      ["Same check, plus why herdr shows each recorded pane in its state.", sb("sabha-check --explain")]
+    ]],
+    ["Stop", [
+      ["Dry run: shows what would be saved, killed and closed. Changes nothing.", sb("sabha-down.sh")],
+      ["Stop for real: each role saves its status file, then the claude processes end and the sabha herdr session is deleted.", sb("sabha-down.sh --yes")],
+      ["Stop for real and kill roles that have not saved when the wait ends.", sb("sabha-down.sh --yes --kill-unsaved")],
+      ["Give the roles 600 seconds to save instead of the default 300.", sb("sabha-down.sh --yes --timeout 600")]
+    ]],
+    ["Recover", [
+      ["List the panes of the sabha herdr session. Find the pane id of a duplicate RESUMED pane.", "herdr --session " + HERDR_SESSION + " pane list"],
+      ["Close one pane by its id. Replace PANE_ID with the id from the list.", "herdr --session " + HERDR_SESSION + " pane close PANE_ID"],
+      ["A resumed pane runs Claude without its loop. After the role writes its handoff, quit it with two Ctrl-C, then start the loop in that pane.", sb("sabha-loop " + ROLE)],
+      ["Ask a role's loop to end after its current session.", sb("sabha-loop --stop " + ROLE)]
+    ]]
+  ];
+  var cmdMsg = {};
+  function copyCmd(key, text) {
+    function ok() { cmdMsg[key] = "Copied."; render(); }
+    function no() { cmdMsg[key] = "Copy blocked. Select the command and copy it."; render(); }
+    try { navigator.clipboard.writeText(text).then(ok, no); } catch (e) { no(); }
+  }
+  function renderCommands() {
+    el("clist").replaceChildren.apply(el("clist"), CMD_GROUPS.map(function (g, gi) {
+      return h("section", { class: "dgroup", "aria-label": g[0] }, [
+        h("div", { class: "col-head" }, [h("h2", { class: "col-title", text: g[0] }), h("span", { class: "col-count", text: String(g[1].length) })]),
+        h("div", { class: "dlist" }, g[1].map(function (c, ci) {
+          var key = gi + "-" + ci, m = cmdMsg[key] || "";
+          return h("div", { class: "cmd" }, [
+            h("p", { class: "why", text: c[0] }),
+            h("pre", { text: c[1] }),
+            h("div", { class: "cmd-row" }, [
+              h("button", { class: "chip-btn", type: "button", "aria-label": "Copy: " + c[1], text: "Copy", onclick: function () { copyCmd(key, c[1]); } }),
+              h("span", { class: "cmd-msg" + (/^Copy blocked/.test(m) ? " err" : ""), role: "status", text: m })
+            ])
+          ]);
+        }))
+      ]);
+    }));
+  }
+
+  function watch(name, set) {
+    dbh.collection(name).onSnapshot(function (snap) {
+      var next = {};
+      snap.docs.forEach(function (d) { var x = d.data(); if (x) { x.id = x.id || d.id; next[d.id] = x; } });
+      set(next); ld[name] = true; lf[name] = "";
+      render();
+    }, function (err) {
+      ld[name] = true;
+      lf[name] = "The " + name + " store returned an error (" + ((err && err.code) || "unknown") + "). Showing what loaded.";
+      render();
+    });
+  }
+
+  function list() { return Object.keys(rows).map(function (k) { return rows[k]; }); }
+  function rlist() { return Object.keys(reviews).map(function (k) { return reviews[k]; }); }
+  function inLane(r) { return laneFilter === "All" || r.project === laneFilter; }
+  function isNewTask(r) { return /^H-/.test(r.id) && !r.mirroredAt; }
+
+  function setStatus() {
+    var s = failed || (!dbh ? "Read-only: the board store is not available in this view" :
+      !loaded ? "Loading the board..." : canWrite ? "Live. Changes save to the shared board." : "Read-only: you cannot change rows here");
+    el("status").textContent = s;
+  }
+
+  function banner(cls, text) { el("banner").replaceChildren(h("div", { class: "banner " + cls, text: text })); }
   function watch(name, set) {
     dbh.collection(name).onSnapshot(function (snap) {
       var next = {};
@@ -1151,7 +1260,7 @@ function dayHighlights(doc) {
     var now = Date.now(), all = list(), shown = all.filter(inLane);
     setStatus();
     var openRevN = rlist().filter(reviewIsOpen).length;
-    el("views").replaceChildren.apply(el("views"), [["board", "Board"], ["review", "Review (" + openRevN + " open)"], ["timeline", "Timeline"], ["decisions", "Decisions"], ["agents", "Agents"], ["artifacts", "Artifacts"], ["daily", "Daily work"]].map(function (v) {
+    el("views").replaceChildren.apply(el("views"), [["board", "Board"], ["review", "Review (" + openRevN + " open)"], ["timeline", "Timeline"], ["decisions", "Decisions"], ["agents", "Agents"], ["artifacts", "Artifacts"], ["daily", "Daily work"], ["commands", "Commands"]].map(function (v) {
       return h("button", { class: "chip-btn", type: "button", role: "tab", "aria-selected": String(v[0] === view), text: v[1], onclick: function () { view = v[0]; render(); } });
     }));
     el("board-view").hidden = view !== "board";
@@ -1161,12 +1270,14 @@ function dayHighlights(doc) {
     el("agents-view").hidden = view !== "agents";
     el("artifacts-view").hidden = view !== "artifacts";
     el("daily-view").hidden = view !== "daily";
+    el("commands-view").hidden = view !== "commands";
     if (view === "review") renderReview();
     if (view === "timeline") renderTimeline(now);
     if (view === "decisions") renderDecisions();
     if (view === "agents") renderAgents();
     if (view === "artifacts") renderArtifacts();
     if (view === "daily") renderDaily();
+    if (view === "commands") renderCommands();
     if (view !== "board") { restoreFocus(keep, caret); return; }
     renderAdd();
     var aged = all.filter(function (r) { return isAged(r, now); }).length;
