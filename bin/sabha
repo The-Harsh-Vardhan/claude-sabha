@@ -416,6 +416,26 @@ cmd_doctor() {
   [[ $push == ntfy ]] && warn "SABHA_PUSH=ntfy: public topics are readable by name; delivery UNTESTED until a phone subscribes"
 
   if [[ -f $CONF ]]; then
+    local board
+    board=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_BOARD_URL:-}" )
+    if [[ -n $board ]]; then ok "progress board: $board"
+    else warn "SABHA_BOARD_URL is empty: the board is the default progress view; the skill sabha-board-create builds one (FOR-ME.md stays the offline fallback)"; fi
+    # the guarded relay publishes the board and writes its rows only with both tools listed (exact names, as the guard
+    # reads them: a malformed list allows nothing)
+    if [[ -n $board && $guard == 1 ]]; then
+      local tools
+      tools=$( set +u; . "$CONF" >/dev/null 2>&1; echo "${SABHA_RELAY_ALLOW_TOOLS:-}" )
+      tools=$(sed 's/^[[:blank:]]*//; s/[[:blank:]]*$//' <<<"$tools")
+      # LC_ALL=C as in the guard: a locale range could pass a look-alike letter the guard rejects
+      if (LC_ALL=C; [[ $tools =~ ^[A-Za-z][A-Za-z0-9_]*(,[A-Za-z][A-Za-z0-9_]*)*$ && ,$tools, == *,Artifact,* && ,$tools, == *,ArtifactData,* ]]); then
+        ok "relay guard: SABHA_RELAY_ALLOW_TOOLS lets the relay publish and update the board"
+      else
+        warn "SABHA_BOARD_URL is set and SABHA_RELAY_GUARD=1, but the relay guard denies the board tools: set SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData in sabha.conf and restart the relay"
+      fi
+    fi
+  fi
+
+  if [[ -f $CONF ]]; then
     local ro
     ro=$("${BASH:-bash}" "$BIN/sabha" roster --check 2>&1)
     case $ro in

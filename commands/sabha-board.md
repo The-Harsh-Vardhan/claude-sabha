@@ -5,7 +5,11 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha-for-me), Read
 
 If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use the claude-sabha clone directory (the one that holds `bin/sabha`; a plugin install puts it under `~/.claude/plugins/`) in its place; if you do not know it, ask the user for the path before running anything.
 
-Render the board and work through what needs the user.
+Board first: read `SABHA_BOARD_URL` from the config (`SABHA_CONF`, else `sabha.conf` beside `bin/`). When it is set,
+tell the user the URL to open and sync it, before anything else. This command only tells them; it never publishes
+or writes an artifact itself. When it is empty or the key is missing, skip this paragraph: the command is unchanged.
+
+Then render the FOR-ME board and work through what needs the user.
 
 1. Run `${CLAUDE_PLUGIN_ROOT}/bin/sabha-for-me` once as a plain command (no pipes, no chaining). Never use
    `--watch`: it loops until interrupted. Honour `SABHA_CONF` (point to `/sabha-init` if there is no

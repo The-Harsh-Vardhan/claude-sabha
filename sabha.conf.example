@@ -90,7 +90,7 @@ SABHA_EFFICIENCY=1
 # A role id is one word (Ved Vyasa is Keeper). SABHA_PROMPT_<Name> replaces the
 # opening prompt after "then status/<name>.md, " (no double quotes, $ or backticks after expansion).
 # The relay briefs and asks; it never pushes, posts or restarts panes (sabha-loop restarts them, the human pushes).
-SABHA_PROMPT_Relay="then inbox/Relay/ (ack any brief without an ack; resume any with an ack and no done), and continue from the status file's top block. You are the relay: turn each request into a brief for the dispatcher, or run the one command the user wrote in this message. Never push, post or publish, never run a queued push, never restart, type into or press keys in a pane: queue the exact command in for-me.items for the user. Write your handoff to status/relay.md when sabha-loop warns (250k tokens); it restarts you fresh at 300k. Report to the user."
+SABHA_PROMPT_Relay="then inbox/Relay/ (ack any brief without an ack; resume any with an ack and no done), and continue from the status file's top block. You are the relay: turn each request into a brief for the dispatcher, or run the one command the user wrote in this message. Never push or post, publish nothing but the board, never run a queued push, never restart, type into or press keys in a pane: queue the exact command in for-me.items for the user. Write your handoff to status/relay.md when sabha-loop warns (250k tokens); it restarts you fresh at 300k. When SABHA_BOARD_URL is set, keep the board current: write each human decision the same turn, read remote edits at every status check; you can only when SABHA_RELAY_ALLOW_TOOLS lists Artifact,ArtifactData, otherwise brief the dispatcher. Report to the user."
 SABHA_PROMPT_Tutor="then ask the user which topic to practise. You are the on-demand tutor: one open question at a time, read-only on code, no briefs. Report to the user directly."
 # SABHA_READS_<Name> replaces what the role reads first (the protocol core, its role file, its status file): for a role
 # that keeps its own role card and memory files. The tail (inbox, or SABHA_PROMPT_<Name>) still follows.
@@ -110,6 +110,12 @@ SABHA_RELAY_GUARD=1
 # More files the guarded relay may write besides inbox/, its status/<name>.md, for-me.items and memory: absolute
 # paths, space-separated, a glob in the last part only, one directory deep.
 #SABHA_RELAY_WRITE="$SABHA_WS/docs/reviews/*-review.md $SABHA_WS/docs/questions/*"
+# More tools the guarded relay may call: exact tool names, comma-separated, no spaces, no wildcards, case-sensitive.
+# Only tools the guard has no rule for; it never loosens the Read, Write, Edit or Bash rules. A malformed value allows
+# nothing extra. Empty = none. When SABHA_BOARD_URL is set, set it to Artifact,ArtifactData so the relay can publish
+# and update the board (sabha doctor warns otherwise). Agent, Task and NotebookEdit are refused even when listed.
+# Names are [A-Za-z0-9_] only: a hyphenated mcp tool cannot be listed, and one such name voids the whole list.
+SABHA_RELAY_ALLOW_TOOLS=""
 # The relay's sabha-loop warns (log and a nudge to write the handoff) at SABHA_RELAY_WARN_K thousand tokens and restarts
 # it fresh at SABHA_RELAY_STOP_K once the handoff is saved; SABHA_RELAY_WINDOW_K is its context window size. For the
 # relay these replace SABHA_LOOP_LIMIT, even one you set.
@@ -190,6 +196,9 @@ SABHA_WAITING="Reviewer1 Reviewer2"
 #SABHA_DECIDE_OUT=$SABHA_IMPL/board-updates
 #SABHA_DECIDE_QUESTIONS=$SABHA_IMPL/questions/my-pr-questions.md
 #SABHA_DECISION_LOG=$SABHA_IMPL/decisions.log
+# The progress board is the default view: the URL of your published board. /sabha-board points you to it first, then
+# walks FOR-ME.md. Empty = no board yet (sabha doctor warns); FOR-ME.md stays the offline fallback.
+SABHA_BOARD_URL=""
 # sabha fill: all optional; read from the environment first, else from here (the environment wins, as for SABHA_STOP). Percent points kept free below the stop line, the load5 above which heavy briefs wait, the cost in
 # points of a size S, M or L brief, and the words that mark a brief heavy when it has no "heavy: yes|no" header line.
 #SABHA_FILL_RESERVE=10

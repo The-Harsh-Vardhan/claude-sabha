@@ -16,7 +16,8 @@ ln -s "$JQ" "$dir/fakebin/jq"
 mk() { printf '#!/bin/sh\n%s\n' "${2:-exit 0}" >"$dir/fakebin/$1"; chmod +x "$dir/fakebin/$1"; }
 mk claude 'echo "Logged in: personal, plan Max"'; mk python3; mk herdr; mk opencode; mk codex; mk agy
 echo "SABHA_WS=$dir
-SABHA_IMPL=$dir/impl" >"$dir/sabha.conf"
+SABHA_IMPL=$dir/impl
+SABHA_BOARD_URL=https://board.example.test/b" >"$dir/sabha.conf"
 echo '{"statusLine":{"type":"command","command":"bash /x/bin/statusline-sabha.sh"}}' >"$dir/settings.json"
 # Git Bash: a copied tool cannot load msys-2.0.dll, so /usr/bin goes first (it holds no git and no agent CLI)
 SB=$dir/sysbin
@@ -30,6 +31,28 @@ o=$(D); rc=$?
 echo "$o" | grep -q '^doctor: 0 fail, 0 warn' || fail "healthy machine should have no warnings: $o"
 echo "$o" | grep -q "bash ${BASH_VERSION:-?}" || fail "bash version line missing"
 case ${BASH_VERSION%%.*} in 3) echo "$o" | grep -q 'written for 3.2' || fail "3.2 note missing" ;; esac
+
+# the board is the default progress view: an empty SABHA_BOARD_URL is a warning with the skill named, a set one is ok
+echo "$o" | grep -q '^ok    progress board: https://board.example.test/b' || fail "a set SABHA_BOARD_URL must print an ok line: $o"
+cp "$dir/sabha.conf" "$dir/sabha.conf.keep"; sed 's|^SABHA_BOARD_URL=.*|SABHA_BOARD_URL=""|' "$dir/sabha.conf.keep" >"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  SABHA_BOARD_URL is empty.*sabha-board-create' || fail "an empty SABHA_BOARD_URL must WARN (rc 0) and name sabha-board-create: rc=$rc: $o"
+echo "$o" | grep -q '^doctor: 0 fail, 1 warn' || fail "the empty board URL is the only warning: $o"
+grep -v '^SABHA_BOARD_URL=' "$dir/sabha.conf.keep" >"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  SABHA_BOARD_URL is empty' || fail "a missing SABHA_BOARD_URL key must WARN too (rc 0): rc=$rc: $o"
+# a board with the relay guard on: the relay needs Artifact and ArtifactData in SABHA_RELAY_ALLOW_TOOLS
+{ cat "$dir/sabha.conf.keep"; echo "SABHA_RELAY_GUARD=1"; } >"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  .*SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData' || fail "board + guard without the allow list must WARN with the line to set (rc 0): rc=$rc: $o"
+echo 'SABHA_RELAY_ALLOW_TOOLS="Artifact"' >>"$dir/sabha.conf"
+o=$(D); echo "$o" | grep -q '^warn  .*SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData' || fail "an allow list without ArtifactData must WARN: $o"
+echo 'SABHA_RELAY_ALLOW_TOOLS="Artifact ArtifactData"' >>"$dir/sabha.conf"
+o=$(D); echo "$o" | grep -q '^warn  .*SABHA_RELAY_ALLOW_TOOLS=Artifact,ArtifactData' || fail "a malformed allow list must WARN: $o"
+echo 'SABHA_RELAY_ALLOW_TOOLS="WebFetch,ArtifactData,Artifact"' >>"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^doctor: 0 fail, 0 warn' && echo "$o" | grep -q '^ok    .*SABHA_RELAY_ALLOW_TOOLS' || fail "board + guard + both tools listed must be ok with no warning: $o"
+mv "$dir/sabha.conf.keep" "$dir/sabha.conf"
 
 rm "$dir/fakebin/claude"; o=$(D); rc=$?
 [[ $rc -eq 1 ]] && echo "$o" | grep -q '^FAIL  claude' || fail "missing claude must FAIL with rc 1: rc=$rc"
