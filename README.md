@@ -5,6 +5,16 @@
 Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other
 work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
 
+What you get:
+
+- **Files as the protocol.** Briefs, acknowledgements, results and status are numbered files in each role's inbox, so a
+  dead session loses nothing and every handoff can be read.
+- **Fresh context on a schedule.** A restart loop quits a session at a context limit and starts a new one from its
+  handoff file, never `--resume`.
+- **A gate before anything irreversible.** Folds, pushes, PRs and releases need a `go:` line and a reviewer verdict.
+- **Your pick of team.** 20 roles, three plans (Pro, Max 5x, Max 20x) and display themes; see [How it works](docs/how-it-works.md)
+  for the flow drawn as sequence and state diagrams.
+
 **[Docs site](https://the-harsh-vardhan.github.io/claude-sabha/)** -
 **[Quickstart demo](docs/quickstart.md)** -
 **[How it works](docs/how-it-works.md)** -
@@ -44,6 +54,8 @@ and what is still rough.
 
 4. Talk only to the Relay (Vidur, Jarvis or Hedwig if you pick a theme). It briefs the dispatcher, the workers build, a reviewer
    gates the change, and you say GO and push.
+
+   New here? Run the [10-minute demo](docs/quickstart.md) first.
 
 ![claude-sabha architecture](docs/diagrams/architecture.png)
 
