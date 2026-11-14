@@ -76,6 +76,7 @@ beside `sabha.conf` that `bin/sabha-up.sh --plan <name>` (or `SABHA_PLAN=<name>`
 | Pro ($20) | `sabha.pro.conf` | 5: Relay, Dispatcher, BuilderHeavy, BuilderPrecise, Writer | 2 | No top tier; models pinned. Sonnet for the relay, dispatcher and builders; the architect (Opus) and the reviewer (Haiku) are subagents, one brief at a time |
 | Max 5x ($100) | `sabha.max5.conf` | 7: the Pro five plus Reviewer and Runner | 4 | Opus for the relay, the dispatcher and the gates; Sonnet for builders and scribe |
 | Max 20x ($200) | `sabha.max20.conf` | 10 panes in two tabs (Build, Gate) | 4 | Opus relay and dispatcher, the top tier for the architect; the critics start per brief |
+| Five-pane (any plan with Opus) | `sabha.five.conf` | 5: Relay, Dispatcher, BuilderPrecise, Runner, Architect (the Elephant); the rest are headless helpers | 1 | Opus for the relay, dispatcher, builder and Elephant; Sonnet for the runner |
 
 A profile is `Name (Role) = agent:model:effort`; a roster row is `Name:agent:model[:effort[:flags]]`. Every profile
 without a pane is an on-demand subagent of the dispatcher with its own model and effort. `SABHA_PANES` picks the panes;
@@ -213,10 +214,58 @@ line. The `SABHA_NOTIFY` alerts still come from `statusline-sabha.sh`.
 
 ## Restart loop
 
-`bin/sabha-loop <Name>` supervises one pane. A Claude pane restarts when its context file reads `SABHA_LOOP_LIMIT` (30)
+`bin/sabha-loop <Name>` supervises one pane. A Claude pane restarts when its context file reads `SABHA_RESTART_PCT` (30; `SABHA_LOOP_LIMIT` is the older name)
 percent or more and its handoff is newer than the last start: fresh session, same opening prompt, never `--resume`. A
 context file older than two minutes is not trusted (the agent keeps running and a warning shows). Two failed restarts
 in a row stop the loop.
+
+### Fresh restart instead of auto-compact
+
+A Claude pane's context is a percent of its model's window, which the status line writes to `status/context/<name>.txt`.
+`SABHA_WARN_PCT` (default `SABHA_RESTART_PCT` minus 5): the loop logs a warning and nudges the pane to write its handoff
+in `status/<name>.md`. `SABHA_RESTART_PCT` (default 30): once the handoff is newer than the session's start, the loop
+ends the session and starts a fresh one with the same opening prompt, never `--resume`. Both are a whole percent from 1
+to 95 (anything else is named on stderr and ignored); `SABHA_RESTART_PCT_<Role>` and `SABHA_WARN_PCT_<Role>` override one
+role, for example `SABHA_RESTART_PCT_Relay=40`. The older `SABHA_LOOP_LIMIT` still sets the restart point; the relay's
+`SABHA_RELAY_WARN_K` and `SABHA_RELAY_STOP_K` token values apply to the relay only, and only when no percent is set,
+as a percent of `SABHA_RELAY_WINDOW_K` (assumed 1000k unless you set it); for the relay a percent knob now beats them.
+
+A compacted session continues from a summary of itself. A fresh session continues from the files the roles already keep:
+the handoff, the status files and the inbox. That is the design reason for restarting; how much it saves or loses on
+your own work is not measured here. Test: `tests/test-restart-pct.sh`.
+
+## Heartbeat, queue, lock and gate
+
+- Heartbeat: every `SABHA_HEARTBEAT` (default `20m`; `90s`, `2h` or a bare number of seconds; `0` or `off` turns it off)
+  the loop of the dispatcher and of the Elephant wakes its pane with a prompt (`SABHA_HEARTBEAT_ROLES` changes the
+  roles). The dispatcher checks the gate, `queue.items` and the inbox and starts the next item; the Elephant refreshes
+  `INDEX.md`, the nightly digest and `open-threads.md` (see [docs/sabha/bhishma/ROLE.md](docs/sabha/bhishma/ROLE.md)).
+  There is no cron: it lives in `sabha-loop` and ends with it. Test: `tests/test-heartbeat.sh`.
+- Queue: `bin/sabha-queue` (above). Test: `tests/test-queue.sh`.
+- Lock: `bin/sabha-lock` (above). It is opt-in: `sabha-heavy run` does not take it, the dispatcher is told by its rule
+  text and the heartbeat prompt to run each heavy item as `bin/sabha-lock run <label> -- <cmd>`. Use `run`: it holds the
+  lock with its own pid; a plain `acquire` defaults to the caller's parent shell, which an agent's Bash tool has gone
+  from once the command returns, so the lock looks dead and is reclaimable after 90 minutes. Ceilings: a reused pid can
+  keep a dead holder alive, a SIGKILLed `run` leaves its child running, and `run` gives its command no stdin.
+  Test: `tests/test-lock.sh`.
+- Gate: `bin/sabha-heavy gate` and the heavy-job check use the memory pressure level first (green, yellow, red = normal,
+  warn, critical; yellow only warns, so the check and `acquire` still say GO, red waits), then swap growth (`SABHA_GATE_SWAP_MB`, default 1024 MB within `SABHA_GATE_SWAP_WINDOW`, default 600
+  s, is critical, half of it warns), then load5 as the secondary signal: above `SABHA_GATE_LOAD_SOFT` (2) x cores it
+  warns, above `SABHA_GATE_LOAD_HARD` (3) x cores it stops. Raw load alone no longer blocks a job. A
+  `SABHA_HEAVY_LOAD_FACTOR` set in `sabha.conf` keeps the older rule: load1 and any memory level but green stop. `bin/sabha-heavy status` starts with
+  `gate <state>`. Test: `tests/test-gate-mem.sh`.
+- A kit worktree has no `sabha.conf`: the scripts fall back to `~/Work/claude-sabha/sabha.conf` (`SABHA_HOME_CONF`), else
+  print `SABHA_CONF=/path/to/sabha.conf` as the way to point at one. `sabha-loop` also refuses a role that a live
+  session or another loop already holds.
+
+## Standing rules
+
+[template/impl/STANDING-RULES.md](template/impl/STANDING-RULES.md) is a generic template of what agents decide on their
+own, what needs the human first, the review gate, what to do when blocked, and the hard rules about agent behaviour. It
+names the human as `${SABHA_USER}`. `bin/sabha init` copies it into a new sabha folder as `STANDING-RULES.md`,
+replacing `${SABHA_USER}` with the environment's `SABHA_USER`, else the conf's; with neither set the placeholder stays
+as written, and a folder that already exists is not touched. Role opening prompts and `PROTOCOL-core.md` point at it.
+Edit the copy for your project. Test: `tests/test-standing-rules.sh`.
 
 ## Running roles on different Claude accounts
 
@@ -325,7 +374,10 @@ from the scripts):
 | `bin/sabha roster [--check\|--write]` | `SABHA_ROSTER` is the only roster source. `--check` prints a FAIL per `PROTOCOL-core.md` table cell or `protocol/<Name>.md` heading (`# Name (Model, effort)`) whose model or effort differs; the `no <model>` lines of the files in `SABHA_ROSTER_CLAIMS` (notes, memory) follow a model conflict as context. `--write` rewrites those cells and headings from the conf; a table row naming roles with different profiles is left for a hand split. `sabha-up.sh` prints the drift and never writes |
 | `bin/sabha stamp` | The current time from the clock, UTC then local, for briefs and status lines (no hand-typed times) |
 | `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace (default five-pane roster: Vidur, Yudhishthira, Arjun, Karna, Bhishma, relay first; `--plan five`; `SABHA_MAX_HEADFUL` guards it), or starts one role; `--print <Name>` prints the sabha-loop restart line (`SABHA_EFFICIENCY` on; `--print --raw` the bare claude line), else the claude line, then a `pane:` line |
-| `bin/sabha-heavy check\|acquire\|release\|run\|status\|queue` | Heavy-job gate: memory pressure, load1 against 2 x cores, `SABHA_HEAVY_MAX` slots, a priority queue with aging, a per-job log (`jobs.tsv`); exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
+| `bin/sabha-heavy check\|acquire\|release\|run\|status\|queue\|gate` | Heavy-job gate: memory pressure, swap growth, load5 against 3 x cores (`SABHA_GATE_*`), `SABHA_HEAVY_MAX` slots, a priority queue with aging, a per-job log (`jobs.tsv`); exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
+| `bin/sabha-lock acquire\|release\|run\|status` | The machine-wide heavy-job lock: one build, test suite, local stack or e2e run at a time on this computer. A `mkdir` lock (macOS has no `flock`); `run` releases on exit and on TERM and is the form to use; a lock older than `SABHA_LOCK_STALE_MIN` (90) minutes whose holder pid is dead is reclaimed, a live holder never |
+| `bin/sabha-queue add\|next\|start\|block\|done\|fail\|list\|status` | The run queue as append-only blocks in `queue.items` (id, brief, title, kind heavy or light, state queued, running, blocked, done or failed, owner, started, finished, note); `next --light-only` skips heavy items; `start` refuses an item that is not queued |
+| `bin/sabha-ask "<question>"`, `bin/sabha-ask --counter [--md]` | Asks the Elephant instead of opening other roles' files: writes `inbox/<Elephant>/ask-NNN.md`, waits for `replies/ask-NNN.md`, prints the answer with its `path:line` sources; says so on a timeout. `--counter` prints the questions answered today and the sources their replies cited (a proxy, not a measure of reads saved) |
 | `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
 | `bin/sabha-reap [--close <pid-or-pane-id>...]` | Lists every named claude session oldest first with age, idle time, last context % and herdr pane state; marks a resumed older copy STALE? and a mapped pane of a claude role with no `claude -n/--name` session seen by ps ORPHAN (a hint, not proof). Cost is the last context % only; idle is the last status-line render (a session in a long tool call looks idle); the pane state shows for the newest copy only. Closes nothing unless you name an id with `--close` (TERM to a pid, `herdr pane close` for an orphan pane); a role's last copy is refused, a pid is read as decimal (`0101` is 101), and a pane is closed only when herdr reports it idle or done, it is not the pane the command runs in (`HERDR_PANE_ID` must be set, so a pane close works only from inside a herdr pane), ps shows at least one named claude and the pane map names the pane in exactly one row (a pane in two rows, in any spelling of the id, is AMBIGUOUS and a row without a role is MALFORMED: never closed); role names compare case-insensitively |
 | `bin/sabha-down.sh [--yes]` | Asks each pane role to save, waits, stops what still holds a role name, closes the window; a dry run without `--yes` |

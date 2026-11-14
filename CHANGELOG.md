@@ -7,6 +7,27 @@
   Arjun, Karna, Bhishma); every other role is a `lazy` headless helper or `ondemand`. Architect is the Elephant (memory
   service, opus/medium); its role text is `docs/sabha/bhishma/ROLE.md`. `SABHA_MAX_HEADFUL` refuses a roster with more
   always-on roles. Test: `tests/test-five-pane.sh`. Plugin templates, protocol/*.md and the role skills are a follow-up.
+- Fresh restart instead of auto-compact: `SABHA_RESTART_PCT` (30) and `SABHA_WARN_PCT` (restart - 5), percent of the context
+  window, per role with `SABHA_RESTART_PCT_<Role>` and `SABHA_WARN_PCT_<Role>`; 1 to 95, else named and ignored. Every
+  Claude pane now gets the warning and the handoff nudge, not only the relay. `SABHA_LOOP_LIMIT` and the relay token knobs
+  still work as fallbacks. Behaviour change: for the relay a percent knob now beats `SABHA_RELAY_*_K` (the token knobs
+  used to beat `SABHA_LOOP_LIMIT`); the token fallback is relay-only, window assumed 1000k (`SABHA_RELAY_WINDOW_K`). Test: `tests/test-restart-pct.sh`.
+- Heartbeat: `SABHA_HEARTBEAT` (20m) wakes the dispatcher and the Elephant from `sabha-loop` to check the gate, the queue
+  and the inbox; no cron. `sabha-loop` refuses a second session or loop for a role and, in a kit worktree without
+  `sabha.conf`, falls back to `~/Work/claude-sabha/sabha.conf` or says how to set `SABHA_CONF`.
+  Tests: `tests/test-heartbeat.sh`.
+- `bin/sabha-queue` (append-only `queue.items`, states queued, running, blocked, done, failed) and `bin/sabha-lock` (one
+  heavy job at a time for whoever runs it with `sabha-lock run`, which is opt-in and not called by `sabha-heavy`; mkdir lock,
+  stale reclaim only with a dead holder, serialised by a second mkdir mutex; a lock dir with no holder file is reclaimed by
+  its mtime; `sabha-queue start` refuses an item that is not queued). Tests: `tests/test-queue.sh`,
+  `tests/test-lock.sh`.
+- Memory-pressure gate: `bin/sabha-heavy gate`; memory level, swap growth, load5 as the secondary signal (`SABHA_GATE_*`).
+  Memory yellow only warns (check and acquire still GO), red waits. An explicit `SABHA_HEAVY_LOAD_FACTOR` keeps the older rule
+  (load1, any memory level but green waits). Test: `tests/test-gate-mem.sh`.
+- `bin/sabha-ask` and the Elephant's heartbeat, slices and counter of cited sources (`docs/sabha/bhishma/ROLE.md`); dispatcher rule text in
+  `template/impl`. Test: `tests/test-ask.sh`.
+- `template/impl/STANDING-RULES.md`, copied by `sabha init` with `${SABHA_USER}` filled in; `sabha init --plan five`.
+  Test: `tests/test-standing-rules.sh`.
 - `SABHA_BOARD_URL` (sabha.conf): the published progress board is the default view. The relay keeps it current, `/sabha-board` points to it before the FOR-ME walk, `sabha doctor` warns while it is empty; FOR-ME.md stays the offline fallback. Test: `tests/test-board-default.sh`.
 - Board template: a Commands tab (start, watch, stop, recover) with a Copy button per command. Paths come from `__SABHA_HOME__`, `__WORKSPACE__`, `__ROLE__` and `__HERDR_SESSION__`; `__CMD_WRAPPER__` is an optional wrapper of the user's own, empty by default. Test: `tests/test-board-default.sh`.
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
