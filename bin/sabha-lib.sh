@@ -71,8 +71,17 @@ sabha_find_local() {
 sabha_conf_read() {
   CONF=${SABHA_CONF:-}
   [[ -z $CONF ]] && { CONF=$(sabha_find_local) || CONF=; }
+  local derived=0 home_conf=${SABHA_HOME_CONF:-}
+  [[ -z $CONF ]] && derived=1
   CONF=${CONF:-$SABHA_BIN/../sabha.conf}
-  [[ -f $CONF ]] || { echo "$1: no config at $CONF (run bin/sabha init, or cd to a project that has .sabha/local)" >&2; return 1; }
+  # a worktree of the kit has no sabha.conf (it is untracked): fall back to the main install's, else say how to point at one.
+  # A test must name SABHA_HOME_CONF, so it never reads the real one.
+  [[ -z $home_conf && ${SABHA_TEST:-} != 1 ]] && home_conf=$HOME/Work/claude-sabha/sabha.conf
+  if [[ ! -f $CONF ]] && (( derived )) && [[ -n $home_conf && -f $home_conf ]]; then
+    echo "$1: no sabha.conf beside these scripts ($CONF); using $home_conf (set SABHA_CONF to choose another)" >&2
+    CONF=$home_conf
+  fi
+  [[ -f $CONF ]] || { echo "$1: no config at $CONF (run bin/sabha init, cd to a project that has .sabha/local, or set SABHA_CONF=/path/to/sabha.conf)" >&2; return 1; }
   export SABHA_CONF=$CONF
   # shellcheck source=/dev/null
   . "$CONF"
@@ -137,7 +146,8 @@ sabha_load() {
     sabha_flag "$r" lazy || sabha_flag "$r" ondemand || headful=$(( headful + 1 ))
   done
   # SABHA_MAX_HEADFUL (0 or unset = no cap): a roster with more always-on roles than this is refused (five-pane plan)
-  if (( ${SABHA_MAX_HEADFUL:-0} > 0 && headful > SABHA_MAX_HEADFUL )); then
+  local mh=${SABHA_MAX_HEADFUL:-0}
+  if (( mh > 0 && headful > mh )); then
     echo "$1: $headful headful roles in the roster, SABHA_MAX_HEADFUL is $SABHA_MAX_HEADFUL (flag the extras lazy or ondemand)" >&2
     exit 1
   fi
@@ -307,10 +317,13 @@ sabha_reads() {
       voice=SABHA_VOICE_$base
       [[ -n ${!voice:-} ]] && tail=". Your voice, in chat with the user only: ${!voice} Files, commits and code stay plain, and your job comes first" ;;
   esac
+  # the project's standing rules (what is decided without the user), when its sabha folder has them: read at a blocker
+  local rules=""
+  [[ -f $SABHA_IMPL/STANDING-RULES.md ]] && rules=", and $SABHA_IMPL/STANDING-RULES.md when you are blocked, need a permission or are about to ask the user"
   if [[ -n ${SABHA_PROTOCOL_CORE:-} && -n ${SABHA_ROLE_DIR:-} ]]; then
-    echo "$docs/$SABHA_PROTOCOL_CORE, then $docs/$SABHA_ROLE_DIR/$card.md, then the top block of status/$lower.md$tail"
+    echo "$docs/$SABHA_PROTOCOL_CORE, then $docs/$SABHA_ROLE_DIR/$card.md, then the top block of status/$lower.md$rules$tail"
   else
-    echo "$SABHA_IMPL/PROTOCOL.md, then status/$lower.md$tail"
+    echo "$SABHA_IMPL/PROTOCOL.md, then status/$lower.md$rules$tail"
   fi
 }
 
@@ -341,6 +354,74 @@ sabha_procs() {
       }
       if (name != "") printf "%s %s %s %s-%s-%s %s\n", name, $1, $2, $7, $4, $5, $6
     }' <<<"$list"
+}
+
+# --- restart threshold (README "Fresh restart instead of auto-compact") --------------------------------------------
+# sabha_pct_ok <value>: true for a whole percent from 1 to 95
+sabha_pct_ok() { [[ ${1:-} =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 95 )); }
+
+# sabha_restart_levels <Name>: prints "<restart> <warn>", percent of the model's context window. Restart: the first valid of
+# SABHA_RESTART_PCT_<Role>, SABHA_RESTART_PCT, SABHA_LOOP_LIMIT (the older name), then for the relay only the token
+# knobs SABHA_RELAY_STOP_K / SABHA_RELAY_WARN_K as a fallback (a percent of SABHA_RELAY_WINDOW_K), else 30. Warn: the
+# first valid of SABHA_WARN_PCT_<Role>, SABHA_WARN_PCT, else restart - 5; it must be below restart. An invalid value
+# (not a whole number from 1 to 95) is named on stderr and skipped, never taken as 0.
+sabha_restart_levels() {
+  local base=${1%-[0-9]*} v r="" w="" win=${SABHA_RELAY_WINDOW_K:-1000}
+  for v in "SABHA_RESTART_PCT_$base" SABHA_RESTART_PCT SABHA_LOOP_LIMIT; do
+    [[ -n ${!v:-} ]] || continue
+    if sabha_pct_ok "${!v}"; then r=$(( 10#${!v} )); break; fi
+    echo "sabha: $v=${!v} is not a whole percent from 1 to 95; ignored" >&2
+  done
+  if [[ -z $r && $base == "${RELAY:-}" && -n ${SABHA_RELAY_STOP_K:-} && $win =~ ^[1-9][0-9]*$ && ${SABHA_RELAY_STOP_K} =~ ^[0-9]+$ ]]; then
+    r=$(( SABHA_RELAY_STOP_K * 100 / win ))
+    sabha_pct_ok "$r" || r=""
+    [[ -n ${SABHA_RELAY_WARN_K:-} && ${SABHA_RELAY_WARN_K} =~ ^[0-9]+$ ]] && w=$(( SABHA_RELAY_WARN_K * 100 / win ))
+  fi
+  [[ -n $r ]] || r=30
+  for v in "SABHA_WARN_PCT_$base" SABHA_WARN_PCT; do
+    [[ -n ${!v:-} ]] || continue
+    if sabha_pct_ok "${!v}" && (( 10#${!v} < r )); then w=$(( 10#${!v} )); break; fi
+    echo "sabha: $v=${!v} is not a whole percent from 1 to 95 below the restart point ($r); ignored" >&2
+  done
+  if [[ -z $w ]] || ! sabha_pct_ok "$w" || (( w >= r )); then w=$(( r > 5 ? r - 5 : 1 )); (( w >= r )) && w=$(( r - 1 )); fi
+  echo "$r $w"
+}
+
+# --- heartbeat (README "Heartbeat") ---------------------------------------------------------------------------------
+# sabha_hb_secs <spec>: SABHA_HEARTBEAT as seconds: 20m, 90s, 2h or a bare number of seconds; 0 (or off) = no heartbeat; a
+# value that is none of these prints 1200 (20 minutes) so a typo never silences the wake-up
+sabha_hb_secs() {
+  local v=${1:-20m}
+  [[ $v == off ]] && v=0
+  [[ $v =~ ^([0-9]+)([smh]?)$ ]] || { echo 1200; return 0; }
+  case ${BASH_REMATCH[2]} in
+    m) echo $(( BASH_REMATCH[1] * 60 )) ;;
+    h) echo $(( BASH_REMATCH[1] * 3600 )) ;;
+    *) echo "${BASH_REMATCH[1]}" ;;
+  esac
+}
+
+# sabha_elephant: the role id of the memory service (Bhishma in the Mahabharat roster, Architect in the five plan)
+sabha_elephant() { echo "${SABHA_ELEPHANT:-Bhishma}"; }
+# sabha_elephant_dir: where the Elephant keeps INDEX.md, slices/, replies/ and the nightly digest
+sabha_elephant_dir() { echo "${SABHA_ELEPHANT_DIR:-${SABHA_WS:-.}/docs/sabha/bhishma}"; }
+
+# sabha_hb_role <Name>: true when that role gets the heartbeat: SABHA_HEARTBEAT_ROLES, default the dispatcher and the Elephant
+sabha_hb_role() {
+  local r
+  for r in ${SABHA_HEARTBEAT_ROLES:-${DISPATCHER:-} $(sabha_elephant)}; do [[ $r == "$1" ]] && return 0; done
+  return 1
+}
+
+# sabha_hb_text <Name>: the wake-up prompt for that role, with the real paths of this kit
+sabha_hb_text() {
+  local el dir q=$SABHA_BIN/sabha-queue g=$SABHA_BIN/sabha-heavy l=$SABHA_BIN/sabha-lock
+  el=$(sabha_elephant); dir=$(sabha_elephant_dir)
+  if [[ $1 == "$el" ]]; then
+    echo "Heartbeat $(date -u +%Y-%m-%dT%H:%M:%SZ): refresh $dir/INDEX.md (one line per open brief, ticket, PR and decision, each with its source path; put the line printed by $SABHA_BIN/sabha-ask --counter at the top), write the nightly digest in $dir if it is past ${SABHA_DIGEST_HOUR:-22}:00 local and today has none, update $dir/open-threads.md, answer every inbox/$el/ask-*.md with no reply in $dir/replies/ (the fact and its file:line source), then go idle."
+  else
+    echo "Heartbeat $(date -u +%Y-%m-%dT%H:%M:%SZ): 1) $g gate; 2) $q list queued and $q status; 3) unacked briefs in inbox/*; 4) if the gate is not critical and nothing runs, start the next item: $q next (add --light-only when the gate says warn or $l status says held), then $q start <id> <role> and brief it; a heavy item runs under $l run <label> -- <cmd>. Nothing to start: say so in one line and go idle."
+  fi
 }
 
 # sabha_cost_log <Name> <model> <event>: appends "utc role model ctx% event" (tab separated) to

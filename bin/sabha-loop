@@ -4,7 +4,7 @@
 #   sabha-loop --stop <Name>   ask that role's loop to end after the current session
 #   sabha-loop --self-test     run the decision rules against fake files; starts no agent
 # A Claude pane (roster agent claude, the default) restarts when status/context/<name>.txt is at or over
-# SABHA_LOOP_LIMIT (30) percent AND the handoff status/<name>.md is newer than the last start: the agent gets the
+# SABHA_RESTART_PCT (30; per role SABHA_RESTART_PCT_<Role>; the older SABHA_LOOP_LIMIT still works) percent AND the handoff status/<name>.md is newer than the last start: the agent gets the
 # two Ctrl-C that quit Claude Code (nothing can type /exit into its screen), then sabha-up.sh <Name> opens a fresh
 # session with the same opening prompt; never --resume. A context file older than SABHA_LOOP_STALE (120) seconds is
 # not trusted: the agent keeps running and the loop warns. Any other pane stays headful and restarts after each
@@ -139,19 +139,32 @@ fi
 sabha_keep_awake || true
 name=$1 agent="" model=""
 for r in "${ROLES[@]}"; do [[ ${r%% *} == "$name" ]] && { read -r _ agent model _ <<<"$r"; break; }; done
-[[ -n $agent ]] || { echo "sabha-loop: unknown role: $name" >&2; exit 2; }
+[[ -n $agent ]] || { echo "sabha-loop: unknown role: $name (roster in $CONF: ${NAMES[*]}; to use another config set SABHA_CONF=/path/to/sabha.conf)" >&2; exit 2; }
 # the role's Claude account (SABHA_ACCOUNT_<Role>): its token reaches every session this loop starts, and its own stop
 # line SABHA_STOP_<NAME> replaces SABHA_STOP; a missing token ends the loop at once instead of failing every restart
 sabha_account_env "$name" || exit 2
 kind=$(kind_of "$agent")
-# the relay is the dearest session: warn at SABHA_RELAY_WARN_K (250k tokens), restart at SABHA_RELAY_STOP_K (300k);
-# this replaces SABHA_LOOP_LIMIT for the relay, even one the user set
-relay_warn=""
-if [[ $name == "$RELAY" && $kind == claude ]]; then
-  SABHA_LOOP_LIMIT=$(k_pct "${SABHA_RELAY_STOP_K:-300}") relay_warn=$(k_pct "${SABHA_RELAY_WARN_K:-250}")
-fi
+# restart and warn points (percent of the context window): SABHA_RESTART_PCT[_<Role>], SABHA_WARN_PCT; see sabha_restart_levels
+read -r SABHA_LOOP_LIMIT warn_pct <<<"$(sabha_restart_levels "$name")"
 lower=$(tr '[:upper:]' '[:lower:]' <<<"$name")
 LOOP=$SABHA_IMPL/status/loop; mkdir -p "$LOOP"
+# one loop and one session per role: a second loop, or a session already holding the name (a pane resumed by
+# hand), is refused before it starts anything; SABHA_FORCE=1 (a grid --force) skips the check. The process rows are the
+# ones sabha-check lists (sabha_procs), so the two never disagree.
+if [[ ${SABHA_FORCE:-} != 1 ]]; then
+  if procs=$(sabha_procs) && live=$(awk -v n="$name" '$1 == n' <<<"$procs") && [[ -n $live ]]; then
+    echo "sabha-loop: $name already has a live claude session (name pid tty start):" >&2
+    echo "$live" | sed 's/^/  /' >&2
+    echo "sabha-loop: not starting a second one; close it, or run bin/sabha-check; --force from the grid overrides" >&2
+    exit 1
+  fi
+  opid=$(cat "$LOOP/$lower.pid" 2>/dev/null)
+  if [[ $opid =~ ^[0-9]+$ && $opid != "$$" ]] && kill -0 "$opid" 2>/dev/null; then
+    echo "sabha-loop: a loop for $name is already running (pid $opid); not starting a second one" >&2
+    exit 1
+  fi
+fi
+echo $$ >"$LOOP/$lower.pid"
 log() { printf '%s %s\n' "$(sabha_utc)" "$*" | tee -a "$LOOP/$lower.log" >&2; }
 ctx=$SABHA_IMPL/status/context/$lower.txt handoff=$SABHA_IMPL/status/$lower.md inbox=$SABHA_IMPL/inbox/$name
 stop=$LOOP/$lower.stop; rm -f "$stop"; hold=$LOOP/$lower.hold
@@ -169,7 +182,13 @@ tty_in=/dev/stdin; [[ -t 0 ]] || tty_in=/dev/null
 # not SIG_IGN: an ignored signal is inherited and the agent could never be interrupted
 trap ':' INT
 last=0 fails=0 retries=0 cpid=""
-trap '[[ -n $cpid ]] && kill -TERM "$cpid" 2>/dev/null; exit 0' TERM HUP
+trap '[[ -n $cpid ]] && kill -TERM "$cpid" 2>/dev/null; rm -f "$LOOP/$lower.pid"; exit 0' TERM HUP
+trap '[[ $(cat "$LOOP/$lower.pid" 2>/dev/null) == "$$" ]] && rm -f "$LOOP/$lower.pid"' EXIT
+# heartbeat: every SABHA_HEARTBEAT (default 20m, 0 = off) the dispatcher and the Elephant get a wake-up prompt
+# (sabha_hb_text) through the pane, so an idle pane never stalls the night; no cron, it dies with the loop
+hb=$(sabha_hb_secs "${SABHA_HEARTBEAT:-20m}") hb_on=0
+sabha_hb_role "$name" && hb_on=1
+hb_last=$(date +%s)
 while :; do
   [[ -e $stop ]] && { log "stop requested, loop ends"; rm -f "$stop"; exit 0; }
   if why=$(sabha_limits_stopped); then
@@ -189,6 +208,11 @@ while :; do
     # a session past the min_up window is a good start: an older crash flag no longer holds
     (( cleared || $(date +%s) - start < min_up )) || { crash_unflag; cleared=1; }
     sabha_keep_awake >/dev/null 2>>"$LOOP/$lower.log" || true
+    if (( hb > 0 && hb_on )) && (( $(date +%s) - hb_last >= hb )); then
+      hb_last=$(date +%s); log "heartbeat"
+      # in the background: sabha_nudge waits for the pane to settle and must not stall the loop
+      ( sabha_nudge "$name" "$(sabha_hb_text "$name")" >/dev/null 2>&1 || true ) &
+    fi
     case $(decide "$kind" "$ctx" "$handoff" "$inbox" "$last" "$hold") in
       restart)
         [[ $kind == claude && -e $hold ]] && log "hold ignored: context $(tr -d ' \n' <"$ctx")%"
@@ -201,11 +225,11 @@ while :; do
         kill -0 "$cpid" 2>/dev/null && kill -TERM "$cpid" 2>/dev/null
         break ;;
       wait)
-        if [[ -n $relay_warn ]] && (( ! rwarned )); then
+        if [[ $kind == claude ]] && (( ! rwarned )); then
           p=$(tr -d ' \n' <"$ctx" 2>/dev/null); p=${p%.*}
-          if [[ $p =~ ^[0-9]+$ ]] && (( p >= relay_warn )); then
+          if [[ $p =~ ^[0-9]+$ ]] && (( p >= warn_pct )); then
             rwarned=1
-            log "relay warning: context $p% (~$(( p * ${SABHA_RELAY_WINDOW_K:-1000} / 100 ))k tokens); restart at ${SABHA_LOOP_LIMIT}% once the handoff is saved"
+            log "context warning: $p%; restart at ${SABHA_LOOP_LIMIT}% once the handoff is saved"
             # in the background: sabha_nudge waits for the pane to settle and must not stall the loop
             ( sabha_nudge "$name" "Context ${p}%: write your handoff in status/$lower.md now; sabha-loop restarts you fresh at ${SABHA_LOOP_LIMIT}%." >/dev/null 2>&1 || true ) &
           fi
