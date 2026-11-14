@@ -1,0 +1,67 @@
+# sandbox.conf.example - the one config file every sandbox-workers script sources.
+# Copy it and edit:   cp sandbox.conf.example ~/.config/sandbox-workers/sandbox.conf
+# Lookup order: $SANDBOX_CONF, then ~/.config/sandbox-workers/sandbox.conf of the owner,
+# then sandbox.conf beside this file. It is plain bash (KEY=value). Keep it mode 600.
+# Every value below shows its default; an unset or empty line uses the default unless it says REQUIRED.
+
+# ---- who and where ----------------------------------------------------------------------------
+# WORKERS_USER=workers                 # the unprivileged Linux user the agents run as
+# WORKERS_HOME=/home/workers
+# OWNER_USER=                          # default: the user who ran sudo (SUDO_USER), else the current user
+# OWNER_HOME=                          # default: that user's home from the passwd database
+SABHA_WORKSPACE=                       # REQUIRED for setup/check/heartbeat: the sabha project folder (SABHA_IMPL of
+                                       # the sabha.conf), for example $HOME/my-claude-sabha/my-app. Workers get
+                                       # read/write here and nowhere else in the owner's home.
+# REPO_DIR=                            # optional code repo next to it: workers get traverse only, plus read-only on
+# READONLY_SUBDIR=.sabha               # $REPO_DIR/$READONLY_SUBDIR (protocol files). No write, so .git/hooks is safe.
+
+# ---- what gets locked (paths relative to OWNER_HOME; only tightened, never loosened) ----------
+# Defaults cover ssh, cloud CLIs, gh, rclone, opencode, claude credentials and this add-on's own config.
+# EXTRA_SECRET_FILES=".config/myapp/token.json stack/secrets.env"   # chmod 600, space separated
+# EXTRA_SECRET_DIRS=".kube .config/myapp"                          # chmod 700, space separated
+# KEEP_OPEN=""                         # extra top-level home entries setup must NOT close (rarely wanted)
+
+# ---- firewall ---------------------------------------------------------------------------------
+# META_IP=169.254.169.254              # cloud metadata address blocked for WORKERS_USER (IPv4 only)
+# CHECK_METADATA_CONTROL=1             # check-workers also confirms the owner still reaches it (set 0 off-cloud)
+
+# ---- tools copied to the workers' home (no tokens are copied) ---------------------------------
+# AGY_SRC=$OWNER_HOME/.local/bin/agy
+# OPENCODE_SRC=$OWNER_HOME/.opencode/bin/opencode
+# OPENCODE_MODEL=                      # optional, e.g. a provider/model id; empty leaves opencode's own default
+# OPENCODE_SMALL_MODEL=
+# ROOTLESS_DOCKER=0                    # 1: give workers a private rootless Docker daemon (never the owner's)
+
+# ---- heartbeat (cron) -------------------------------------------------------------------------
+# HERDR_BIN=herdr
+# HERDR_SESSION=sabha                  # herdr session name (herdr --session NAME); empty = default session
+# HEARTBEAT_STATE_DIR=$OWNER_HOME/.cache/sandbox-workers
+
+# ---- notifications (ntfy). Empty topic = alerts are only logged ------------------------------
+# NTFY_SERVER=https://ntfy.sh
+NTFY_TOPIC=                            # pick a long random topic; anyone who knows it can read the alerts
+
+# ---- backup (restic) --------------------------------------------------------------------------
+BACKUP_REPO=                           # REQUIRED for backup: a restic repo, e.g. rclone:REMOTE:BUCKET/restic or
+                                       # a local path or sftp:...  It is encrypted by restic; there is no unencrypted mode.
+# BACKUP_DIR=$OWNER_HOME/backup-state  # logs, locks, dumps (mode 700)
+# BACKUP_PATHS=                        # space separated; default: SABHA_PARENT and the dump folder. Add your apps here.
+# BACKUP_EXTRA_EXCLUDES=""             # extra restic --exclude patterns, space separated
+# Password source, in this order: RESTIC_PASSWORD_COMMAND if set, else the file below. The password file MUST be
+# mode 600 and a copy MUST also live in your password manager: lose it and the backup is unreadable.
+# RESTIC_PASSWORD_FILE=$OWNER_HOME/.config/sandbox-workers/restic-password
+# RESTIC_PASSWORD_COMMAND=""           # e.g. a vault helper that prints the password: "$HOME/bin/my-vault get restic"
+# KEEP_HOURLY=24
+# KEEP_DAILY=14
+# KEEP_WEEKLY=8
+# KEEP_MONTHLY=12
+# CHECK_EVERY_DAYS=7                   # restic check interval
+# DUMP_DIR=$BACKUP_DIR/dumps           # database dump scripts in backup/dump.d/*.sh write here (see dump.d/)
+
+# ---- config-repo sync (optional; sync-config.sh) ----------------------------------------------
+# CONFIG_REPO_DIR=                     # a git checkout that holds a scanned copy of your config; empty disables the sync
+# CONFIG_SYNC_DIRS=""                  # space separated SRC:DEST pairs, DEST relative to the repo, e.g. "$HOME/bin:bin"
+# CONFIG_PUSH=0                        # 1: push after commit (uses your normal git credentials)
+# CONFIG_BRANCH=main
+# SYNC_GIT_NAME="sandbox-workers sync"
+# SYNC_GIT_EMAIL="sync@localhost"
