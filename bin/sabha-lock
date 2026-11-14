@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Machine-wide heavy-job lock: one build, test suite, local stack or e2e run at a time on this computer, whatever the
+# project. macOS has no flock, so the lock is a directory made with mkdir (atomic). bin/sabha-heavy keeps per-project
+# slots and the load and memory gate; this is the one-at-a-time rule above all projects.
+#   sabha-lock acquire <label> [secs] [pid]   take it, polling up to secs (default 0 = once); pid (default the caller's parent)
+#                                             is the process that holds it; exit 0 held, 75 busy. From an agent's Bash tool the
+#                                             parent shell is gone when the command returns, so a plain acquire looks dead and
+#                                             is reclaimable after the stale age: pass the pid of a process that outlives the job
+#   sabha-lock release <label>                free it; only the label that holds it can
+#   sabha-lock run <label> [secs] -- <cmd...> acquire, run cmd, release on exit, TERM or INT (a trap), exit with cmd's status
+#   sabha-lock status                         "free" (exit 0) or "held: <label> pid N, Ns" (exit 1)
+# Agents use run, whose holder is the wrapper itself. A lock older than SABHA_LOCK_STALE_MIN (default 90) minutes whose
+# holder pid is dead is reclaimed by the next acquire; a live holder is never taken from, however old. SABHA_LOCK_DIR (default ~/.cache/claude-sabha/heavy.lock) is the lock; a
+# test must set it (under SABHA_TEST=1 an unset one is refused, so a test never takes the real lock).
+set -uo pipefail
+if [[ -n ${SABHA_LOCK_DIR:-} ]]; then LOCK=$SABHA_LOCK_DIR
+elif [[ ${SABHA_TEST:-} == 1 ]]; then echo "sabha-lock: SABHA_TEST=1 and no SABHA_LOCK_DIR; refusing the real lock" >&2; exit 2
+else LOCK=$HOME/.cache/claude-sabha/heavy.lock; fi
+STALE=${SABHA_LOCK_STALE_MIN:-90}
+[[ $STALE =~ ^[0-9]+$ ]] || STALE=90
+
+die() { echo "sabha-lock: $*" >&2; exit "${2:-2}"; }
+label_ok() { [[ ${1:-} =~ ^[A-Za-z0-9._-]+$ ]] || die "label must be letters, digits, . _ or -"; }
+field() { sed -n "s/^$1: //p" "$LOCK/holder" 2>/dev/null; }
+
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
+# judge: 0 when the lock is old and its holder is dead; sets pid and age for the caller. A directory with no readable epoch
+# (the holder died between mkdir and writing the file) is judged by its own mtime and has no pid to test.
+judge() {
+  local e
+  [[ -d $LOCK ]] || return 1
+  pid=$(field pid) e=$(field epoch)
+  [[ $e =~ ^[0-9]+$ ]] || { e=$(mtime "$LOCK"); pid=""; }
+  [[ $e =~ ^[0-9]+$ ]] || return 1
+  age=$(( $(date +%s) - e ))
+  (( age > STALE * 60 )) || return 1
+  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && return 1
+  return 0
+}
+
+# reclaim: removes a lock that is old and whose holder is dead. A second mkdir mutex ($LOCK.reclaim) serialises reclaimers and
+# the lock is judged again inside it, so a caller holding an old judgement cannot delete a lock another caller just took.
+# A mutex left by a reclaimer that died is stale after 60 s. ponytail: the stale-mutex removal itself is not serialised.
+reclaim() {
+  local pid age m="$LOCK.reclaim" t
+  if [[ -d $m ]]; then
+    t=$(mtime "$m")
+    [[ $t =~ ^[0-9]+$ ]] && (( $(date +%s) - t > 60 )) && rmdir "$m" 2>/dev/null
+  fi
+  mkdir "$m" 2>/dev/null || return 1
+  if judge; then
+    rm -rf "$LOCK"
+    rmdir "$m"
+    echo "sabha-lock: reclaimed a stale lock ($(date -u +%H:%M:%SZ), holder pid ${pid:-?} dead, ${age}s old)" >&2
+    return 0
+  fi
+  rmdir "$m"
+  return 1
+}
+
+acquire() {
+  local label=$1 end=$(( $(date +%s) + $2 )) pid=$3
+  mkdir -p "$(dirname "$LOCK")" || die "cannot create $(dirname "$LOCK")"
+  while :; do
+    if mkdir "$LOCK" 2>/dev/null; then
+      printf 'pid: %s\nlabel: %s\nepoch: %s\n' "$pid" "$label" "$(date +%s)" > "$LOCK/holder"
+      return 0
+    fi
+    # a holder file not written yet means a lock taken a moment ago: not stale
+    reclaim && continue
+    (( $(date +%s) >= end )) && { echo "sabha-lock: busy: $(status_line)" >&2; return 75; }
+    sleep "${SABHA_LOCK_POLL:-5}"
+  done
+}
+
+status_line() {
+  local e
+  [[ -d $LOCK ]] || { echo free; return 0; }
+  e=$(field epoch); [[ $e =~ ^[0-9]+$ ]] || e=$(date +%s)
+  echo "held: $(field label) pid $(field pid), $(( $(date +%s) - e ))s"
+  return 1
+}
+
+case ${1:-} in
+  acquire)
+    label_ok "${2:-}"
+    [[ ${3:-0} =~ ^[0-9]+$ && ${4:-$PPID} =~ ^[0-9]+$ ]] || die "secs and pid must be numbers"
+    acquire "$2" "${3:-0}" "${4:-$PPID}"; exit ;;
+  release)
+    label_ok "${2:-}"
+    [[ -d $LOCK ]] || exit 0
+    [[ $(field label) == "$2" ]] || die "held by $(field label), not $2" 1
+    rm -rf "$LOCK" ;;
+  run)
+    label_ok "${2:-}"; label=$2; shift 2
+    secs=0; [[ ${1:-} =~ ^[0-9]+$ ]] && { secs=$1; shift; }
+    [[ ${1:-} == -- ]] && shift
+    (( $# )) || die "usage: sabha-lock run <label> [secs] -- <cmd...>"
+    acquire "$label" "$secs" $$ || exit 75
+    # release only our own lock: after a reclaim the directory may belong to someone else
+    trap '[[ $(field pid) == "$$" ]] && rm -rf "$LOCK"' EXIT
+    "$@" & c=$!
+    trap 'kill -TERM "$c" 2>/dev/null; wait "$c" 2>/dev/null; exit 143' TERM INT HUP
+    wait "$c"; rc=$?
+    exit "$rc" ;;
+  status) status_line; exit ;;
+  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac

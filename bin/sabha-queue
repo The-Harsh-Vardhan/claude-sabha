@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# sabha-queue: the run queue as append-only blocks in $SABHA_IMPL/queue.items (default ./queue.items), the same style as
+# for-me.items: each change appends a block, the newest value of a key per id wins, nothing is edited in place. Bash 3.2.
+#   sabha-queue add <brief> "<title>" [--kind heavy|light] [--note TEXT]   prints the id (state queued)
+#   sabha-queue next [--light-only]      prints the first queued item (oldest id first) and exits 0; exit 1 when none.
+#                                        --light-only skips heavy items: use it when the gate says wait or the lock is held
+#   sabha-queue start <id> [owner]       state running, owner and started set
+#   sabha-queue block <id> [note]        state blocked
+#   sabha-queue done <id> [note]         state done, finished set
+#   sabha-queue fail <id> [note]         state failed, finished set
+#   sabha-queue list [state]             one line per item: id state kind brief owner title (| note)
+#   sabha-queue status                   one line for a status bar: counts per state
+# Block keys: id, utc, brief, title, kind (heavy|light), state (queued|running|blocked|done|failed), owner, started,
+# finished, note. A heavy item runs under bin/sabha-lock (one at a time on the machine) after bin/sabha-heavy gate is not
+# critical; this file only records the state.
+set -u
+IMPL=${SABHA_IMPL:-.}
+F=$IMPL/queue.items
+die() { echo "sabha-queue: $*" >&2; exit "${2:-1}"; }
+utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+one_line() { [[ $1 != *$'\n'* ]] || die "$2 is one line" 2; }
+
+# fold: one tab line per id from the blocks: id state kind brief owner started finished title note
+fold() {
+  [[ -f $F ]] || return 0
+  awk -F': ' '
+    function flush() { if (id != "") { for (k in v) val[id, k] = v[k]; if (!(id in seen)) { seen[id] = 1; order[++n] = id } } delete v; id = "" }
+    /^---$/ { flush(); next }
+    { key = $1; sub(/^[^:]*: ?/, ""); if (key == "id") id = $0; else if (key != "") v[key] = $0
+      if (key == "id") { cur = id } }
+    END { flush()
+      for (i = 1; i <= n; i++) { d = order[i]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", d, val[d, "state"], val[d, "kind"], val[d, "brief"], val[d, "owner"], val[d, "started"], val[d, "finished"], val[d, "title"], val[d, "note"] } }' "$F" |
+    sort -t "$(printf '\t')" -k1,1n
+}
+
+# put <id> key value ...: appends one block with those keys, after checking the id exists
+put() {
+  local id=$1 block; shift
+  grep -qx "id: $id" "$F" 2>/dev/null || die "no item $id in $F"
+  block="---"$'\n'"id: $id"$'\n'"utc: $(utc)"$'\n'
+  while [[ $# -ge 2 ]]; do
+    [[ -z $2 ]] || block+="$1: $2"$'\n'
+    shift 2
+  done
+  printf '%s' "$block" >>"$F" || die "cannot write $F"
+}
+
+[[ $# -ge 1 ]] || { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+cmd=$1; shift
+case $cmd in
+  add)
+    [[ $# -ge 2 ]] || die 'usage: sabha-queue add <brief> "<title>" [--kind heavy|light] [--note TEXT]' 2
+    brief=$1 title=$2 kind=light note=""; shift 2
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --kind) [[ $# -ge 2 ]] || die "--kind needs a value" 2; kind=$2; shift 2 ;;
+        --note) [[ $# -ge 2 ]] || die "--note needs a value" 2; note=$2; shift 2 ;;
+        *) die "unknown option $1" 2 ;;
+      esac
+    done
+    [[ $brief =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "bad brief '$brief' (letters, digits, . _ -)" 2
+    case $kind in heavy|light) ;; *) die "--kind is heavy or light" 2 ;; esac
+    one_line "$title" title; one_line "$note" note
+    dir=$IMPL/status/queue-ids
+    mkdir -p "$dir" "$IMPL" || exit 1
+    n=$( { sed -n 's/^id: \([0-9][0-9]*\)$/\1/p' "$F" 2>/dev/null; ls "$dir" 2>/dev/null; } | grep -E '^[0-9]+$' | sort -n | tail -1)
+    n=$(( ${n:-0} + 1 ))
+    until (set -C; : >"$dir/$n") 2>/dev/null; do n=$(( n + 1 )); done
+    block="---"$'\n'"id: $n"$'\n'"utc: $(utc)"$'\n'"brief: $brief"$'\n'"title: $title"$'\n'"kind: $kind"$'\n'"state: queued"$'\n'"owner: -"$'\n'"started: -"$'\n'"finished: -"$'\n'"note: ${note:--}"$'\n'
+    printf '%s' "$block" >>"$F" || die "cannot write $F"
+    echo "$n" ;;
+  next)
+    light=0; [[ ${1:-} == --light-only ]] && light=1
+    line=$(fold | awk -F'\t' -v l="$light" '$2 == "queued" && !(l && $3 == "heavy") { print; exit }')
+    [[ -n $line ]] || { echo "queue: nothing queued"; exit 1; }
+    echo "$line" | awk -F'\t' '{ printf "%s %s %s brief %s: %s\n", $1, $2, $3, $4, $8 }' ;;
+  start)
+    [[ ${1:-} =~ ^[0-9]+$ ]] || die "usage: sabha-queue start <id> [owner]" 2
+    st=$(fold | awk -F'\t' -v i="$1" '$1 == i { print $2 }')
+    [[ -z $st || $st == queued ]] || die "item $1 is $st, not queued" 1
+    put "$1" state running owner "${2:-${SABHA_ROLE:-${USER:-unknown}}}" started "$(utc)" ;;
+  block)
+    [[ ${1:-} =~ ^[0-9]+$ ]] || die "usage: sabha-queue block <id> [note]" 2
+    one_line "${2:-}" note; put "$1" state blocked note "${2:-}" ;;
+  done|fail)
+    [[ ${1:-} =~ ^[0-9]+$ ]] || die "usage: sabha-queue $cmd <id> [note]" 2
+    one_line "${2:-}" note
+    st=done; [[ $cmd == fail ]] && st=failed
+    put "$1" state "$st" finished "$(utc)" note "${2:-}" ;;
+  list)
+    fold | awk -F'\t' -v s="${1:-}" 's == "" || $2 == s { printf "%s %s %s brief %s owner %s: %s%s\n", $1, $2, $3, $4, $5, $8, ($9 == "-" || $9 == "" ? "" : " | " $9) }' ;;
+  status)
+    fold | awk -F'\t' '{ c[$2]++ } END { printf "queue %d queued, %d running, %d blocked, %d done, %d failed\n", c["queued"], c["running"], c["blocked"], c["done"], c["failed"] }' ;;
+  *) die "unknown command $cmd (add, next, start, block, done, fail, list, status)" 2 ;;
+esac

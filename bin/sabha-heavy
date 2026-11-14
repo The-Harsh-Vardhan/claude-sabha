@@ -8,6 +8,7 @@
 #   sabha-heavy touch <label>            renew a slot taken by acquire (it expires after SABHA_HEAVY_TTL seconds)
 #   sabha-heavy run <label> -- <cmd...>  acquire, run cmd, release on exit or TERM; heartbeat while it runs
 #   sabha-heavy status                   one line for a status bar: load, colour, memory, slots, labels, queue depth
+#   sabha-heavy gate                     gate state: normal, warn or critical (exit 75 on critical); only writes the swap sample file
 #   sabha-heavy queue add <label> [--prio 1-9] [--settle secs]   join the queue (higher prio first, default 5)
 #   sabha-heavy queue list | next | remove <label>
 # The queue holds labels only, never commands. Order = prio + waited/SABHA_HEAVY_AGE (600 s per point), oldest first on
@@ -18,8 +19,13 @@
 # SABHA_HEAVY_QUEUE_TTL (86400 s) are dropped.
 # $SABHA_IMPL/status/heavy/jobs.tsv gets one line per start, end and give-up: utc, label, event, load1, load5, memory,
 # detail (waited, rc, duration), so thresholds can be tuned from data.
-# GO needs memory pressure green (checked first), load1 <= SABHA_HEAVY_LOAD_FACTOR (2) x cores, fewer than SABHA_HEAVY_MAX (profile)
-# slots held and SABHA_HEAVY_SETTLE (45) seconds since the last slot was taken (load1 is a one-minute average).
+# GO needs memory pressure not red (checked first; yellow only warns, see below), no swap growth over SABHA_GATE_SWAP_MB (1024) within
+# SABHA_GATE_SWAP_WINDOW (600) seconds, load5 <= SABHA_GATE_LOAD_HARD (3) x cores, fewer than SABHA_HEAVY_MAX (profile)
+# slots held and SABHA_HEAVY_SETTLE (45) seconds since the last slot was taken. macOS load overstates what the box can
+# take, so load is the secondary signal: above SABHA_GATE_LOAD_SOFT (2) x cores it only warns. Memory pressure green,
+# yellow, red = normal, warn, critical: yellow does not stop check, acquire or run, red does. A SABHA_HEAVY_LOAD_FACTOR
+# set in sabha.conf or the environment keeps the older rule instead: any memory level but green and load1 <= factor x
+# cores are hard stops, no load5 rule.
 # Reads sysctl; inside a sandbox that denies it, uptime, memory_pressure -Q (free percent under SABHA_HEAVY_FREE_PCT,
 # 40, counts as yellow) and getconf. Nothing readable = WAIT, never a blind GO. SABHA_HEAVY_FORCE=1 takes a slot
 # anyway and writes who into it. Slots: $SABHA_IMPL/status/heavy/<label>.slot.
@@ -33,6 +39,11 @@ mkdir -p "$DIR" || exit 1
 MAX=${SABHA_HEAVY_MAX:-2} TTL=${SABHA_HEAVY_TTL:-1800} SETTLE=${SABHA_HEAVY_SETTLE:-45}
 FACTOR=${SABHA_HEAVY_LOAD_FACTOR:-2} FREE=${SABHA_HEAVY_FREE_PCT:-40} POLL=${SABHA_HEAVY_POLL:-30}
 AGE=${SABHA_HEAVY_AGE:-600} QTTL=${SABHA_HEAVY_QUEUE_TTL:-86400}
+LEGACY_LOAD=0; [[ -n ${SABHA_HEAVY_LOAD_FACTOR:-} ]] && LEGACY_LOAD=1
+SOFT=${SABHA_GATE_LOAD_SOFT:-2} HARD=${SABHA_GATE_LOAD_HARD:-3}
+SWAP_MB=${SABHA_GATE_SWAP_MB:-1024} SWAP_WIN=${SABHA_GATE_SWAP_WINDOW:-600}
+[[ $SWAP_MB =~ ^[0-9]+$ ]] || SWAP_MB=1024
+[[ $SWAP_WIN =~ ^[1-9][0-9]*$ ]] || SWAP_WIN=600
 # a zero or non-numeric value would divide by zero in qrank and starve every queued label silently
 [[ $AGE =~ ^[1-9][0-9]*$ ]] || AGE=600
 [[ $QTTL =~ ^[1-9][0-9]*$ ]] || QTTL=86400
@@ -61,6 +72,38 @@ mem() {
   if (( v < FREE )); then echo "yellow (free $v%)"; else echo green; fi
 }
 
+# swap_growth: MB the swap in use grew within SWAP_WIN seconds (the lowest sample in the window is the base); empty when
+# swap is unreadable. vm.swapusage prints "total = 3072.00M  used = 1802.25M  free = 1269.75M  (encrypted)".
+swap_growth() {
+  local v used now f=$DIR/.swap base
+  v=$(sysctl -n vm.swapusage 2>/dev/null) || return 0
+  used=${v#*used = }; used=${used%%M*}; used=${used%%.*}
+  [[ $used =~ ^[0-9]+$ ]] || return 0
+  now=$(date +%s)
+  { [[ -f $f ]] && awk -v n="$now" -v w="$SWAP_WIN" 'n - $1 <= w' "$f"; echo "$now $used"; } > "$f.$$" 2>/dev/null && mv -f "$f.$$" "$f"
+  base=$(awk 'NR == 1 || $2 < m { m = $2 } END { print m }' "$f")
+  echo $(( used - base ))
+}
+
+# gate_state <load5> <cores> <mem> <swap growth>: normal, warn or critical, with the reasons in GATE_WHY
+gate_state() {
+  local l=$1 c=$2 m=$3 g=$4 st=normal
+  GATE_WHY=()
+  case $m in
+    "") ;;
+    green) ;;
+    red*) st=critical; GATE_WHY+=("memory $m") ;;
+    *) st=warn; GATE_WHY+=("memory $m") ;;
+  esac
+  if [[ -n $g ]] && (( g > SWAP_MB )); then st=critical; GATE_WHY+=("swap grew ${g}MB in ${SWAP_WIN}s")
+  elif [[ -n $g ]] && (( g * 2 > SWAP_MB )); then [[ $st == normal ]] && st=warn; GATE_WHY+=("swap +${g}MB"); fi
+  if [[ -n $l && $c =~ ^[0-9]+$ ]]; then
+    if awk -v l="$l" -v m="$(( HARD * c ))" 'BEGIN { exit !(l > m) }'; then st=critical; GATE_WHY+=("load5 $l > $(( HARD * c )) ($c cores)")
+    elif awk -v l="$l" -v m="$(( SOFT * c ))" 'BEGIN { exit !(l > m) }'; then [[ $st == normal ]] && st=warn; GATE_WHY+=("load5 $l > $(( SOFT * c )) (soft)"); fi
+  fi
+  GATE=$st
+}
+
 # clean: drop slots whose pid is dead or whose heartbeat (the file's mtime) is older than TTL; sets HELD, NEWEST and
 # READY (when the last slot's settle time ends: its epoch + its own settle, else SETTLE)
 clean() {
@@ -86,22 +129,31 @@ clean() {
 
 # verdict [settle]: prints the GO or WAIT line; true for GO
 verdict() {
-  local l m c lim w s="" why=()
+  local l m c lim w s="" why=() g
   c=$(sabha_cores) l=$(load1) m=$(mem)
   [[ $c =~ ^[0-9]+$ ]] || { echo "HEAVY WAIT: cannot read the core count"; return 1; }
   lim=$(( FACTOR * c ))
   clean
   [[ -z $m ]] && why+=("cannot read memory pressure")
-  [[ -n $m && $m != green ]] && why+=("memory $m")
-  [[ -z $l ]] && why+=("cannot read load")
-  [[ -n $l ]] && awk -v l="$l" -v m="$lim" 'BEGIN { exit !(l > m) }' && why+=("load1 $l > $lim ($c cores)")
+  [[ -n $m && $m != green ]] && { (( LEGACY_LOAD )) || [[ $m == red* ]]; } && why+=("memory $m")
+  if (( LEGACY_LOAD )); then
+    [[ -z $l ]] && why+=("cannot read load")
+    [[ -n $l ]] && awk -v l="$l" -v m="$lim" 'BEGIN { exit !(l > m) }' && why+=("load1 $l > $lim ($c cores)")
+  else
+    l=$(load_at 5); lim=$(( HARD * c ))
+    [[ -z $l ]] && why+=("cannot read load")
+    [[ -n $l ]] && awk -v l="$l" -v m="$lim" 'BEGIN { exit !(l > m) }' && why+=("load5 $l > $lim ($c cores)")
+    g=$(swap_growth)
+    [[ -n $g ]] && (( g > SWAP_MB )) && why+=("swap grew ${g}MB in ${SWAP_WIN}s")
+  fi
   (( ${#HELD[@]} >= MAX )) && why+=("slots ${#HELD[@]}/$MAX")
   [[ ${1:-} == settle ]] && (( $(date +%s) < READY )) && why+=("settle: next slot in $(( READY - $(date +%s) ))s")
   if (( ${#why[@]} )); then
     for w in "${why[@]}"; do s+="${s:+; }$w"; done
     echo "HEAVY WAIT: $s"; return 1
   fi
-  echo "HEAVY GO: load1 $l/$lim; memory $m; slots ${#HELD[@]}/$MAX"
+  if (( LEGACY_LOAD )); then echo "HEAVY GO: load1 $l/$lim; memory $m; slots ${#HELD[@]}/$MAX"
+  else echo "HEAVY GO: load5 $l/$lim; memory $m; slots ${#HELD[@]}/$MAX"; fi
 }
 
 lock() {
@@ -193,11 +245,24 @@ case ${1:-} in
   status)
     c=$(sabha_cores) l=$(load1) m=$(mem); clean
     col=red
-    [[ -n $l && $c =~ ^[0-9]+$ ]] && col=$(awk -v l="$l" -v c="$c" -v f="$FACTOR" 'BEGIN { print (l <= c ? "green" : l <= f * c ? "amber" : "red") }')
-    line="load ${l:-?}/${c:-?} $col | mem ${m:-?} | slots ${#HELD[@]}/$MAX"
+    if (( LEGACY_LOAD )); then
+      [[ -n $l && $c =~ ^[0-9]+$ ]] && col=$(awk -v l="$l" -v c="$c" -v f="$FACTOR" 'BEGIN { print (l <= c ? "green" : l <= f * c ? "amber" : "red") }')
+      line="load ${l:-?}/${c:-?} $col | mem ${m:-?} | slots ${#HELD[@]}/$MAX"
+    else
+      l=$(load_at 5); gate_state "$l" "$c" "$m" "$(swap_growth)"
+      [[ -n $l && $c =~ ^[0-9]+$ ]] && col=$(awk -v l="$l" -v c="$c" -v s="$SOFT" -v h="$HARD" 'BEGIN { print (l <= c ? "green" : l <= s * c ? "amber" : l <= h * c ? "orange" : "red") }')
+      line="gate $GATE | load5 ${l:-?}/${c:-?} $col | mem ${m:-?} | slots ${#HELD[@]}/$MAX"
+    fi
     (( ${#HELD[@]} )) && line+=" | ${HELD[*]}"
     q=$(qrank | wc -l); (( q > 0 )) && line+=" | queue $(( q ))"
     echo "$line" ;;
+  gate)
+    c=$(sabha_cores) l=$(load_at 5) m=$(mem)
+    gate_state "$l" "$c" "$m" "$(swap_growth)"
+    w=""; for x in ${GATE_WHY[@]+"${GATE_WHY[@]}"}; do w+="${w:+; }$x"; done
+    echo "GATE $GATE: memory ${m:-?}; load5 ${l:-?} (soft $(( SOFT * ${c:-0} )), hard $(( HARD * ${c:-0} )), ${c:-?} cores)${w:+; $w}"
+    [[ $GATE == critical ]] && exit 75
+    exit 0 ;;
   queue)
     shift; sub=${1:-}; shift
     case $sub in

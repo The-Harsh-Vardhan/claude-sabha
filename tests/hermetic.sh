@@ -20,6 +20,11 @@ FAKE_HERDR_LOG=$FAKE_HERDR_DIR/log FAKE_HERDR_CALLS=$FAKE_HERDR_DIR/calls
 # the same for gh: bin/sabha-gh refuses to run under SABHA_TEST=1 without SABHA_GH_BIN, so a test never reaches GitHub
 SABHA_GH_BIN=$HERMETIC_BIN/gh FAKE_GH_DIR=$HERMETIC_FAKE_DIR/gh
 trap 'rm -rf "$HERMETIC_FAKE_DIR"' EXIT
+# an empty process list unless the test brings its own: sabha-loop and sabha-up refuse a role a live claude already holds,
+# and a test must not read the real ps (a real session named like a test role would fail it)
+SABHA_PS_FILE=$HERMETIC_FAKE_DIR/ps.empty
+: > "$SABHA_PS_FILE"
+export SABHA_PS_FILE
 export SABHA_TEST SABHA_HERDR_BIN SABHA_GH_BIN FAKE_GH_DIR PATH HERMETIC_FAKE_DIR FAKE_HERDR_DIR FAKE_HERDR_LOG FAKE_HERDR_CALLS
 if [[ $(command -v herdr) != "$SABHA_HERDR_BIN" ]]; then
   echo "hermetic: the fake herdr is not first on PATH ($(command -v herdr)); refusing to run tests" >&2

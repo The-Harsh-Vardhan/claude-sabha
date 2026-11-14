@@ -28,7 +28,7 @@ printf '#!/bin/sh\n[ -n "$FAKE_UPTIME_FAIL" ] && exit 1\necho "20:00  up 3 days,
 printf '#!/bin/sh\necho "System-wide memory free percentage: ${FAKE_FREE:-60}%%"\n' > "$dir/stubs/memory_pressure"
 printf '#!/bin/sh\necho "${FAKE_NCPU:-10}"\n' > "$dir/stubs/getconf"
 chmod +x "$dir/stubs/"*
-printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_HEAVY_MAX=2\nSABHA_HEAVY_SETTLE=0\nSABHA_HEAVY_POLL=1\n' "$dir/ws" "$dir/impl" > "$dir/sabha.conf"
+printf 'SABHA_WS=%s\nSABHA_IMPL=%s\nSABHA_HEAVY_MAX=2\nSABHA_HEAVY_LOAD_FACTOR=2\nSABHA_HEAVY_SETTLE=0\nSABHA_HEAVY_POLL=1\n' "$dir/ws" "$dir/impl" > "$dir/sabha.conf"
 export SABHA_CONF=$dir/sabha.conf PATH=$dir/stubs:$PATH
 slots=$dir/impl/status/heavy
 heavy() { "$SH" "$BIN/sabha-heavy" "$@" 2>&1; }
