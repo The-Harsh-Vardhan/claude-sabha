@@ -9,7 +9,7 @@ If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use 
 Set up a project for sabha. Project given: $ARGUMENTS
 
 1. Ask for the project directory if none was given (`SABHA_WS`: the folder the roles start in, a repo or the folder
-   that holds the project's repos). Ask for the plan (pro, max5, max20) and the tracker (html, xlsx, sheet) if not
+   that holds the project's repos). Ask for the plan (pro, max5, max20, five) and the tracker (html, xlsx, sheet) if not
    given, and whether the parent folder `~/my-claude-sabha` and the project name (the project folder's name,
    lowercased with dashes) are fine.
 2. Run it as one plain command (no pipes, no chaining):
@@ -17,6 +17,8 @@ Set up a project for sabha. Project given: $ARGUMENTS
    `--name NAME`, `--theme NAME` or `--push ntfy|off` when the user chose them. It makes `<home>/<name>/` with the
    starter files and one inbox per role, writes `sabha.conf` inside it, and links it into the project as
    `my-claude-sabha` (kept out of git through `.git/info/exclude`). Existing files in the sabha folder are kept.
+   It also copies `STANDING-RULES.md` (what agents decide alone and what needs the user) into the sabha folder,
+   with `${SABHA_USER}` filled in from the environment or the conf when set.
    Without `--force` it refuses to replace an existing `sabha.conf`; do not add `--force` unless the user confirms.
 3. Report the three lines it prints (`wrote`, `sabha folder`, `link`). If the link line says skipped or failed, tell
    the user to run the scripts with `SABHA_CONF=<home>/<name>/sabha.conf`; otherwise the scripts find the config

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # sabha <command>: setup helpers. Written for bash 3.2 (macOS /bin/bash): no associative arrays, no ${x,,}.
-#   sabha init   [--plan pro|max5|max20] [--theme NAME] [--tracker html|xlsx|sheet] [--push ntfy|off] [--ws DIR]
+#   sabha init   [--plan pro|max5|max20|five] [--theme NAME] [--tracker html|xlsx|sheet] [--push ntfy|off] [--ws DIR]
 #                [--home DIR] [--name NAME] [--impl DIR] [--out FILE] [--share yes|no] [--force]
 #                your sabha folder per project: <home>/<name> (home default ~/my-claude-sabha, name from the workspace
 #                folder; --impl sets the folder outright) with sabha.conf (--out), status and inboxes; with --share yes
@@ -77,6 +77,17 @@ scaffold_impl() {
   mkdir -p "$impl" || die "init: cannot create $impl"
   if [[ ! -e $impl/GOALS.md ]]; then
     cp -R "$ROOT/template/impl/." "$impl/" || die "init: cannot copy template/impl into $impl"
+    # STANDING-RULES.md names the user as ${SABHA_USER}: the environment's SABHA_USER, else the conf's, else left as is
+    if [[ -f $impl/STANDING-RULES.md ]]; then
+      local who=${SABHA_USER:-}
+      [[ -n $who ]] || who=$( set +u; . "$conf" >/dev/null 2>&1; echo "${SABHA_USER:-}" )
+      if [[ -n $who && $who != *$'\n'* ]]; then
+        who=${who//\\/\\\\}; who=${who//&/\\&}; who=${who//|/\\|}
+        sed "s|\${SABHA_USER}|$who|g" "$impl/STANDING-RULES.md" >"$impl/STANDING-RULES.md.tmp" &&
+          cat "$impl/STANDING-RULES.md.tmp" >"$impl/STANDING-RULES.md" && rm -f "$impl/STANDING-RULES.md.tmp" ||
+          die "init: cannot write $impl/STANDING-RULES.md"
+      fi
+    fi
     if [[ $share == yes ]]; then for f in $SHARED_DOCS; do rm -rf "${impl:?}/$f"; done; fi
     fresh=1
   fi
@@ -191,7 +202,7 @@ cmd_init() {
   for c in claude opencode codex agy; do command -v "$c" >/dev/null 2>&1 && clis="$clis $c"; done
   clis=${clis# }
 
-  ask plan "Plan (pro = \$20, max5 = \$100, max20 = \$200)" pro "pro max5 max20"
+  ask plan "Plan (pro = \$20, max5 = \$100, max20 = \$200, five = the five-pane plan)" pro "pro max5 max20 five"
   [[ -f $ROOT/sabha.$plan.conf ]] || die "init: no plan file sabha.$plan.conf in $ROOT"
   local themes
   themes=$(ls "$ROOT/themes" 2>/dev/null | sed -n 's/\.theme$//p' | tr '
