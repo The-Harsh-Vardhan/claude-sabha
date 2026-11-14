@@ -78,7 +78,7 @@ sabha_conf_read() {
   . "$CONF"
   if [[ -n ${SABHA_PLAN:-} ]]; then
     PLAN_CONF=${SABHA_PLAN_DIR:-$SABHA_BIN/..}/sabha.$SABHA_PLAN.conf
-    [[ -f $PLAN_CONF ]] || { echo "$1: no plan file at $PLAN_CONF (plans: pro, max5, max20)" >&2; return 1; }
+    [[ -f $PLAN_CONF ]] || { echo "$1: no plan file at $PLAN_CONF (plans: pro, max5, max20, five)" >&2; return 1; }
     # shellcheck source=/dev/null
     . "$PLAN_CONF"
   fi
@@ -129,12 +129,18 @@ sabha_load() {
     done
   fi
   NAMES=() PANES=() LAZY=()
-  local r i=0
+  local r i=0 headful=0
   for r in "${ROLES[@]}"; do
     NAMES+=("${r%% *}")
     (( i++ > 0 )) && ! sabha_flag "$r" ondemand && PANES+=("${r%% *}")
     sabha_flag "$r" lazy && LAZY+=("${r%% *}")
+    sabha_flag "$r" lazy || sabha_flag "$r" ondemand || headful=$(( headful + 1 ))
   done
+  # SABHA_MAX_HEADFUL (0 or unset = no cap): a roster with more always-on roles than this is refused (five-pane plan)
+  if (( ${SABHA_MAX_HEADFUL:-0} > 0 && headful > SABHA_MAX_HEADFUL )); then
+    echo "$1: $headful headful roles in the roster, SABHA_MAX_HEADFUL is $SABHA_MAX_HEADFUL (flag the extras lazy or ondemand)" >&2
+    exit 1
+  fi
   if [[ -n ${SABHA_PANES:-} ]]; then
     PANES=()
     for n in $SABHA_PANES; do

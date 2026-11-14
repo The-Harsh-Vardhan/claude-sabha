@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Five-pane plan (`sabha.five.conf`, `sabha-up.sh --plan five` or `SABHA_PLAN=five`): five always-on roles, the relay one of
+  them (one 3x2 Build tab: Relay, Dispatcher, BuilderPrecise, Runner, Architect; Mahabharat theme Vidur, Yudhishthira,
+  Arjun, Karna, Bhishma); every other role is a `lazy` headless helper or `ondemand`. Architect is the Elephant (memory
+  service, opus/medium); its role text is `docs/sabha/bhishma/ROLE.md`. `SABHA_MAX_HEADFUL` refuses a roster with more
+  always-on roles. Test: `tests/test-five-pane.sh`. Plugin templates, protocol/*.md and the role skills are a follow-up.
 - `SABHA_BOARD_URL` (sabha.conf): the published progress board is the default view. The relay keeps it current, `/sabha-board` points to it before the FOR-ME walk, `sabha doctor` warns while it is empty; FOR-ME.md stays the offline fallback. Test: `tests/test-board-default.sh`.
 - Board template: a Commands tab (start, watch, stop, recover) with a Copy button per command. Paths come from `__SABHA_HOME__`, `__WORKSPACE__`, `__ROLE__` and `__HERDR_SESSION__`; `__CMD_WRAPPER__` is an optional wrapper of the user's own, empty by default. Test: `tests/test-board-default.sh`.
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)

@@ -146,7 +146,7 @@ def load_conf():
             pdir = here
         ppath = os.path.join(pdir, name)
         if not os.path.exists(ppath):
-            sys.exit("sabha-for-me: no plan file at %s (plans: pro, max5, max20)" % ppath)
+            sys.exit("sabha-for-me: no plan file at %s (plans: pro, max5, max20, five)" % ppath)
         read_conf(ppath, conf)
     # the team's committed .sabha/config, then sabha.conf again so a key you set yourself wins (sabha_conf_read)
     shared = os.path.join(conf.get("SABHA_SHARED", ""), "config")

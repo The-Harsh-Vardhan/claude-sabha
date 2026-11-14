@@ -324,7 +324,7 @@ from the scripts):
 | `bin/sabha doctor` | Checks the CLIs, the statusline hook, `jq`, herdr, write permissions, the Remote Control policy and stale or second copies (warnings only), and roster drift (FAIL); exits 1 only on a FAIL |
 | `bin/sabha roster [--check\|--write]` | `SABHA_ROSTER` is the only roster source. `--check` prints a FAIL per `PROTOCOL-core.md` table cell or `protocol/<Name>.md` heading (`# Name (Model, effort)`) whose model or effort differs; the `no <model>` lines of the files in `SABHA_ROSTER_CLAIMS` (notes, memory) follow a model conflict as context. `--write` rewrites those cells and headings from the conf; a table row naming roles with different profiles is left for a hand split. `sabha-up.sh` prints the drift and never writes |
 | `bin/sabha stamp` | The current time from the clock, UTC then local, for briefs and status lines (no hand-typed times) |
-| `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace, or starts one role; `--print <Name>` prints the sabha-loop restart line (`SABHA_EFFICIENCY` on; `--print --raw` the bare claude line), else the claude line, then a `pane:` line |
+| `bin/sabha-up.sh [--plan <plan>] [<Name>]` | Opens the herdr workspace (default five-pane roster: Vidur, Yudhishthira, Arjun, Karna, Bhishma, relay first; `--plan five`; `SABHA_MAX_HEADFUL` guards it), or starts one role; `--print <Name>` prints the sabha-loop restart line (`SABHA_EFFICIENCY` on; `--print --raw` the bare claude line), else the claude line, then a `pane:` line |
 | `bin/sabha-heavy check\|acquire\|release\|run\|status\|queue` | Heavy-job gate: memory pressure, load1 against 2 x cores, `SABHA_HEAVY_MAX` slots, a priority queue with aging, a per-job log (`jobs.tsv`); exit 75 = wait ([docs/specs/efficiency-profiles.md](docs/specs/efficiency-profiles.md), [docs/load-meter.md](docs/load-meter.md)) |
 | `bin/sabha-check [--explain]` | Read-only list of each role's processes; DUPLICATE when more than one holds a name; `--explain` adds `herdr agent explain` per pane |
 | `bin/sabha-reap [--close <pid-or-pane-id>...]` | Lists every named claude session oldest first with age, idle time, last context % and herdr pane state; marks a resumed older copy STALE? and a mapped pane of a claude role with no `claude -n/--name` session seen by ps ORPHAN (a hint, not proof). Cost is the last context % only; idle is the last status-line render (a session in a long tool call looks idle); the pane state shows for the newest copy only. Closes nothing unless you name an id with `--close` (TERM to a pid, `herdr pane close` for an orphan pane); a role's last copy is refused, a pid is read as decimal (`0101` is 101), and a pane is closed only when herdr reports it idle or done, it is not the pane the command runs in (`HERDR_PANE_ID` must be set, so a pane close works only from inside a herdr pane), ps shows at least one named claude and the pane map names the pane in exactly one row (a pane in two rows, in any spelling of the id, is AMBIGUOUS and a row without a role is MALFORMED: never closed); role names compare case-insensitively |
@@ -352,6 +352,7 @@ from the scripts):
 | `bin/sabha-brief`, `bin/sabha-gate`, `bin/sabha-rfc-check`, `bin/sabha-tracker`, `bin/sabha-worktree` | The brief numbering, the review gate (`--checks` adds workspace file tests, [docs/gate-checks.md](docs/gate-checks.md)), an RFC lint, atomic CSV edits and `<repo>--<slug>` worktrees; briefs say "run the script" |
 | `bin/sabha-typography-check <file> --allow ALLOW.json` | Checks a PDF, an HTML page or an artifact for off-list fonts, sizes, weights and colours, low contrast, clipped or overflowing text, and one role styled two ways; each finding names where it is, what was found and the nearest allowed value. A PDF needs the repo-local `.venv` (`uv venv .venv && uv pip install --python .venv/bin/python -r tools/typography-requirements.txt`); `--browser` computes styles through `sabha-heavy run typography --` (page scripts off unless `--allow-scripts`; Chrome or playwright missing exits 2); reads only the input's folder (its `@import` files too); the runner's request block is tested only against a fake playwright; not run in a real Chrome; unresolvable colours print as UNKNOWN (`--strict` fails on them); never run in a real browser and never on a real Chrome PDF yet (tests use a fake playwright and base-14 PDFs); example list `template/typography.example.json`; skill `skills/sabha-typography-check` |
 | `tests/*.sh` | The test suite; `tests/test-leak.sh` fails when a tracked file holds a name, a home path, an id or a token |
+| `tests/test-five-pane.sh` | The five-pane grid, the headful cap and the second-copy refusal |
 
 ## Setup
 
@@ -389,6 +390,17 @@ the board and the pane titles show (see [Themes](#themes)).
 | `share/claude-settings.json` | The safe-defaults deny list |
 | `RULES.md` | Seven working rules for your own `CLAUDE.md` |
 | `icons/<theme>/` | One icon per role for each theme (optional) |
+
+## The five-pane model
+
+Five always-on sessions, no more: Vidur (relay), Yudhishthira (dispatcher), Arjun (builder, implementation only), Karna
+(tester: builds, gates, test suites, e2e, screenshots, and the gate review) and Bhishma (the Elephant, the one memory
+service: other roles ask Bhishma with `bin/sabha-ask` instead of reading status and inbox files, see
+[docs/sabha/bhishma/ROLE.md](docs/sabha/bhishma/ROLE.md)). In role ids these are Relay, Dispatcher, BuilderPrecise,
+Runner and Architect. Turn it on with `SABHA_PLAN=five` in sabha.conf or `bin/sabha-up.sh --plan five`
+([sabha.five.conf](sabha.five.conf)); every other role is a headless helper (`lazy`) or `ondemand`. `SABHA_MAX_HEADFUL=5`
+refuses a roster with more always-on roles. The grid opens all five panes (3x2), the relay first. Test:
+`tests/test-five-pane.sh`.
 
 ## Headless roles
 
