@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# sabha-ask: ask the Elephant (the memory role) instead of opening other roles' status and inbox files.
+#   sabha-ask "<question>"      writes inbox/<Elephant>/ask-NNN.md, wakes the pane, waits up to SABHA_ASK_TIMEOUT (120)
+#                               seconds for <elephant dir>/replies/ask-NNN.md and prints it. The reply must name its
+#                               sources as path:line; one without any is printed with a warning. On a timeout it says so,
+#                               names the files to read yourself and exits 3.
+#   sabha-ask --counter [--md]  questions answered today and the sources their replies cited (one line; --md for INDEX.md)
+# Elephant = SABHA_ELEPHANT (default Bhishma; Architect in the five plan); elephant dir = SABHA_ELEPHANT_DIR (default
+# $SABHA_WS/docs/sabha/bhishma). SABHA_ASK_POLL (2) is the poll in seconds; SABHA_ASK_NUDGE=0 skips the wake-up.
+# counter.tsv in the elephant dir: utc, id, answered|timeout, cited sources (the distinct files the reply cites: a proxy, not a measure of reads saved).
+set -uo pipefail
+BIN=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=sabha-lib.sh
+. "$BIN/sabha-lib.sh"
+sabha_load sabha-ask
+sabha_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+EL=$(sabha_elephant) DIR=$(sabha_elephant_dir)
+CNT=$DIR/counter.tsv
+
+counter() {
+  local today n=0 r=0
+  today=$(date -u +%Y-%m-%d)
+  [[ -f $CNT ]] && read -r n r < <(awk -F'\t' -v d="$today" 'substr($1, 1, 10) == d && $3 == "answered" { n++; r += $4 } END { print n + 0, r + 0 }' "$CNT")
+  if [[ ${1:-} == --md ]]; then echo "Counter ($today UTC): $n questions answered, $r cited sources"
+  else echo "questions answered today: $n; cited sources: $r"; fi
+}
+
+if [[ ${1:-} == --counter ]]; then counter "${2:-}"; exit 0; fi
+[[ $# -ge 1 && -n ${1:-} && $1 != -* ]] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+q=$1
+[[ $q != *$'\n'* ]] || { echo "sabha-ask: the question is one line" >&2; exit 2; }
+timeout=${SABHA_ASK_TIMEOUT:-120} poll=${SABHA_ASK_POLL:-2}
+[[ $timeout =~ ^[0-9]+$ && $poll =~ ^[1-9][0-9]*$ ]] || { echo "sabha-ask: SABHA_ASK_TIMEOUT and SABHA_ASK_POLL are whole seconds" >&2; exit 2; }
+
+inbox=$SABHA_IMPL/inbox/$EL claims=$SABHA_IMPL/status/ask-ids
+mkdir -p "$inbox" "$claims" "$DIR/replies" || exit 1
+n=$( { ls "$claims"; ls "$inbox" "$DIR/replies" | sed -n 's/^ask-\([0-9]*\)\.md$/\1/p'; } 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
+n=$(( ${n:-0} + 1 ))
+until (set -C; : >"$claims/$n") 2>/dev/null; do n=$(( n + 1 )); done
+id=$(printf '%03d' "$n")
+asker=${SABHA_ROLE:-${USER:-unknown}}
+{ echo "from: $asker"; echo "to: $EL"; echo "utc: $(sabha_utc)"; echo "reply: $DIR/replies/ask-$id.md"; echo; echo "$q"; } >"$inbox/ask-$id.md"
+reply=$DIR/replies/ask-$id.md
+if [[ ${SABHA_ASK_NUDGE:-1} != 0 ]]; then
+  ( sabha_nudge "$EL" "Question ask-$id from $asker in inbox/$EL/ask-$id.md: answer in $reply (the fact and its file:line source)." >/dev/null 2>&1 || true ) &
+fi
+start=$(date +%s)
+while :; do
+  if [[ -s $reply ]]; then
+    cat "$reply"
+    files=$(grep -oE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' "$reply" | sed 's/:[0-9]*$//' | sort -u | wc -l | tr -d ' ')
+    if (( files == 0 )); then echo "sabha-ask: warning: ask-$id has no file:line source; treat it as unverified" >&2; fi
+    printf '%s\t%s\tanswered\t%s\n' "$(sabha_utc)" "$id" "$files" >>"$CNT"
+    exit 0
+  fi
+  (( $(date +%s) - start >= timeout )) && break
+  sleep "$poll"
+done
+printf '%s\t%s\ttimeout\t0\n' "$(sabha_utc)" "$id" >>"$CNT"
+echo "sabha-ask: no answer from $EL for ask-$id within ${timeout}s. Read the files yourself: $DIR/INDEX.md first, then status/<role>.md of the role you need. The question stays in $inbox/ask-$id.md." >&2
+exit 3

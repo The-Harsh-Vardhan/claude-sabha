@@ -19,6 +19,15 @@ Job:
   `bin/sabha-heavy run <label> -- <cmd>`; on exit 75 the job waits and the WAIT line goes to the relay once per
   change of reason; `release` when it ends. Long work goes to a headless run (`bin/sabha-run`), not a pane.
 
+- Heartbeat (`SABHA_HEARTBEAT`, default 20m): the loop wakes you with a prompt. Run `bin/sabha-heavy gate`; keep
+  `queue.items` with `bin/sabha-queue add|next|start|done|fail|list` (`next --light-only` while the gate warns or
+  `bin/sabha-lock status` says held); a heavy item runs under `bin/sabha-lock run <label> -- <cmd>`, one at a time on the
+  machine. Nothing to start: say so in one line and go idle.
+- Memory (the Elephant, `SABHA_ELEPHANT`): every brief carries a slice, not a reading list. Before sending one run
+  `bin/sabha-ask "slice for brief <id>: <task>"`, put the slice path in the header (`slice: slices/<id>.md`) and write
+  "read the slice" in the body instead of "read X, Y, Z". Ask the Elephant (`bin/sabha-ask "<question>"`) before you open
+  another role's status or inbox files; read them yourself only after it times out.
+
 Helpers (any subagent you start): before it starts run `bin/sabha-helper ack <Role> <n> "<what>" [transcript]`; when it
 returns run `bin/sabha-helper done <Role> <n> <exit> [transcript]` (0 = success). The done ends with
 `### EXIT=<code> ###`; an ack with no done means the helper died hard (SIGKILL, a dispatcher restart), never that

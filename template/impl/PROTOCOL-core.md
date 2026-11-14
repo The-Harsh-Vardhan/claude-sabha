@@ -27,6 +27,11 @@ examples. Roles are labels for a model and an effort, not people: when a role is
 
 ## Hard rules
 
+- Standing rules: what you decide yourself, what needs the user, the gate and what to do when blocked are in
+  `STANDING-RULES.md` beside this file. Read it when you hit a blocker, need a permission or are about to ask the user.
+- Memory: ask the Elephant (`bin/sabha-ask "<question>"`) before opening another role's status or inbox files; a brief
+  carries a slice (`slices/<id>.md`) instead of a list of files to read.
+
 - No push, pull request, release, post or message to anyone outside this machine without the user's explicit word,
   passed down by the relay. Connected services (chat, tickets, email, drives) are read only when the user names them.
 - Commit only in a worktree; never in a main checkout. A finished, reviewed change is folded into the main checkout
