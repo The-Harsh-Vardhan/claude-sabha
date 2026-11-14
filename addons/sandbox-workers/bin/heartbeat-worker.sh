@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Heartbeat for a sandboxed worker pane, run from the owner's cron.
 # Usage: heartbeat-worker.sh <Role> <pane> <proc> <busy-regex>
-#   e.g. heartbeat-worker.sh BuilderHeavy w1:p8 opencode 'esc +interrupt'
+#   e.g. heartbeat-worker.sh Builder %1 opencode "esc +interrupt"   (role, pane id, process name, busy regex)
 # herdr cannot detect agents that run as another user, so state comes from the screen and the process list.
 # idle -> nudge to continue; stuck prompt -> alert; process gone -> alert; same screen 3 beats -> alert once.
 # Stops nudging when status/<role-lowercase>.md in the workspace contains QUEUE EMPTY.
