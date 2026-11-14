@@ -1,0 +1,9 @@
+# sandbox-workers cron jobs. Install with: crontab -e (as the OWNER, never as the workers user).
+# Replace ADDON with the absolute path of addons/sandbox-workers. The server clock decides the hours.
+# Backup every 6 hours; flock stops two runs overlapping.
+30 0,6,12,18 * * * flock -n "$HOME/.cache/sandbox-workers-backup.lock" ADDON/backup/backup.sh
+# Config repo sync twice a day (does nothing while CONFIG_REPO_DIR is empty)
+30 3,15 * * * flock -n "$HOME/.cache/sandbox-workers-sync.lock" ADDON/backup/sync-config.sh
+# Heartbeat for each sandboxed pane, every 20 minutes (3 unchanged beats = about 60 minutes before the stall alert)
+*/20 * * * * ADDON/bin/heartbeat-worker.sh Dispatcher PANE_ID agy 'Working|Thinking'
+*/20 * * * * ADDON/bin/heartbeat-worker.sh BuilderHeavy PANE_ID opencode 'esc +interrupt'
