@@ -1,12 +1,16 @@
 ---
-description: Set up a project's sabha folder (~/my-claude-sabha/<name>), its sabha.conf and the my-claude-sabha link
-argument-hint: "[project dir]"
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha init:*), Bash(ls:*), Read
+description: Set up a project's sabha folder, or check the machine (init [project dir] | doctor)
+argument-hint: "[project dir] | doctor"
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha init:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha doctor), Bash(ls:*), Read
 ---
 
 If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use the claude-sabha clone directory (the one that holds `bin/sabha`; a plugin install puts it under `~/.claude/plugins/`) in its place; if you do not know it, ask the user for the path before running anything.
 
-Set up a project for sabha. Project given: $ARGUMENTS
+If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use the claude-sabha clone directory (the one that holds `bin/sabha`; a plugin install puts it under `~/.claude/plugins/`) in its place; if you do not know it, ask the user for the path before running anything.
+
+Set up a project for sabha, or check the machine. Arguments: $ARGUMENTS
+
+If the first word is `doctor`, skip to "Doctor" below. Otherwise this is setup (project given: $ARGUMENTS).
 
 1. Ask for the project directory if none was given (`SABHA_WS`: the folder the roles start in, a repo or the folder
    that holds the project's repos). Ask for the plan (pro, max5, max20) and the tracker (html, xlsx, sheet) if not
@@ -22,4 +26,14 @@ Set up a project for sabha. Project given: $ARGUMENTS
    the user to run the scripts with `SABHA_CONF=<home>/<name>/sabha.conf`; otherwise the scripts find the config
    when run from the project folder.
 4. Tell the user to edit the project block of `PROTOCOL-core.md` in the sabha folder (name, source of truth, roster)
-   and then run `/sabha-doctor`.
+   and then run `/sabha-init doctor`.
+
+## Doctor (`/sabha-init doctor`)
+
+Run `${CLAUDE_PLUGIN_ROOT}/bin/sabha doctor` as one plain command (no pipes, no chaining). Honour `SABHA_CONF`
+(config path) and `SABHA_SETTINGS` (the settings.json it checks for the statusline hook, default
+`~/.claude/settings.json`).
+
+It exits 1 only on a FAIL; warnings never fail the run. Report FAILs first with the fix each line suggests, then the
+warnings. If it says there is no config, run the setup above (or start the session in the project folder, or set
+`SABHA_CONF`). Fix nothing yourself.

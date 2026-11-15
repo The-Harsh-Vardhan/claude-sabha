@@ -7,7 +7,7 @@ colour and an icon on the statusline, the board and the pane titles, and a voice
 ## Choosing a theme
 
 - `SABHA_THEME=<theme or preset>` in `sabha.conf`, or `bin/sabha init --theme <name>`.
-- `/sabha-theme` (or `bin/sabha-theme`): `list` shows the themes and your presets with the current one starred, `show
+- `bin/sabha-theme`: `list` shows the themes and your presets with the current one starred, `show
   [name]` prints the 20 resolved rows, `use <name>` validates and sets `SABHA_THEME`. Names, colours and icons change at
   the next refresh; a voice applies when a role next starts fresh.
 
@@ -23,7 +23,7 @@ Header lines `key: value` and then exactly 20 rows, one per role:
     category: heroes
     fan: yes
     description: Earth's mightiest roles: Marvel heroes assigned by temperament.
-    licence: MIT
+    licence: Apache-2.0
     Jarvis|Relay|#2A9DB5|avengers/relay|Polished and courteous; a dry butler's wit.
 
     Character|DefaultRole|#RRGGBB|icon|voice
@@ -56,7 +56,7 @@ files are never edited. A preset names any character from any theme (a multivers
 - `Role|theme:Character` gives that role the character from that theme, with its colour, icon and voice.
 - `Character.field|value` edits one field (`name`, `colour`, `icon`, `voice`) of the character you gave a role, addressed
   by its original name, so `Hulk.voice` still works after `Hulk.name`.
-- Two roles may end up with the same name; routing uses the role id, so it works, and `/sabha-theme` warns.
+- Two roles may end up with the same name; routing uses the role id, so it works, and `bin/sabha-theme use` warns.
 - A theme and a preset of the same name: the theme wins.
 
 ## Checking a file
