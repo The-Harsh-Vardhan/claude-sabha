@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install tools
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install bash jq shellcheck coreutils; else sudo apt-get update -qq && sudo apt-get install -y -qq jq shellcheck; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install bash jq shellcheck coreutils && echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"; else sudo apt-get update -qq && sudo apt-get install -y -qq jq shellcheck; fi
       - name: shellcheck
         # errors fail the build; warnings and infos are reported but do not (existing ones are tracked separately)
         run: shellcheck -x -P SCRIPTDIR --severity=error bin/sabha-up.sh bin/sabha-watch bin/sabha-run bin/sabha-lib.sh
