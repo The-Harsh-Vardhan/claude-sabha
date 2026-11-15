@@ -33,6 +33,8 @@ else
 fi
 self=tests/test-leak.sh
 ALLOW_LICENSE='3:Copyright (c) 2026 Harsh Vardhan'
+# Apache-2.0 NOTICE: only its copyright line names the owner
+ALLOW_NOTICE='2:Copyright 2026 Harsh Vardhan'
 # the plugin manifests may carry the owner's name in their author/owner "name" field and nowhere else
 ALLOW_AUTHOR='^[0-9]+: *"name": "Harsh Vardhan",?$'
 re=$(IFS='|'; echo "${PATTERNS[*]}")
@@ -40,6 +42,7 @@ re=$(IFS='|'; echo "${PATTERNS[*]}")
 allow() {
   case $1 in
     LICENSE) printf '%s\n' "$2" | grep -v -x -F "$ALLOW_LICENSE" ;;
+    NOTICE) printf '%s\n' "$2" | grep -v -x -F "$ALLOW_NOTICE" ;;
     .claude-plugin/plugin.json|.claude-plugin/marketplace.json) printf '%s\n' "$2" | grep -v -E "$ALLOW_AUTHOR" ;;
     *) printf '%s\n' "$2" ;;
   esac
