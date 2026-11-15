@@ -10,7 +10,7 @@
 #                               command a grid pane runs for it, and exit
 #   on-demand roles (roster flag "ondemand") have no pane: start them with sabha-up.sh <Name>
 #   sabha-up.sh <Name>-N        a copy of that role (BuilderPrecise-2): same profile, its own inbox and status file
-#   --plan pro|max5|max20       (first argument) roster, panes, copies and labels from sabha.<plan>.conf beside
+#   --plan pro|max5|max20|five  (first argument) roster, panes, copies and labels from sabha.<plan>.conf beside
 #                               sabha.conf; SABHA_PANES names the roles that get a pane, the rest are on demand
 #   --force                     start even when a claude process already holds a role's name (before the role name)
 #   --chrome                    start the Claude role with Claude in Chrome (claude --chrome); SABHA_CHROME=1 does the same
@@ -29,7 +29,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # shellcheck source-path=SCRIPTDIR source=sabha-limits.sh
 . "$(dirname "$SELF")/sabha-limits.sh"
 if [[ ${1:-} == --plan ]]; then
-  [[ $# -ge 2 && -n $2 ]] || { echo "usage: sabha-up.sh --plan pro|max5|max20 [...]" >&2; exit 2; }
+  [[ $# -ge 2 && -n $2 ]] || { echo "usage: sabha-up.sh --plan pro|max5|max20|five [...]" >&2; exit 2; }
   export SABHA_PLAN=$2; shift 2
 fi
 sabha_load sabha-up

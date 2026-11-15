@@ -41,6 +41,9 @@ check "a sixth always-on role is refused" '(( rc == 1 )) && grep -q "6 headful r
 conf 'SABHA_MAX_HEADFUL=5' 'SABHA_ROSTER="Relay:opus Dispatcher:opus BuilderPrecise:opus Runner:sonnet Architect:opus Reviewer:sonnet:medium:lazy Tutor:opus:medium:ondemand"'
 out=$(up); rc=$?
 check "lazy and ondemand roles do not count as headful" '(( rc == 0 ))'
+conf 'SABHA_MAX_HEADFUL=5x' 'SABHA_ROSTER="Relay:opus Dispatcher:opus BuilderPrecise:opus Runner:sonnet Architect:opus Reviewer:sonnet"'
+out=$(up); rc=$?
+check "a non-numeric SABHA_MAX_HEADFUL is named on stderr and the cap stays off" '(( rc == 0 )) && grep -q "SABHA_MAX_HEADFUL=5x is not a whole number" <<<"$out"'
 
 if (( fails > 0 )); then echo "$fails check(s) failed"; exit 1; fi
 echo "ok: all checks pass"

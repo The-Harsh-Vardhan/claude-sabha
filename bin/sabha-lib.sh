@@ -5,7 +5,7 @@
 SABHA_BIN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # sabha_load <caller>: reads the config (sabha_conf_read below: sabha.conf, the plan file sabha.<SABHA_PLAN>.conf beside
-# the scripts when SABHA_PLAN is set (sabha-up.sh --plan pro|max5|max20; a plan file carries only the roster, the
+# the scripts when SABHA_PLAN is set (sabha-up.sh --plan pro|max5|max20|five; a plan file carries only the roster, the
 # panes, the copies and the labels, never paths), the team's .sabha/config, sabha.conf again), and sets ROLES
 # ("name agent model effort flags", the relay first, then the dispatcher, then grid order; flags is "-" or a comma
 # list), NAMES (every role), PANES, LAZY, RELAY, DISPATCHER and MAX_COPIES.
@@ -147,6 +147,9 @@ sabha_load() {
   done
   # SABHA_MAX_HEADFUL (0 or unset = no cap): a roster with more always-on roles than this is refused (five-pane plan)
   local mh=${SABHA_MAX_HEADFUL:-0}
+  # a bad value used to turn the cap off without a word
+  [[ $mh =~ ^[0-9]+$ ]] || { echo "$1: SABHA_MAX_HEADFUL=$mh is not a whole number; cap off" >&2; mh=0; }
+  mh=$(( 10#$mh ))
   if (( mh > 0 && headful > mh )); then
     echo "$1: $headful headful roles in the roster, SABHA_MAX_HEADFUL is $SABHA_MAX_HEADFUL (flag the extras lazy or ondemand)" >&2
     exit 1
