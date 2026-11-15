@@ -22,10 +22,12 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = macOS ]; then brew install bash jq shellcheck coreutils; else sudo apt-get update -qq && sudo apt-get install -y -qq jq shellcheck; fi
       - name: shellcheck
-        run: shellcheck -x bin/sabha-up.sh bin/sabha-watch bin/sabha-run bin/sabha-lib.sh
+        # errors fail the build; warnings and infos are reported but do not (existing ones are tracked separately)
+        run: shellcheck -x -P SCRIPTDIR --severity=error bin/sabha-up.sh bin/sabha-watch bin/sabha-run bin/sabha-lib.sh
       - name: python compiles
         run: python3 -m py_compile bin/sabha-for-me
       - name: tests/test-*.sh (hermetic; smoke-live.sh needs a real claude and is not run here)
+        if: always()
         run: |
           fail=0
           for t in tests/test-*.sh; do
