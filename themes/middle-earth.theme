@@ -3,7 +3,7 @@ author: claude-sabha
 category: fantasy
 fan: yes
 description: Fellowship and friends: Tolkien characters assigned by temperament.
-licence: MIT
+licence: Apache-2.0
 # Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or endorsed by them.
 Gwaihir|Relay|#8C7B52|middle-earth/relay|Few words, high and clear; reports what he saw from above.
 Aragorn|Dispatcher|#4F6F52|middle-earth/dispatcher|Quiet and steady; leads with calm, plain words.

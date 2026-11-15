@@ -3,7 +3,7 @@ author: claude-sabha
 category: heroes
 fan: yes
 description: Earth's mightiest roles: Marvel heroes assigned by temperament.
-licence: MIT
+licence: Apache-2.0
 # Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or endorsed by them.
 Jarvis|Relay|#2A9DB5|avengers/relay|Polished and courteous; a dry butler's wit, never a raised voice.
 Fury|Dispatcher|#7F6A2E|avengers/dispatcher|Terse and commanding; briefs in one clipped line.

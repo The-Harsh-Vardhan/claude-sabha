@@ -2,6 +2,9 @@
 
 # claude-sabha
 
+[![tests](https://github.com/The-Harsh-Vardhan/claude-sabha/actions/workflows/tests.yml/badge.svg)](https://github.com/The-Harsh-Vardhan/claude-sabha/actions/workflows/tests.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 Run a team of named coding-agent sessions - a relay you talk to, a dispatcher and workers - that hand each other
 work through plain files, keep their progress in plain files, and restart fresh before their context fills up.
 
@@ -16,7 +19,7 @@ made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
 I have used this on most days since 14 October 2026 on real multi-repo work: briefs, reviews, hotfixes and pushes, with
 one relay, one dispatcher and a small grid of workers. In that time the dispatcher received over 300 briefs, and this
-repo has commits on 14 different days. Many rules and fixes in this repo come from things that went
+repo has commits on 13 different days (as of 16 November 2026). Many rules and fixes in this repo come from things that went
 wrong there. [Field notes](docs/field-notes.md) has the setup, a real day, each incident and what changed because of it,
 and what is still rough.
 
@@ -47,10 +50,10 @@ and what is still rough.
 
 ![claude-sabha architecture](docs/diagrams/architecture.png)
 
-Status: evolving. Latest release 2.0.1; main adds roles on different Claude accounts and a restart hold for in-session
-helpers (see [CHANGELOG.md](CHANGELOG.md), "Unreleased"). Next: durable helpers that outlive a dispatcher restart
-([PR #35](https://github.com/The-Harsh-Vardhan/claude-sabha/pull/35)), a loud alert when a pane's context file goes stale, and the open issues
-drafted in [issues/](issues). macOS is used daily; Windows (Git Bash) is beta (see
+Status: evolving. Latest tagged release: v2.0.0 (the plugin manifest is at 2.0.1, a fix release that was never
+tagged). Next release: 3.0.0, which moves to Apache 2.0 and cuts the slash commands from 12 to 5 (see
+[CHANGELOG.md](CHANGELOG.md), "Unreleased"). Next after that: a loud alert when a pane's context file goes stale, and
+the open issues drafted in [issues/](issues). macOS is used daily; Windows (Git Bash) is beta (see
 [docs/windows.md](docs/windows.md)). Anything marked UNTESTED below has not been run on a real machine; the full list is in [docs/known-gaps.md](docs/known-gaps.md).
 
 ## Feedback for v2
@@ -83,7 +86,7 @@ without a pane is an on-demand subagent of the dispatcher with its own model and
 
 ## Themes
 
-Pick who your team is: `SABHA_THEME` in `sabha.conf`, `bin/sabha init --theme <name>`, or `/sabha-theme`. A theme is a
+Pick who your team is: `SABHA_THEME` in `sabha.conf`, `bin/sabha init --theme <name>`, or `bin/sabha-theme use <name>`. A theme is a
 display skin: it shows a character name, colour and icon for each role (statusline, board, pane titles) and gives the
 roles that chat with you (Relay, Tutor, Coach) a voice; scripts, roles, models, inboxes and status files keep the role
 ids. Your own tweaks live in a preset (`~/.config/claude-sabha/presets/`), layered over a theme.
@@ -180,7 +183,7 @@ treat the name like a password, and self-host ntfy if the alerts name anything s
 built.
 
 **See progress**: the board is the default view. Set `SABHA_BOARD_URL` in `sabha.conf` to the URL of your published
-board; `/sabha-board` points you to it first, and `sabha doctor` warns while the key is empty. With
+board; `/sabha-status board` points you to it first, and `sabha doctor` warns while the key is empty. With
 `SABHA_RELAY_GUARD=1` the relay publishes the board and writes its rows only when SABHA_RELAY_ALLOW_TOOLS lists
 Artifact,ArtifactData; otherwise start the prompt with "you do it", or the dispatcher briefs it. `FOR-ME.md` (and
 `FOR-ME.html`) stays the offline fallback: it needs no network and no account.
@@ -418,17 +421,13 @@ All rows are UNTESTED live.
 
 | Command | What |
 | --- | --- |
-| `/sabha-start` | Opens the workspace (`sabha-up.sh`) |
-| `/sabha-stop` | Saves and closes the panes (`sabha-down.sh`; a dry run until confirmed) |
-| `/sabha-status` | The read-only report (`sabha-watch`, `sabha-check`) |
-| `/sabha-board` | Renders and shows the board (`sabha-for-me`) |
-| `/sabha-run` | One headless-runner pass (`sabha-run`) |
-| `/sabha-brief` | Claims a number and writes a brief (`sabha-brief`) |
+| `/sabha-init [project dir]` | Writes `sabha.conf` (`sabha init`). `/sabha-init doctor` checks the machine (`sabha doctor`) |
+| `/sabha-start [Role]` | Opens the workspace (`sabha-up.sh`). Subcommands: `stop` (dry-run shutdown, `sabha-down.sh`), `restart <Role>` (prints the fresh-restart line), `run [Role...]` (one headless-runner pass, `sabha-run`) |
+| `/sabha-status` | The read-only report (`sabha-watch`, `sabha-check`). `/sabha-status board` renders the board and walks your open items (`sabha-for-me`) |
+| `/sabha-brief <To> "<task>"` | Claims a number and writes a brief (`sabha-brief`). `/sabha-brief gate <brief>` evaluates the review gate (`sabha-gate`) |
 | `/sabha-handoff` | Writes the role's handoff block to its status file |
-| `/sabha-restart` | Prints or runs the fresh-restart line for a role |
-| `/sabha-init` | Writes `sabha.conf` (`sabha init`) |
-| `/sabha-doctor` | Checks the machine (`sabha doctor`) |
-| `/sabha-gate` | Evaluates the review gate (`sabha-gate`) |
+
+Themes have no slash command: use `bin/sabha-theme list|show|use` or set `SABHA_THEME` in `sabha.conf`.
 
 | Skill | What |
 | --- | --- |
@@ -475,4 +474,4 @@ All off by default in the code; set them in `sabha.conf`. `sabha.conf.example` t
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Releases up to and including 2.0.1 were published under MIT; this and later releases are Apache-2.0.

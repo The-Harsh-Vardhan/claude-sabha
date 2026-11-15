@@ -141,7 +141,7 @@ inside Claude Code (see README, "Commands, skills and hooks").
 
 | Piece | Plugs into | Why there |
 | --- | --- | --- |
-| Commands (`/sabha-start`, `-stop`, `-status`, `-board`, `-run`, `-brief`, `-handoff`, `-restart`, `-init`, `-doctor`, `-gate`) | One per script or file-bus step | A slash command is the lowest-friction way to run the right script with the right arguments |
+| Commands (`/sabha-init`, `-start`, `-status`, `-brief`, `-handoff`; `stop`, `restart`, `run`, `board`, `gate` and `doctor` are subcommands) | One per job, with related script steps grouped behind a subcommand | A slash command is the lowest-friction way to run the right script with the right arguments |
 | Skills (`sabha-brief-writing`, `sabha-handoff-writing`, `sabha-gate-review`, `sabha-relay`, `sabha-dispatch`) | The role's judgment: how to write a brief, a handoff, a verdict; what the relay and dispatcher do | Procedure that a model must follow, not a script that can enforce it |
 | Hooks: SessionStart | Loads the role's handoff and open briefs | Replaces the opening prompt's reads inside a plugin-launched session |
 | Hooks: PreToolUse guard | Blocks `git push`, `gh pr` and chat-service tools for non-relay roles | Enforces rule 6 mechanically instead of by instruction |

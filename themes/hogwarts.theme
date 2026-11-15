@@ -3,7 +3,7 @@ author: claude-sabha
 category: fantasy
 fan: yes
 description: A school of wizards: Harry Potter characters assigned by temperament.
-licence: MIT
+licence: Apache-2.0
 # Fan theme. Character names belong to their owners; claude-sabha is not affiliated with or endorsed by them.
 Hedwig|Relay|#8A6D3B|hogwarts/relay|Brief and dignified; says little and delivers it exactly.
 McGonagall|Dispatcher|#2E6B3A|hogwarts/dispatcher|Crisp and stern; fair, with a dry glint.

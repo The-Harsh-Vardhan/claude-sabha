@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-- `SABHA_BOARD_URL` (sabha.conf): the published progress board is the default view. The relay keeps it current, `/sabha-board` points to it before the FOR-ME walk, `sabha doctor` warns while it is empty; FOR-ME.md stays the offline fallback. Test: `tests/test-board-default.sh`.
+- License: changed from MIT to Apache License 2.0 (LICENSE, NOTICE, README, docs, shipped themes, plugin manifest).
+  Releases up to and including 2.0.1 remain available under MIT.
+- Commands: 12 slash commands became 5. `/sabha-doctor` is now `/sabha-init doctor`; `/sabha-stop`, `/sabha-restart`
+  and `/sabha-run` are `/sabha-start stop|restart <Role>|run`; `/sabha-status board` is `/sabha-status board`; `/sabha-gate` is
+  `/sabha-brief gate <brief>`; `/sabha-theme` is gone (use `bin/sabha-theme` or `SABHA_THEME`). No script in `bin/`
+  changed or was removed.
+- `SABHA_BOARD_URL` (sabha.conf): the published progress board is the default view. The relay keeps it current, `/sabha-status board` points to it before the FOR-ME walk, `sabha doctor` warns while it is empty; FOR-ME.md stays the offline fallback. Test: `tests/test-board-default.sh`.
 - Board template: a Commands tab (start, watch, stop, recover) with a Copy button per command. Paths come from `__SABHA_HOME__`, `__WORKSPACE__`, `__ROLE__` and `__HERDR_SESSION__`; `__CMD_WRAPPER__` is an optional wrapper of the user's own, empty by default. Test: `tests/test-board-default.sh`.
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
   of each `status/<role>.md` (`UPDATE <n> (`, `UPDATE <n> <Mon>`, `Idle: by design (` count anywhere; looser

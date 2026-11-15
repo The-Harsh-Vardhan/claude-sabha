@@ -47,4 +47,4 @@ beside `sabha.conf` that `bin/sabha-up.sh --plan <name>` loads.
 
 Ideas go in [GitHub Discussions](https://github.com/The-Harsh-Vardhan/claude-sabha/discussions), bugs in
 [Issues](https://github.com/The-Harsh-Vardhan/claude-sabha/issues). Source and full README:
-[GitHub](https://github.com/The-Harsh-Vardhan/claude-sabha). License: MIT.
+[GitHub](https://github.com/The-Harsh-Vardhan/claude-sabha). License: Apache 2.0.

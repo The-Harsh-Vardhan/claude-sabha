@@ -1,12 +1,15 @@
 ---
-description: Write a brief into a role's inbox (claims the number, writes the header block)
-argument-hint: <To> "<task>"
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha-brief:*), Write
+description: Write a brief into a role's inbox, or check a brief's review gate (<To> "<task>" | gate <brief file>)
+argument-hint: <To> "<task>" | gate <brief file>
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha-brief:*), Bash(${CLAUDE_PLUGIN_ROOT}/bin/sabha-gate --brief:*), Write
 ---
 
 If `${CLAUDE_PLUGIN_ROOT}` below appears literally (the variable is empty), use the claude-sabha clone directory (the one that holds `bin/sabha`; a plugin install puts it under `~/.claude/plugins/`) in its place; if you do not know it, ask the user for the path before running anything.
 
-Write a brief. Arguments: $ARGUMENTS (first word = the receiving role, the rest = the task).
+Arguments: $ARGUMENTS. If the first word is `gate`, go to "Gate" below (the rest is the brief file). Otherwise it is a
+brief: first word = the receiving role, the rest = the task.
+
+## Write a brief
 
 Load the `sabha-brief-writing` skill for what a good brief holds. Then:
 
@@ -25,3 +28,21 @@ Load the `sabha-brief-writing` skill for what a good brief holds. Then:
 4. `SABHA_IMPL` (from `sabha.conf` via `SABHA_CONF`, or the environment) names the state folder; the script uses the
    current directory when it is unset, so check it is set before running.
 5. The script prints the brief path. Report it, and the one-line nudge to send: `see inbox/<To>/NNN`.
+
+## Gate (`/sabha-brief gate <brief file>`)
+
+Check the gate for the brief: $ARGUMENTS
+
+Run one plain command (no pipes, no chaining):
+`${CLAUDE_PLUGIN_ROOT}/bin/sabha-gate --brief <brief>`
+Add `-C DIR` before `--brief` when the `gate:` paths are relative to another directory. It reads the brief's
+`gate:` line (exit 2 and a message when there is none).
+
+Exit codes: 0 = gate open, 1 = shut, 2 = usage. Explain the result using docs/inbox-protocol.md section 6:
+- a `*-review.md` file needs `verdict: ACCEPT` (at least one is required);
+- a critic file passes on `verdict: NO BREAK`, or on `verdict: BREAK n` / `BLOCK n` only when the builder's
+  `<file minus .md>-answer.md` holds n or more lines starting `REFUTED:` or `FIXED:`;
+- the last `verdict:` line in a file is current, and an answers file older than its verdict file is stale (0 answers).
+
+When shut, name which file is missing, has no ACCEPT, or has unanswered findings. Shut means no `go:` for a fold, push,
+PR, tag, release or migration. Never edit a verdict file to open the gate.
