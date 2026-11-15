@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Example dump hook: a Postgres container. Copy to dump.d/postgres.sh, chmod +x, set CONTAINER.
+# The container's own env must carry POSTGRES_USER and POSTGRES_DB (read inside it, never printed here).
+set -euo pipefail
+CONTAINER=${PG_CONTAINER:-my-postgres}
+: "${DUMP_DIR:?run through dump.sh}"
+docker exec "$CONTAINER" sh -c 'pg_dumpall -U "$POSTGRES_USER"' | gzip -9 > "$DUMP_DIR/pg-all.sql.gz.tmp"
+mv "$DUMP_DIR/pg-all.sql.gz.tmp" "$DUMP_DIR/pg-all.sql.gz"

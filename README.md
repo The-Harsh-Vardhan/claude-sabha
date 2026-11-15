@@ -10,6 +10,7 @@ work through plain files, keep their progress in plain files, and restart fresh 
 **[How it works](docs/how-it-works.md)** -
 **[Roster](docs/roster.md)** -
 **[Themes](themes/README.md)** -
+**[Sandbox workers add-on](addons/sandbox-workers/README.md)** -
 made by [@The-Harsh-Vardhan](https://github.com/The-Harsh-Vardhan)
 
 ## Used in production work

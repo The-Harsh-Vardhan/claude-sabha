@@ -32,6 +32,12 @@ follow the [Quickstart](quickstart.md), a 10-minute demo of a brief, a worker, a
 
 ![How one brief moves through the team](diagrams/brief-lifecycle.png)
 
+## Optional add-ons
+
+[sandbox-workers](https://github.com/The-Harsh-Vardhan/claude-sabha/tree/main/addons/sandbox-workers): run non-Claude workers (agy, opencode) as an
+unprivileged Linux user with approvals off, keep them alive overnight, and back the machine up offsite. Linux only;
+the pane restart flow is UNTESTED outside one VM.
+
 ## Pick a plan
 
 The workflow is the same on every plan; only the roster, the number of panes and the models differ. Each plan is a file

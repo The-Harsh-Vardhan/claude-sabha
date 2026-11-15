@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `addons/sandbox-workers/` (optional, Linux): run agy and opencode as an unprivileged user with approvals off (ACL hand-off of the workspace, metadata-address firewall rule, `check-workers.sh`, `undo-workers-user.sh`), a cron heartbeat for idle or stuck panes, and encrypted restic backup with a pluggable password source. One config file, `sandbox.conf.example`. Test: `tests/test-sandbox-workers.sh`. No core tool changed.
 - `SABHA_BOARD_URL` (sabha.conf): the published progress board is the default view. The relay keeps it current, `/sabha-board` points to it before the FOR-ME walk, `sabha doctor` warns while it is empty; FOR-ME.md stays the offline fallback. Test: `tests/test-board-default.sh`.
 - Board template: a Commands tab (start, watch, stop, recover) with a Copy button per command. Paths come from `__SABHA_HOME__`, `__WORKSPACE__`, `__ROLE__` and `__HERDR_SESSION__`; `__CMD_WRAPPER__` is an optional wrapper of the user's own, empty by default. Test: `tests/test-board-default.sh`.
 - `sabha-rotate`: keeps the top block and the newest 10 entries (`UPDATE <n>`, `Current:`, `Idle:`, `# HANDOFF`)
