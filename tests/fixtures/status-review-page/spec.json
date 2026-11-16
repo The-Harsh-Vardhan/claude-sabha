@@ -1,0 +1,136 @@
+{
+  "title": "Sample <Status> Page",
+  "intro": "Four sample items as of 1 Jan 2030, 10:00 UTC. Fixed means the tester verified it.",
+  "sources": "Sample data. One image was not obtained.",
+  "legend": [
+    {
+      "st": "ok",
+      "state": "Verified",
+      "meaning": "The tester checked it."
+    }
+  ],
+  "groups": [
+    {
+      "title": "1. Fixed, verified by the tester",
+      "short": "verified",
+      "sub": "Nothing left to do.",
+      "items": [
+        {
+          "id": "BUG-4",
+          "title": "Typo in label",
+          "priority": "Low",
+          "tracker": "Verified",
+          "st": "ok",
+          "state": "Verified",
+          "asked": "Fix typo",
+          "todo": "Edit",
+          "did": "Edited",
+          "now": "Done",
+          "next": "None"
+        },
+        {
+          "id": "BUG-2",
+          "url": "https://tracker.example.com/browse/BUG-2",
+          "title": "Popup is wrong",
+          "priority": "High",
+          "tracker": "Verified",
+          "st": "ok",
+          "state": "Verified",
+          "pr": "repo #2",
+          "feature": "Uploads",
+          "asked": "Fix the popup",
+          "cause": "Wrong prop",
+          "todo": "Pass the prop",
+          "did": "Passed it",
+          "now": "Done",
+          "next": "None",
+          "deps": [
+            "BUG-1"
+          ],
+          "shots": [
+            {
+              "before_cap": "No before shot",
+              "after": "img/2-after.png",
+              "after_cap": "Fixed popup",
+              "after_boxes": [
+                {
+                  "x": 10,
+                  "y": 20,
+                  "w": 30,
+                  "h": 10,
+                  "label": "Fixed"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "2. Fixed by us, in review",
+      "short": "in review",
+      "sub": "Waiting for the reviewer.",
+      "items": [
+        {
+          "id": "BUG-1",
+          "title": "Picker is empty",
+          "priority": "Medium",
+          "tracker": "In review",
+          "st": "push",
+          "state": "PR open",
+          "pr": "repo #1",
+          "waiting": "reviewer",
+          "asked": "Fill the picker",
+          "todo": "Load the list",
+          "did": "Loaded it",
+          "now": "In review",
+          "next": "Reviewer",
+          "verify": [
+            "Open the page.",
+            "Check: the picker lists items."
+          ],
+          "shots": [
+            {
+              "before": "img/1-before.png",
+              "before_cap": "Empty",
+              "after": "img/1-after.png",
+              "after_cap": "Full"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. Still open",
+      "short": "open",
+      "sub": "Blocked.",
+      "items": [
+        {
+          "id": "BUG-3",
+          "title": "Needs a decision",
+          "priority": "Low",
+          "st": "block",
+          "state": "Blocked",
+          "asked": "Change copy",
+          "todo": "Wait",
+          "did": "Nothing",
+          "now": "Blocked",
+          "next": "Owner",
+          "side": "None known"
+        }
+      ]
+    }
+  ],
+  "review": {
+    "title": "Self review",
+    "sub": "Draft for the human to edit.",
+    "sections": [
+      {
+        "title": "What I did",
+        "items": [
+          "Built the page."
+        ]
+      }
+    ]
+  }
+}
