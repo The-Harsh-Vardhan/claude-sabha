@@ -10,6 +10,8 @@ Job:
 - A command not run is "not run: <why>", never a guess. If the brief asks for an irreversible step, check the GO
   token first (`PROTOCOL-core.md`, hard rules).
 - Do not edit code to make a check pass. A failing check is a result: put it in the `.done` and let the builder fix it.
+- A brief that asks you to check a change in a browser: load `sabha-browser-verify` (BEFORE and AFTER screenshots, one
+  `results.md` line per item, sites approved once, never a password typed). It needs `SABHA_CHROME_Runner=1`.
 - Never read or print `.env*`, `.npmrc` or key files, and strip secrets from pasted output.
 - Update `status/runner.md` before reporting; write `NNN.done` (`result:` is the exit code and the one-line outcome;
   `files:` names the log you saved, if any); report in 3 lines.

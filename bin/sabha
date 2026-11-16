@@ -435,6 +435,16 @@ cmd_doctor() {
     fi
   fi
 
+  # a role that uses sabha-browser-verify starts with --strict-mcp-config, which hides Claude in Chrome unless --chrome is set
+  if [[ -f $CONF ]]; then
+    local br r
+    br=$( set +u; . "$CONF" >/dev/null 2>&1; for r in ${SABHA_BROWSER_ROLES:-}; do
+            [[ $r =~ ^[A-Za-z0-9_]+$ ]] || continue; v=SABHA_CHROME_$r; [[ ${!v:-0} == 1 ]] || echo "$r"; done )
+    for r in $br; do
+      warn "$r uses sabha-browser-verify (SABHA_BROWSER_ROLES) but starts with --strict-mcp-config and no --chrome: set SABHA_CHROME_$r=1 in sabha.conf and restart it"
+    done
+  fi
+
   if [[ -f $CONF ]]; then
     local ro
     ro=$("${BASH:-bash}" "$BIN/sabha" roster --check 2>&1)

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Skill `sabha-browser-verify` for the Runner (or any tester role): Claude in Chrome setup, per-site approval, logins
+  without a typed password, BEFORE and AFTER screenshots with a `results.md` line per item, read-only safety.
+  `SABHA_CHROME_<Name>=1` in `sabha.conf` starts one role with `--chrome` (`bin/sabha-up.sh`); `sabha doctor` warns when a
+  role in `SABHA_BROWSER_ROLES` lacks it. Test: `tests/test-chrome-role.sh`, `tests/test-doctor.sh`.
+
 - License: changed from MIT to Apache License 2.0 (LICENSE, NOTICE, README, docs, shipped themes, plugin manifest).
   Releases up to and including 2.0.1 remain available under MIT.
 - Commands: 12 slash commands became 5. `/sabha-doctor` is now `/sabha-init doctor`; `/sabha-stop`, `/sabha-restart`

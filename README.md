@@ -259,7 +259,11 @@ each account its own line with `SABHA_STOP_<NAME>` (for example `SABHA_STOP_AU=9
 line applies to its starts. Running sessions are never stopped.
 
 Chrome and model: `--chrome` (or `SABHA_CHROME=1`) starts the Claude role with `claude --chrome`; `SABHA_MODEL=<model>`
-replaces the roster's model for that start only.
+replaces the roster's model for that start only. `SABHA_CHROME_<Name>=1` in `sabha.conf` gives one role `--chrome`
+(a role with no MCP set has `--strict-mcp-config` and no browser otherwise); it is how the Runner uses the skill
+`sabha-browser-verify`. `SABHA_BROWSER_ROLES="Runner"` in `sabha.conf` is a space-separated list of base role names
+(letters, digits and `_`; a copy such as `Runner-2` follows its base and is skipped) that use that skill; `sabha doctor`
+warns for each one without `SABHA_CHROME_<Name>=1`, and it starts nothing itself.
 
 Security: the token value is held in a variable and handed to the agent's environment only. It is never printed or
 logged: not by `--print` (which shows `CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_AU:?}"`, read when the
@@ -436,6 +440,7 @@ Themes have no slash command: use `bin/sabha-theme list|show|use` or set `SABHA_
 | `sabha-gate-review` | How a reviewer or critic writes a verdict file the gate can read |
 | `sabha-relay` | The relay's job: talk to the user, brief the dispatcher, do no work |
 | `sabha-dispatch` | The dispatcher's job: route by difficulty, track acks and dones, run work in parallel |
+| `sabha-browser-verify` | How a tester (the Runner) checks a change in a real browser: Claude in Chrome setup and `--chrome`, per-site approval, logins without a typed password, BEFORE and AFTER screenshots with a `results.md` line per item, read-only safety |
 | `sabha-typography-check` | When to run the typography check (UI PRs, exports, artifacts), how to read its report, and that a finding is a question for the owner, never an auto-fix |
 
 | Hook | What |
