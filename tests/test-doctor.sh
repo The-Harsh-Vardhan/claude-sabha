@@ -54,6 +54,16 @@ o=$(D); rc=$?
 [[ $rc -eq 0 ]] && echo "$o" | grep -q '^doctor: 0 fail, 0 warn' && echo "$o" | grep -q '^ok    .*SABHA_RELAY_ALLOW_TOOLS' || fail "board + guard + both tools listed must be ok with no warning: $o"
 mv "$dir/sabha.conf.keep" "$dir/sabha.conf"
 
+# a role that uses sabha-browser-verify needs SABHA_CHROME_<Name>=1: without it doctor warns (rc 0) and names the line to set
+cp "$dir/sabha.conf" "$dir/sabha.conf.keep"
+echo 'SABHA_BROWSER_ROLES="Runner"' >>"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^warn  Runner uses sabha-browser-verify.*set SABHA_CHROME_Runner=1' || fail "a browser role without SABHA_CHROME_<Name>=1 must WARN (rc 0): rc=$rc: $o"
+echo 'SABHA_CHROME_Runner=1' >>"$dir/sabha.conf"
+o=$(D); rc=$?
+[[ $rc -eq 0 ]] && echo "$o" | grep -q '^doctor: 0 fail, 0 warn' || fail "a browser role with SABHA_CHROME_<Name>=1 must not warn: rc=$rc: $o"
+mv "$dir/sabha.conf.keep" "$dir/sabha.conf"
+
 rm "$dir/fakebin/claude"; o=$(D); rc=$?
 [[ $rc -eq 1 ]] && echo "$o" | grep -q '^FAIL  claude' || fail "missing claude must FAIL with rc 1: rc=$rc"
 mk claude 'echo "Logged in: personal, plan Max"'
