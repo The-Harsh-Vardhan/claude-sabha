@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Skill `sabha-review-questionnaire`: turns open decisions into one self-contained MCQ page (example, options, one
+  recommended; copy answers or an Answer-with-Claude prompt), then records the answers. `build.py` is stdlib only and
+  never overwrites a page. Test: `tests/test-review-questionnaire.sh`.
 - License: changed from MIT to Apache License 2.0 (LICENSE, NOTICE, README, docs, shipped themes, plugin manifest).
   Releases up to and including 2.0.1 remain available under MIT.
 - Commands: 12 slash commands became 5. `/sabha-doctor` is now `/sabha-init doctor`; `/sabha-stop`, `/sabha-restart`
