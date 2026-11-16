@@ -439,6 +439,7 @@ Themes have no slash command: use `bin/sabha-theme list|show|use` or set `SABHA_
 | `sabha-typography-check` | When to run the typography check (UI PRs, exports, artifacts), how to read its report, and that a finding is a question for the owner, never an auto-fix |
 | `sabha-review-questionnaire` | Turns a pile of open decisions into one MCQ page (plain-words question, example, options, one recommended, copy-answers or Answer-with-Claude text), then records the answers; `skills/sabha-review-questionnaire/build.py` builds the HTML |
 | `sabha-status-review-page` | Builds a status or review page for tickets, review asks or QA findings: Fixed / In review / Still open groups, a 6-column table per item, verify steps, and BEFORE-left / AFTER-right screenshots with blast-radius boxes; `skills/sabha-status-review-page/build_page.py` builds the HTML from a JSON spec |
+| `sabha-bug-fix` | Fixes a bug ticket with proof: reproduce in the browser (BEFORE screenshot), a red test, the smallest root-cause fix in a worktree, verify in the browser (AFTER screenshot), then the PR body, status page and ticket comment; the push waits for the human's yes |
 
 | Hook | What |
 | --- | --- |

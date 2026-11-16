@@ -8,6 +8,9 @@
 - Skill `sabha-status-review-page`: one page for a list of tickets, review asks or QA findings (Fixed / In review /
   Still open, a 6-column table per item, verify steps, BEFORE-left / AFTER-right screenshots with boxes, cascade order
   for items that build on each other). `build_page.py` is stdlib only. Test: `tests/test-status-review-page.sh`.
+- Skill `sabha-bug-fix`: the reproduce -> red test -> fix -> verify loop for a bug ticket, with a BEFORE and an AFTER
+  browser screenshot as proof, then the PR body, the status page and a ticket comment. A push or comment needs the
+  human's yes (RULES.md rule 6). Test: `tests/test-bug-fix-skill.sh`.
 - License: changed from MIT to Apache License 2.0 (LICENSE, NOTICE, README, docs, shipped themes, plugin manifest).
   Releases up to and including 2.0.1 remain available under MIT.
 - Commands: 12 slash commands became 5. `/sabha-doctor` is now `/sabha-init doctor`; `/sabha-stop`, `/sabha-restart`
