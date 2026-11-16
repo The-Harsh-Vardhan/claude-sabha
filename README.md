@@ -261,7 +261,9 @@ line applies to its starts. Running sessions are never stopped.
 Chrome and model: `--chrome` (or `SABHA_CHROME=1`) starts the Claude role with `claude --chrome`; `SABHA_MODEL=<model>`
 replaces the roster's model for that start only. `SABHA_CHROME_<Name>=1` in `sabha.conf` gives one role `--chrome`
 (a role with no MCP set has `--strict-mcp-config` and no browser otherwise); it is how the Runner uses the skill
-`sabha-browser-verify`.
+`sabha-browser-verify`. `SABHA_BROWSER_ROLES="Runner"` in `sabha.conf` is a space-separated list of base role names
+(letters, digits and `_`; a copy such as `Runner-2` follows its base and is skipped) that use that skill; `sabha doctor`
+warns for each one without `SABHA_CHROME_<Name>=1`, and it starts nothing itself.
 
 Security: the token value is held in a variable and handed to the agent's environment only. It is never printed or
 logged: not by `--print` (which shows `CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN_ACCOUNT_AU:?}"`, read when the

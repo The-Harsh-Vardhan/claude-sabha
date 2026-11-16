@@ -28,7 +28,7 @@ step, list every host you need (`<app-host>`, `<api-host>`, ...) and ask the rel
 - Never type a password through the browser. Never read `.env*` or any key file.
 - The human signs in once in their own Chrome. Assume no "remember me".
 - If a sign-in page shows up, stop and ask the relay. Do not guess, retry or reset anything.
-- Headless Playwright runs use a login script that reads the credentials from the env file inside its own process and
+- Headless Playwright runs use your own script that reads the credentials from the env file inside its own process and
   saves a storage state (email and password accounts only). An SSO account falls back to a one-time human sign-in.
 
 ## 4. Evidence
