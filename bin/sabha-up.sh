@@ -69,6 +69,9 @@ role() {
     [[ $SABHA_MODEL != *[!A-Za-z0-9._-]* ]] || { echo "sabha-up: SABHA_MODEL holds a character that is not a letter, digit, . _ or -" >&2; exit 1; }
     model=$SABHA_MODEL
   fi
+  # SABHA_CHROME_<Name>=1 gives one role Claude in Chrome (the role that uses the sabha-browser-verify skill)
+  cv=SABHA_CHROME_$R_BASE chrome_on=$CHROME
+  [[ ${!cv:-0} == 1 ]] && chrome_on=1
   to=$DISPATCHER
   [[ $R_BASE == "$DISPATCHER" ]] && to=$RELAY
   [[ $R_BASE == "$RELAY" ]] && to=$OWNER
@@ -117,7 +120,7 @@ if [[ ${1:-} == --print && $# -eq 2 ]]; then
   pre=""; (( ${#MCP_PRE[@]} )) && pre=" --mcp-config$(printf " '%s'" "${MCP_PRE[@]:1}")"
   mcp=""; (( ${#MCP_POST[@]} )) && mcp=" --strict-mcp-config"
   remote=""; [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=" --remote-control"
-  chrome=""; (( CHROME )) && chrome=" --chrome"
+  chrome=""; (( chrome_on )) && chrome=" --chrome"
   # an account's token is never printed: the line reads it from its variable when it runs, and stops if that is unset
   acct=$(sabha_account "$name") || exit 1
   al=""; (( ${#guard_set[@]} )) && al=" --settings '${guard_set[1]}'"
@@ -181,7 +184,7 @@ if [[ $# -eq 1 ]]; then
   # MCP servers each cost memory; sabha_mcp_args gives each role only its set
   sabha_mcp_args "" || exit 1
   remote=(); [[ ${SABHA_REMOTE:-0} == 1 ]] && remote=(--remote-control)
-  chrome=(); (( CHROME )) && chrome=(--chrome)
+  chrome=(); (( chrome_on )) && chrome=(--chrome)
   # a pane started by hand has no supervisor: it is not restarted at the context limit
   sabha_efficiency && [[ ${SABHA_LOOP_ACTIVE:-} != "$name" ]] && echo "sabha-up: not supervised: use sabha-loop $name (sabha-up.sh --print $name)" >&2
   # the agent keeps its own account's token and not the other accounts' variables
