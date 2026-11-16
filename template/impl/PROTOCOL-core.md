@@ -88,6 +88,13 @@ with the same opening prompt, never `--resume` (a resume brings the full context
 when the context file reads 30 or more and the handoff is newer than the last start. Stuck for an hour: write
 `<nn>.blocked` or a question and go on.
 
+## Writing for the human
+
+Human-facing text (briefs to the human, FOR-ME items, pages, drafted messages) uses ASD-STE100 for about
+${SABHA_STE100_PERCENT}% of the text: short sentences, one idea each, active voice, approved words; names, code and
+quotes stay as they are. Your opening prompt gives the number (`SABHA_STE100_PERCENT`, default 50; 0 = off,
+100 = strict).
+
 ## Messages and budget
 
 - A message between sessions is at most 3 lines: what, the result or sha, the next step. Detail goes in a file and

@@ -282,6 +282,15 @@ sabha_role() {
   return 0
 }
 
+# sabha_ste100: SABHA_STE100_PERCENT (0 = off, 100 = strict) when it is a whole number 0-100, else the default 50. The
+# protocol files are plain text a role reads, so the number reaches the role through the opening prompt (sabha_ste100_note).
+sabha_ste100() {
+  local p=${SABHA_STE100_PERCENT:-50}
+  if [[ $p =~ ^[0-9]{1,3}$ ]] && (( 10#$p <= 100 )); then echo $((10#$p)); else echo 50; fi
+}
+# the sentence sabha-up.sh and sabha-run put in the opening prompt, so the writing rule in the core protocol has its number
+sabha_ste100_note() { echo "Writing rule (core protocol): SABHA_STE100_PERCENT=$(sabha_ste100)."; }
+
 # sabha_reads <Name>: what a role reads at start, shared by sabha-up.sh and sabha-run so both open the same way.
 # SABHA_PROTOCOL_CORE (file under SABHA_DOCS: the team's .sabha/ when it holds the docs, else SABHA_IMPL) +
 # SABHA_ROLE_DIR (folder of <Name>.md) split the protocol: core, the role file, then the top block of the status file.
