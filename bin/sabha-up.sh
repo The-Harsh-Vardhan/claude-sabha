@@ -93,7 +93,7 @@ role() {
     js=$(printf "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"*\",\"hooks\":[$h]}],\"UserPromptSubmit\":[{\"hooks\":[$h]}],\"Stop\":[{\"hooks\":[$h]}],\"SessionStart\":[{\"hooks\":[$h]}]}}" "$g" "pre $name" "$g" prompt "$g" stop "$g" start)
     guard_set=(--settings "$js")
   fi
-  prompt="You are $who in $PROJECT session setup. First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
+  prompt="You are $who in $PROJECT session setup. $(sabha_ste100_note) First run ListAgents: if another live row has the name $name, append a restart item to $SABHA_IMPL/for-me.items and stop. Then read $reads, $tail"
 }
 
 RAW=0

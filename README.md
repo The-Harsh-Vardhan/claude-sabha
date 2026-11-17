@@ -298,6 +298,7 @@ from the scripts):
 
 | Variable | Default | Used by |
 | --- | --- | --- |
+| `SABHA_STE100_PERCENT` | `60` | every role: share of human-facing text written in ASD-STE100; `0` = off, `100` = strict (see "Plain language" below) |
 | `SABHA_HERDR_SESSION` | `sabha` | every herdr call: the session sabha runs in (never herdr's default session) |
 | `SABHA_DOWN_TIMEOUT` | `300` (seconds) | `sabha-down.sh`: wait for the save briefs (`--timeout S` overrides) |
 | `SABHA_KILL` | `kill` | `sabha-down.sh`: the command that signals processes (a test hook; leave it alone) |
@@ -318,6 +319,15 @@ from the scripts):
 | `SABHA_ROSTER_CLAIMS` | empty | `sabha roster --check`: notes or memory files (space separated, read only) whose `no <model>` lines are shown under a model conflict |
 | `SABHA_GH_USER`, `SABHA_GH_TTL`, `SABHA_GH_MIN_LEFT` | unset, `600`, `200` | `sabha-gh`: the login `gh` must be on, cache seconds, the quota floor ([docs/github-layer.md](docs/github-layer.md)) |
 | `SABHA_PRS_ORGS`, `SABHA_PRS_AUTHOR`, `SABHA_PRS_REPOS` | unset | `sabha prs`: orgs and repos (space separated) searched for the author's open PRs |
+
+### Plain language
+
+Roles write human-facing text (briefs to you, FOR-ME items, pages, drafted messages) in ASD-STE100 for about
+`SABHA_STE100_PERCENT` percent of the text: short sentences, one idea each, active voice, approved words; names, code
+and quotes stay as they are. The default is `60`. Set `SABHA_STE100_PERCENT=0` in `sabha.conf` to turn it off, `100` for
+strict. A value that is not a whole number from 0 to 100 means 60, and `sabha doctor` warns. The rule is in
+`template/impl/PROTOCOL-core.md` ("Writing for the human"); each role gets the number in its opening prompt, so
+restart a running role after you change it.
 
 ## Commands
 

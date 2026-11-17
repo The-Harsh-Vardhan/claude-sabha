@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Plain language: `SABHA_STE100_PERCENT` (sabha.conf, default 60; 0 = off, 100 = strict) sets how much of the human-facing
+  text (briefs to the human, FOR-ME items, pages, drafted messages) roles write in ASD-STE100. The rule is in
+  `template/impl/PROTOCOL-core.md` ("Writing for the human"), the number is in each role's opening prompt
+  (`sabha_ste100` in `bin/sabha-lib.sh`), a bad value means 60 and `sabha doctor` warns. The relay and brief-writing
+  skills point at the rule. Test: `tests/test-ste100.sh`.
 - License: changed from MIT to Apache License 2.0 (LICENSE, NOTICE, README, docs, shipped themes, plugin manifest).
   Releases up to and including 2.0.1 remain available under MIT.
 - Commands: 12 slash commands became 5. `/sabha-doctor` is now `/sabha-init doctor`; `/sabha-stop`, `/sabha-restart`
