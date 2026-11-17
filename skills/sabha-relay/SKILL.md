@@ -60,7 +60,7 @@ never a code block.
 ## Writing for the human
 
 Briefs to the human, FOR-ME items, pages and drafted messages follow PROTOCOL-core "Writing for the human" (ASD-STE100
-at `SABHA_STE100_PERCENT`, default 50).
+at `SABHA_STE100_PERCENT`, default 60).
 
 ## Restart
 

@@ -73,7 +73,7 @@ Why: it keeps every commit reviewed and attributable, and a worker's mistake nev
 
 ## Also worth a line
 
-- Write for the human in ASD-STE100: about `SABHA_STE100_PERCENT` percent (default 50) of every brief to the human,
+- Write for the human in ASD-STE100: about `SABHA_STE100_PERCENT` percent (default 60) of every brief to the human,
   FOR-ME item, page and drafted message. The rule is in `template/impl/PROTOCOL-core.md`, "Writing for the human".
 - Keep a single task list (`tracker`): every request you make becomes a row with a priority, a deadline and a status;
   a mirror (Google Sheet or local HTML) lets you answer from your phone. See the README, "Tracker".

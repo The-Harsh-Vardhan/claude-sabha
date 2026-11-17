@@ -44,7 +44,7 @@ step it supersedes. A worker on the brief in a pane is nudged with the file name
 6. Say that a connected service is read or written only if the user named it (RULES.md rule 6).
 
 A brief, FOR-ME item or page the human will read follows PROTOCOL-core "Writing for the human" (ASD-STE100 at
-`SABHA_STE100_PERCENT`, default 50).
+`SABHA_STE100_PERCENT`, default 60).
 
 ## Preflight (step 0) for a UI or a login
 

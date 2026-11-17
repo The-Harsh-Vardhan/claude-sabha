@@ -92,7 +92,7 @@ when the context file reads 30 or more and the handoff is newer than the last st
 
 Human-facing text (briefs to the human, FOR-ME items, pages, drafted messages) uses ASD-STE100 for about
 ${SABHA_STE100_PERCENT}% of the text: short sentences, one idea each, active voice, approved words; names, code and
-quotes stay as they are. Your opening prompt gives the number (`SABHA_STE100_PERCENT`, default 50; 0 = off,
+quotes stay as they are. Your opening prompt gives the number (`SABHA_STE100_PERCENT`, default 60; 0 = off,
 100 = strict).
 
 ## Messages and budget

@@ -298,7 +298,7 @@ from the scripts):
 
 | Variable | Default | Used by |
 | --- | --- | --- |
-| `SABHA_STE100_PERCENT` | `50` | every role: share of human-facing text written in ASD-STE100; `0` = off, `100` = strict (see "Plain language" below) |
+| `SABHA_STE100_PERCENT` | `60` | every role: share of human-facing text written in ASD-STE100; `0` = off, `100` = strict (see "Plain language" below) |
 | `SABHA_HERDR_SESSION` | `sabha` | every herdr call: the session sabha runs in (never herdr's default session) |
 | `SABHA_DOWN_TIMEOUT` | `300` (seconds) | `sabha-down.sh`: wait for the save briefs (`--timeout S` overrides) |
 | `SABHA_KILL` | `kill` | `sabha-down.sh`: the command that signals processes (a test hook; leave it alone) |
@@ -324,8 +324,8 @@ from the scripts):
 
 Roles write human-facing text (briefs to you, FOR-ME items, pages, drafted messages) in ASD-STE100 for about
 `SABHA_STE100_PERCENT` percent of the text: short sentences, one idea each, active voice, approved words; names, code
-and quotes stay as they are. The default is `50`. Set `SABHA_STE100_PERCENT=0` in `sabha.conf` to turn it off, `100` for
-strict. A value that is not a whole number from 0 to 100 means 50, and `sabha doctor` warns. The rule is in
+and quotes stay as they are. The default is `60`. Set `SABHA_STE100_PERCENT=0` in `sabha.conf` to turn it off, `100` for
+strict. A value that is not a whole number from 0 to 100 means 60, and `sabha doctor` warns. The rule is in
 `template/impl/PROTOCOL-core.md` ("Writing for the human"); each role gets the number in its opening prompt, so
 restart a running role after you change it.
 

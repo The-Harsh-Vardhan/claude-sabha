@@ -23,8 +23,8 @@ SABHA_IMPL="$HOME/my-claude-sabha"
 SABHA_PROJECT="My project"
 SABHA_USER="the user"
 # Share of human-facing text (briefs to you, FOR-ME items, pages, drafted messages) written in ASD-STE100, so you read
-# it fast and a translator or a tired reader loses nothing. 0 = off, 100 = strict; anything else than 0-100 means 50.
-SABHA_STE100_PERCENT=50
+# it fast and a translator or a tired reader loses nothing. 0 = off, 100 = strict; anything else than 0-100 means 60.
+SABHA_STE100_PERCENT=60
 # Terminal backend: herdr (default, every OS; install with brew install herdr). iterm = the frozen macOS iTerm2 path.
 # On Windows run the scripts in Git Bash (UNTESTED). Nudge a role: bin/sabha-nudge <Name> "text". Mac/Linux: run
 # `herdr attach` in a VS Code integrated terminal to view and chat with any pane.
