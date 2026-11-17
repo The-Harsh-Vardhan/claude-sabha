@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{PAGE_TITLE}}</title>
+<style>
+:root{
+  --bg:#f3f6f8; --card:#ffffff; --fg:#13222d; --muted:#51636f; --line:#d3dde4;
+  --accent:#0a6a7d; --accent-soft:#dff0f3; --accent-fg:#ffffff; --sel:#eaf5f7;
+  --font-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1a21; --card:#16252e; --fg:#e4edf2; --muted:#9db0bb; --line:#2a3d49;
+  --accent:#4fc1d6; --accent-soft:#17414b; --accent-fg:#06222a; --sel:#1a3540; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1a21; --card:#16252e; --fg:#e4edf2; --muted:#9db0bb; --line:#2a3d49;
+  --accent:#4fc1d6; --accent-soft:#17414b; --accent-fg:#06222a; --sel:#1a3540; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:16px;line-height:1.55;
+  padding:32px 16px 64px}
+main{max-width:46rem;margin:0 auto;display:flex;flex-direction:column;gap:20px;min-width:0}
+h1{font-size:1.9rem;line-height:1.15;margin:0;text-wrap:balance;font-weight:600;overflow-wrap:anywhere}
+h2{font-size:1.2rem;margin:0;font-weight:600}
+h3{font-size:1.1rem;margin:0;text-wrap:balance;font-weight:600;overflow-wrap:anywhere}
+p{margin:0;overflow-wrap:anywhere}
+.lead{color:var(--muted);max-width:65ch}
+.count{font-family:var(--font-mono);font-size:.9rem;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.qhead{display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:.8rem;letter-spacing:.04em;color:var(--accent);text-transform:uppercase}
+.qnum{font-weight:600}
+.label{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.src{color:var(--muted);font-size:.93rem}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin:0}
+.chip{font-size:.8rem;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:1px 9px;text-decoration:none;overflow-wrap:anywhere}
+.chip:hover,.chip:focus-visible{text-decoration:underline}
+.example{border-left:3px solid var(--line);padding-left:12px;color:var(--muted);overflow-wrap:anywhere}
+.opts{display:flex;flex-direction:column;gap:8px;border:0;padding:0;margin:0;min-width:0}
+.opt{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;border:1px solid var(--line);border-radius:6px;padding:12px;cursor:pointer;min-width:0}
+.opt:has(input:checked){border-color:var(--accent);background:var(--sel)}
+.opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.opt input{margin-top:5px;accent-color:var(--accent)}
+.body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.t{overflow-wrap:anywhere}
+.e{color:var(--muted);font-size:.93rem;overflow-wrap:anywhere}
+.rec{display:inline-block;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:1px 7px;margin-left:8px;font-weight:600;white-space:nowrap}
+input.other,textarea{width:100%;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px}
+textarea{min-height:3.2rem;resize:vertical}
+input.other[hidden]{display:none}
+input.other:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.note{display:flex;flex-direction:column;gap:4px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+button{font:inherit;font-weight:600;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);padding:8px 16px;cursor:pointer}
+button.ghost,.filebtn{background:transparent;color:var(--accent)}
+.filebtn{display:inline-block;font-weight:600;border:1px solid var(--accent);border-radius:6px;padding:8px 16px;cursor:pointer}
+button:focus-visible,.filebtn:focus-within{outline:2px solid var(--fg);outline-offset:2px}
+.filebtn input{position:absolute;opacity:0;width:1px;height:1px}
+.status{font-size:.88rem;color:var(--muted)}
+.out{width:100%;font-family:var(--font-mono);font-size:.85rem;min-height:9rem;resize:vertical}
+.notecard{border-style:dashed}
+code{font-family:var(--font-mono);font-size:.9em;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<main>
+  <header style="display:flex;flex-direction:column;gap:12px">
+    <h1>{{TITLE}}</h1>
+{{META}}
+    <p class="count" id="progress" role="status" aria-live="polite"></p>
+    <div class="row">
+      <button type="button" data-act="accept">Accept all recommendations</button>
+      <button type="button" class="ghost" data-act="copy">Copy answers</button>
+      <button type="button" class="ghost" data-act="claude">Answer with Claude</button>
+      <button type="button" class="ghost" data-act="save">Save answers file</button>
+      <label class="filebtn">Load answers file<input type="file" id="loadfile" accept=".md,.txt,text/plain,text/markdown"></label>
+    </div>
+    <p class="status" id="msg" role="status"></p>
+  </header>
+  <form id="qs" onsubmit="return false" style="display:flex;flex-direction:column;gap:20px;min-width:0">
+{{CARDS}}
+  </form>
+  <section class="card">
+    <h2>Your answers</h2>
+    <label class="label" for="out">Answers text (copy or save it)</label>
+    <textarea class="out" id="out" readonly></textarea>
+    <div class="row">
+      <button type="button" data-act="copy">Copy answers</button>
+      <button type="button" class="ghost" data-act="claude">Answer with Claude</button>
+      <button type="button" class="ghost" data-act="save">Save answers file</button>
+    </div>
+  </section>
+</main>
+<script>
+var D={{DATA}};
+(function(){
+var form=document.getElementById("qs"),out=document.getElementById("out"),msg=document.getElementById("msg");
+var KEY="questionnaire:"+D.slug,SIG=D.qs.map(function(q){return q.n+":"+q.id}).join("|");
+function card(q){return document.getElementById("q"+q.n)}
+function one(s){return s.replace(/\s+/g," ").trim()}
+function read(q){
+  var c=card(q),r=c.querySelector("input[type=radio]:checked"),k=r?r.value:"";
+  return {k:k,o:c.querySelector("input.other").value,note:c.querySelector("textarea").value};
+}
+function write(q,a){
+  var c=card(q),r=c.querySelector("input[type=radio][value='"+(a.k||"")+"']");
+  c.querySelectorAll("input[type=radio]").forEach(function(x){x.checked=false});
+  if(r)r.checked=true;
+  c.querySelector("input.other").value=a.o||"";
+  c.querySelector("textarea").value=a.note||"";
+  sync(q);
+}
+function sync(q){var c=card(q),r=c.querySelector("input[type=radio]:checked");c.querySelector("input.other").hidden=!(r&&r.value==="O")}
+function done(q,a){return a.k&&(a.k!=="O"||one(a.o))}
+function text(){
+  var as=D.qs.map(read),n=as.filter(function(a,i){return done(D.qs[i],a)}).length;
+  var l=["# Answers: "+D.title,"answered: "+n+" of "+D.qs.length+", "+new Date().toISOString().slice(0,10)];
+  D.qs.forEach(function(q,i){
+    var a=as[i],p="Q"+q.n+" ("+q.id+"): ";
+    l.push(p+(!done(q,a)?"(no answer)":a.k==="O"?"Other: "+one(a.o):a.k+(a.k===q.rec?" (recommended)":"")));
+    if(one(a.note))l.push("Q"+q.n+" note: "+one(a.note));
+  });
+  return {s:l.join("\n")+"\n",n:n};
+}
+function refresh(){
+  var t=text();
+  out.value=t.s;
+  document.getElementById("progress").textContent=t.n+" of "+D.qs.length+" answered";
+  try{localStorage.setItem(KEY,JSON.stringify({sig:SIG,a:D.qs.map(read)}))}catch(e){}
+}
+function say(s){msg.textContent=s}
+function takeRec(q){var r=card(q).querySelector("input[type=radio][value='"+q.rec+"']");r.checked=true;sync(q)}
+function claudeText(){
+  var as=D.qs.map(read),l=["# "+D.title,""];
+  if(D.who)l.push("For: "+D.who);
+  if(D.context)l.push("Context: "+D.context);
+  l.push("Task for Claude: apply my picks below. Where I gave no answer, take the recommended option and say so. Then list what changes where, and any follow-up question.","");
+  D.qs.forEach(function(q,i){
+    var a=as[i];
+    l.push("## Q"+q.n+" ("+q.id+"): "+q.title);
+    if(q.links.length)l.push("Links: "+q.links.join(" "));
+    if(q.source)l.push("Source: "+q.source);
+    if(q.what)l.push("What it is: "+q.what);
+    if(q.example)l.push("Example: "+q.example);
+    q.opts.forEach(function(o){l.push("- "+o.letter+(o.rec?" (recommended)":"")+": "+o.text)});
+    l.push("My answer: "+(!done(q,a)?"(no answer)":a.k==="O"?"Other: "+one(a.o):a.k+(a.k===q.rec?" (recommended)":"")));
+    if(one(a.note))l.push("My note: "+one(a.note));
+    l.push("");
+  });
+  return l.join("\n");
+}
+function copy(full){
+  var s=full?claudeText():text().s;
+  function fb(){out.value=s;out.focus();out.select();say("Copy blocked. The text is selected, press Ctrl+C or Cmd+C.")}
+  try{navigator.clipboard.writeText(s).then(function(){say("Copied.")},fb)}catch(e){fb()}
+}
+function save(){
+  try{
+    var u=URL.createObjectURL(new Blob([text().s],{type:"text/markdown"})),a=document.createElement("a");
+    a.href=u;a.download=D.slug+"-answers.md";document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(u)},1000);say("Saved "+D.slug+"-answers.md.");
+  }catch(e){say("Save failed. Use Copy answers instead.")}
+}
+function parse(s){
+  var lines=s.split(/\r?\n/),got=0;
+  D.qs.forEach(function(q){
+    var a={k:"",o:"",note:""},p="Q"+q.n+" ("+q.id+"): ",np="Q"+q.n+" note: ";
+    lines.forEach(function(l){
+      var v;
+      if(l.indexOf(p)===0){
+        v=l.slice(p.length).trim();
+        if(/^Other:/.test(v)){a.k="O";a.o=v.replace(/^Other:\s*/,"")}
+        else if(/^[A-Z]\b/.test(v)&&q.letters.indexOf(v.charAt(0))>=0)a.k=v.charAt(0);
+      }else if(l.indexOf(np)===0)a.note=l.slice(np.length);
+    });
+    if(a.k)got++;
+    write(q,a);
+  });
+  return got;
+}
+form.addEventListener("input",refresh);
+form.addEventListener("change",function(e){
+  var c=e.target.closest(".card");if(c&&c.dataset.n)sync(D.qs.filter(function(q){return String(q.n)===c.dataset.n})[0]);
+  refresh();
+});
+form.addEventListener("click",function(e){
+  var b=e.target.closest("button.take");if(!b)return;
+  takeRec(D.qs.filter(function(q){return String(q.n)===b.closest(".card").dataset.n})[0]);refresh();
+});
+document.addEventListener("click",function(e){
+  var b=e.target.closest("button[data-act]");if(!b)return;
+  var a=b.dataset.act;
+  if(a==="copy")copy();
+  if(a==="claude")copy(true);
+  else if(a==="save")save();
+  else if(a==="accept"){
+    var n=0;D.qs.forEach(function(q){if(!done(q,read(q))){takeRec(q);n++}});
+    refresh();say(n?"Filled "+n+" unanswered with the recommendation.":"Nothing to fill, all answered.");
+  }
+});
+document.getElementById("loadfile").addEventListener("change",function(e){
+  var f=e.target.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(){var n=parse(String(r.result));refresh();say("Loaded "+n+" answers from "+f.name+".");e.target.value=""};
+  r.onerror=function(){say("Could not read that file.")};
+  r.readAsText(f);
+});
+try{
+  var d=JSON.parse(localStorage.getItem(KEY)||"null");
+  if(d&&d.sig===SIG&&d.a&&d.a.length===D.qs.length)D.qs.forEach(function(q,i){write(q,d.a[i])});
+}catch(e){}
+D.qs.forEach(sync);
+refresh();
+})();
+</script>
+</body>
+</html>
