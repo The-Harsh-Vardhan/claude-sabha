@@ -19,6 +19,7 @@ description: Use when a command needs secrets from a dotenv file (API tokens, cr
 - Loads only the named variables from `.env` (default `./.env`) into the child's environment.
 - `--slot N` maps `NAME_N` in the file to `NAME` for the child (e.g. `KAGGLE_USERNAME_2` to `KAGGLE_USERNAME`).
 - `--try-slots 1,2,3` runs the command once per slot until one exits 0; slot and exit code go to stderr, never values.
+- Masking is best-effort and NOT a security boundary: raw, URL-encoded, base64 and JSON-escaped forms are masked; other transformations are not. A warning names any variable whose value is under 8 chars (under 3 chars is never masked).
 - Loaded values appearing in child stdout/stderr are replaced with `***`. The child's exit code is passed through.
 - Runs via `uv run --no-project python` (stdlib only).
 

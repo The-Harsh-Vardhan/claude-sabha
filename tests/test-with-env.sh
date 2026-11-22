@@ -16,3 +16,9 @@ out=$("${W[@]}" --try-slots 1,2 TOK -- $PY -c "$py" 2>&1); rc=$?
 "${W[@]}" --slot 2 TOK -- echo good-secret-222 >/dev/null 2>&1; [[ $? == 2 ]] || { echo "FAIL argv refusal"; exit 1; }
 "${W[@]}" --slot 9 TOK -- true >/dev/null 2>&1; [[ $? != 0 ]] || { echo "FAIL missing var"; exit 1; }
 echo "PASS test-with-env"
+# encoded forms are masked too
+enc=$("${W[@]}" --slot 2 TOK -- $PY -c 'import os,base64,urllib.parse as u,json;v=os.environ["TOK"]+" &x";print(u.quote(v));print(base64.b64encode(v.encode()).decode());print(json.dumps(v))' 2>&1)
+[[ $enc != *good* && $enc != *Z29vZ* ]] || { echo "FAIL encoded masking: $enc"; exit 1; }
+printf 'SHORT=ab\n' > "$f"
+"${W[@]}" SHORT -- true 2>&1 | grep -q 'shorter than 8' || { echo "FAIL short warning"; exit 1; }
+echo "PASS encoded"

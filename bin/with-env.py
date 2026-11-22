@@ -1,5 +1,23 @@
 """with-env implementation (stdlib only). See skills/env-from-example/SKILL.md."""
-import os, re, subprocess, sys, threading
+import base64, json, os, re, subprocess, sys, threading
+from urllib.parse import quote, quote_plus
+
+HELP = """usage: with-env [--env-file PATH] [--slot N | --try-slots 1,2,3] NAME... -- command args
+
+Loads only NAME (or NAME_N with --slot/--try-slots) from the env file into the child environment.
+Masking of values in child output is BEST-EFFORT, not a security boundary: raw, URL-encoded,
+base64 and JSON-escaped forms are masked; other transformations are not. Values shorter than 8
+chars trigger a warning; values shorter than 3 chars are not masked at all.
+"""
+
+
+def forms(v):
+    b = v.encode("utf-8")
+    out = {v, quote(v, safe=""), quote_plus(v), json.dumps(v)[1:-1]}
+    for enc in (base64.b64encode, base64.urlsafe_b64encode):
+        e = enc(b).decode()
+        out |= {e, e.rstrip("=")}
+    return out
 
 
 def die(msg, code=2):
@@ -40,7 +58,12 @@ def run_once(cmd, names, env_vals, slot):
         if key not in env_vals or env_vals[key] == "":
             return None, "missing or empty variable: %s" % key
         child[n] = env_vals[key]
-    secrets = sorted({v for v in child.values() if len(v) >= 3}, key=len, reverse=True)
+    for n, v in child.items():
+        if len(v) < 8:
+            sys.stderr.write("with-env: warning: %s is shorter than 8 chars; masking is unreliable%s
+"
+                             % (n, " and it will NOT be masked" if len(v) < 3 else ""))
+    secrets = sorted({f for v in child.values() if len(v) >= 3 for f in forms(v)}, key=len, reverse=True)
     for a in cmd:
         if any(s in a for s in secrets):
             die("refusing: a loaded value would appear in argv")
@@ -57,6 +80,9 @@ def run_once(cmd, names, env_vals, slot):
 
 
 def main(argv):
+    if "-h" in argv[:argv.index("--")] if "--" in argv else "-h" in argv or "--help" in argv:
+        sys.stdout.write(HELP)
+        sys.exit(0)
     if "--" not in argv:
         die("usage: with-env [--env-file PATH] [--slot N | --try-slots 1,2,3] NAME... -- command args")
     i = argv.index("--")
