@@ -1,0 +1,4 @@
+#!/bin/sh
+# with-env: run a command with only the named .env vars in its environment. Values are never printed.
+# Usage: with-env [--env-file PATH] [--slot N | --try-slots 1,2,3] NAME... -- command args
+exec uv run --no-project python "$(dirname "$0")/with-env.py" "$@"
