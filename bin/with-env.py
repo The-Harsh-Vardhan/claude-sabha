@@ -60,8 +60,7 @@ def run_once(cmd, names, env_vals, slot):
         child[n] = env_vals[key]
     for n, v in child.items():
         if len(v) < 8:
-            sys.stderr.write("with-env: warning: %s is shorter than 8 chars; masking is unreliable%s
-"
+            sys.stderr.write("with-env: warning: %s is shorter than 8 chars; masking is unreliable%s\n"
                              % (n, " and it will NOT be masked" if len(v) < 3 else ""))
     secrets = sorted({f for v in child.values() if len(v) >= 3 for f in forms(v)}, key=len, reverse=True)
     for a in cmd:
